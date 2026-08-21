@@ -221,6 +221,12 @@ const ja = {
       "送信はオプトイン。BYOK を選んだ場合に限り、自分の API キーで選んだプロバイダ（Claude / OpenAI）へ文字起こしを送ります。既定はローカル要約。",
       "鍵はキーチェーンへ。API キーや連携トークンは macOS キーチェーンに保管し、平文の設定ファイルには置きません。",
     ],
+    source: {
+      text: "この説明を、説明のまま信じる必要はありません。アプリ全体のソースを公開しているので、本当に端末の外へ出ていないかを自分で確かめられます。",
+      label: "GitHub でソースを見る",
+      note: "AGPL-3.0",
+      href: "https://github.com/daichi8120/mojiroku",
+    },
   },
 
   howItWorks: {
@@ -336,6 +342,11 @@ const ja = {
         title: "GitHub Releases",
         body: "リリースと変更履歴",
         href: "https://github.com/daichi8120/mojiroku-releases/releases",
+      },
+      {
+        title: "ソースコード",
+        body: "AGPL-3.0 で公開",
+        href: "https://github.com/daichi8120/mojiroku",
       },
     ],
     year: 2026,

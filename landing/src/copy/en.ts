@@ -220,6 +220,12 @@ const en: Copy = {
       "Sending is opt-in. Only if you choose BYOK does mojiroku send transcript text to the provider you picked (Claude / OpenAI), with your own API key. Local summaries are the default.",
       "Secrets go in the Keychain. API keys and integration tokens are stored in the macOS Keychain, not in plain-text config files.",
     ],
+    source: {
+      text: "You don't have to take any of this on trust. The full source is published, so you can check for yourself that nothing leaves your Mac.",
+      label: "View the source on GitHub",
+      note: "AGPL-3.0",
+      href: "https://github.com/daichi8120/mojiroku",
+    },
   },
 
   howItWorks: {
@@ -333,6 +339,11 @@ const en: Copy = {
         title: "GitHub Releases",
         body: "Releases and changelog",
         href: "https://github.com/daichi8120/mojiroku-releases/releases",
+      },
+      {
+        title: "Source code",
+        body: "Published under AGPL-3.0",
+        href: "https://github.com/daichi8120/mojiroku",
       },
     ],
     year: 2026,
