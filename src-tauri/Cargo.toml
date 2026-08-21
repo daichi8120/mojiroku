@@ -1,0 +1,57 @@
+[package]
+name = "mojiroku"
+version = "0.5.1"
+description = "mojiroku — local transcription & meeting minutes"
+authors = ["daichi"]
+edition = "2021"
+license.workspace = true
+
+[lib]
+# The `_lib` suffix avoids a name clash with the bin on Windows.
+# See https://github.com/rust-lang/cargo/issues/8519
+name = "mojiroku_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+# OS 情報（macOS バージョン / arch）。フィードバックフォームのプリフィルに使う（UI 起点のみ）。
+tauri-plugin-os = "2"
+# 会議開始の自動録音プロンプト（増分1 / ADR-0026）: 予定開始時に OS 通知を出す。
+# ⚠️ macOS はアクションボタン非対応（Actions API はモバイル専用）→ 通知はプレーンで、
+# クリック→アプリ前面化→アプリ内「録音?」プロンプト（既存 prepare 流用）で確定させる。
+tauri-plugin-notification = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# BYOK API キー等のシークレットを OS キーチェーンに保管（平文ファイルに置かない。docs/03_design/spec.md §8）。
+# macOS は apple-native バックエンド（security-framework 経由の login keychain）。
+keyring = { version = "3", features = ["apple-native"] }
+mojiroku-core = { path = "../crates/mojiroku-core" }
+# 重い ML ジョブ（STT/話者分離/ローカル要約）の直列化セマフォ（commands::acquire_heavy_job）。
+# tauri が内包する tokio と同一系（1.x）。sync のみで十分。
+tokio = { version = "1", features = ["sync"] }
+uuid = { version = "1.23.3", features = ["v4"] }
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+# OAuth 連携（Notion MCP / Slack / Google Calendar）。loopback + PKCE のトークン交換に使う。
+# blocking HTTP は core と同じ ureq 2.x（rustls + json）。PKCE の challenge は sha2、
+# verifier/challenge と redirect クエリの符号化は base64(url-safe) / url crate で扱う。
+# 乱数（verifier/state）は uuid v4 のバイト列を流用し getrandom を直接足さない。
+ureq = { version = "2", features = ["json"] }
+sha2 = "0.10"
+base64 = "0.22"
+url = "2"
+cpal = "0.18.1"
+hound = "3.5.1"
+# 会議モード（Phase 7 / ADR-0017）: システム音声（会議相手）を ScreenCaptureKit でキャプチャ。
+# Swift ブリッジが libswift_Concurrency.dylib に依存 → 消費側 build.rs で rpath を再発行する。
+screencapturekit = "8.0"
+# アプリ内アップデート（Tauri v2 updater）。詳細は docs/04_operations/updater-plan.md。
+# updater は Apple コード署名と独立した minisign 鍵で更新物を検証する → 未署名配布のままでも動く。
+# tauri-plugin-process は更新適用後の relaunch 用。
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

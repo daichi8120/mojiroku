@@ -1,0 +1,19 @@
+{
+  "name": "mojiroku-mcp-gateway",
+  "license": "AGPL-3.0-or-later",
+  "private": true,
+  "description": "mojiroku リモート MCP の OAuth 2.1 ゲートウェイ（mcp.mojiroku.com）。ADR-0025",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.8.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.110.0"
+  }
+}

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 実アプリ(com.daichi0812.mojiroku)と衝突しないよう spike 専用 bundle id。 -->
+  <key>CFBundleIdentifier</key>
+  <string>com.daichi0812.mojiroku-spike</string>
+  <key>CFBundleName</key>
+  <string>MojirokuSpike</string>
+  <key>CFBundleDisplayName</key>
+  <string>MojirokuSpike</string>
+  <key>CFBundleExecutable</key>
+  <string>MojirokuSpike</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.0.1</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <!-- ScreenCaptureKit の音声経路は macOS 13.0+。 -->
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <!-- TCC ダイアログに表示される用途文言（システム音声＝相手の声をローカル文字起こし）。 -->
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>mojiroku は会議の相手側の音声をローカルで文字起こしするためにシステム音声を取得します。録音はこの端末内のみで処理され、外部送信はありません。</string>
+</dict>
+</plist>

@@ -1,0 +1,282 @@
+# mojiroku 自動リリースパイプライン。
+#
+# 何をするか: src-tauri/tauri.conf.json の version が main で上がったら（または手動実行で）、
+#   1. macOS(Apple Silicon) で .app/.dmg をビルド。署名は二層で独立（ADR-0022）:
+#      - Apple: Developer ID 署名 + hardened runtime + notarization（Gatekeeper 用。
+#        .app は Tauri が自動 notarize+staple、.dmg は本ワークフローが手動 notarize+staple）
+#      - minisign: updater アーティファクト .app.tar.gz の署名（createUpdaterArtifacts。
+#        Apple 署名とは完全独立の検証チェーン）
+#   2. 両方の署名を fail-closed で検証（minisign 不一致なら全ユーザがサイレントに更新失敗、
+#      Apple 署名/公証漏れなら初回起動で「damaged」に戻るため、ここで決定的に落とす）
+#   3. 公開 daichi8120/mojiroku-releases に draft Release を作り、全3アセット
+#      （.dmg / .app.tar.gz / latest.json）を添付 → 揃ったら publish に flip（原子的切替）
+#   4. updater マニフェスト latest.json は Release アセット。配信は mojiroku.com Worker の
+#      /updater/latest.json プロキシが latest 解決で常時追従する（landing 再デプロイ不要）
+#
+# 前提（docs/updater-plan.md 参照）:
+#   - Secrets: TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD / RELEASES_REPO_TOKEN
+#     （RELEASES_REPO_TOKEN は daichi8120/mojiroku-releases のみに contents:write の fine-grained PAT）
+#   - Apple 署名 Secrets: APPLE_CERTIFICATE（Developer ID Application .p12 の base64）/
+#     APPLE_CERTIFICATE_PASSWORD / APPLE_SIGNING_IDENTITY（"Developer ID Application: ... (TEAMID)" 全文）/
+#     APPLE_API_ISSUER / APPLE_API_KEY / APPLE_API_KEY_CONTENT（App Store Connect API キー。notarytool 用）
+#     Tauri が APPLE_CERTIFICATE から一時 keychain を自動作成・削除する（手動 security ステップ不要）
+#   - public repo なので macOS ランナーは無料枠（ADR-0027 で OSS 化。private 時代は分課金10倍で
+#     spending limit/有料プランが必要だった）
+#   - ビルド再現性: whisper-rs-sys vendor patch / .cargo/config.toml / src-tauri/build.rs は commit 済
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "リリースノート（任意）"
+        required: false
+        default: ""
+      dry_run:
+        description: "ビルド+署名検証だけ行い公開しない（高価な初回検証用。成果物は workflow artifact に上げる）"
+        type: boolean
+        required: false
+        default: false
+
+# 同時実行を直列化（重複リリースの取り違え防止）
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# ソース repo へは読みのみ。公開は RELEASES_REPO_TOKEN(PAT) で別 repo へ書く。
+permissions:
+  contents: read
+
+jobs:
+  # 無料ランナーで「リリースすべきか」だけ判定。満たすときだけ高価な macOS ジョブを起動。
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.decide.outputs.changed }}
+      version: ${{ steps.decide.outputs.version }}
+      dry_run: ${{ steps.decide.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # HEAD^ との version 比較に必要
+      - id: decide
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          DRY: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          VER=$(jq -r .version src-tauri/tauri.conf.json)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${DRY:-false}" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANGED=true
+          else
+            PREV=$(git show HEAD^:src-tauri/tauri.conf.json 2>/dev/null | jq -r .version || echo "")
+            if [ "$VER" != "$PREV" ]; then CHANGED=true; else CHANGED=false; fi
+          fi
+
+          # 冪等性: releases repo に v$VER が既にあれば二重リリースしない。
+          # ただし dry_run（公開しない）は既存版でもビルド検証したいので skip しない。
+          if [ "${DRY:-false}" != "true" ] && gh release view "v$VER" -R daichi8120/mojiroku-releases >/dev/null 2>&1; then
+            echo "v$VER already exists on releases repo -> skip"
+            CHANGED=false
+          fi
+
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "decision: version=$VER changed=$CHANGED dry_run=${DRY:-false}"
+
+  build-publish:
+    needs: gate
+    if: needs.gate.outputs.changed == 'true'
+    runs-on: macos-26 # Apple Silicon / Metal。macos-14 は SDK が古く、依存 apple-metal(screencapturekit 8.0)
+    # の #available(macOS 26.0,*) コードがコンパイルできない。macos-26 は Xcode 26 同梱で dev 機（Xcode 26.6）と一致。
+    timeout-minutes: 150 # notarytool は通常数分だが Apple 側の遅延日があるため余裕を持たせる
+    env:
+      VERSION: ${{ needs.gate.outputs.version }}
+      # workflow_dispatch の自由入力。shell 本文に直接補間せず env 経由で渡す
+      # （public repo では Actions を叩ける範囲が広がりやすいため）。
+      NOTES: ${{ github.event.inputs.notes }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }} # クロス repo 公開用 PAT
+      # Apple 署名 + notarization（Tauri bundler が読む。ADR-0022）
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Apple 署名 secrets を先に検証。Tauri は env 不足だと警告のみで未署名ビルドを
+      # 完走してしまう（署名スキップ）ため、長い macOS ビルドの前に決定的に落とす。
+      - name: Assert signing secrets present
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                   APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_CONTENT; do
+            [ -n "${!v:-}" ] || missing="$missing $v"
+          done
+          [ -z "$missing" ] || { echo "missing Apple signing secrets:$missing"; exit 1; }
+
+      # Xcode を明示選択。macos-26 は Xcode 26 系（デフォルト 26.4.1）を同梱。latest-stable で
+      # ランナー上の最新安定版（=Xcode 26.x）を選ぶ。apple-metal が要求する macOS 26 SDK を満たす。
+      # 厳密な再現性が要るなら固定値（例 "26.4.1"）に変える（deployment target は .cargo/config.toml で 11.0 固定済）。
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable # Rust 1.88+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true # publish 失敗等で job が落ちてもビルドキャッシュを保存（再ビルド短縮）
+
+      - name: Install deps
+        run: |
+          npm ci
+          npm --prefix frontend ci
+
+      # sidecar(mojiroku-llm) を triple 名で src-tauri/binaries/ に配置（+ mojiroku-mcp）
+      - name: Build sidecar
+        run: bash scripts/build-sidecar.sh
+
+      # App Store Connect API キー(.p8)をファイル化。Tauri bundler の notarytool 呼び出しは
+      # APPLE_API_ISSUER / APPLE_API_KEY / APPLE_API_KEY_PATH の3点で API キー方式になる。
+      # secret はシェル本文に直接展開せず step env 経由で受ける。
+      - name: Prepare App Store Connect API key
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      # 署名 env 下で .app / .dmg / .app.tar.gz / .app.tar.gz.sig を生成。
+      # 出力はワークスペース直下 target/release/bundle/...（src-tauri/target ではない）。
+      # APPLE_* が揃っているため bundler が一時 keychain 作成 → Developer ID 署名（hardened
+      # runtime + entitlements、sidecar 含む inside-out）→ .app を notarize+staple →
+      # .dmg 署名 → .app.tar.gz 生成（staple 済み .app から）まで自動で行う。
+      - name: Tauri build (signed updater artifacts)
+        run: npm run tauri build
+
+      - name: Stage assets (安定名へリネーム + マニフェスト生成)
+        run: |
+          set -euo pipefail
+          mkdir -p dist-rel
+          cp target/release/bundle/dmg/*.dmg            dist-rel/mojiroku-macos-aarch64.dmg
+          cp target/release/bundle/macos/*.app.tar.gz   dist-rel/mojiroku-macos-aarch64.app.tar.gz
+          cp target/release/bundle/macos/*.app.tar.gz.sig dist-rel/mojiroku-macos-aarch64.app.tar.gz.sig
+          bash scripts/make-updater-manifest.sh \
+            "$VERSION" \
+            dist-rel/mojiroku-macos-aarch64.app.tar.gz.sig \
+            "$NOTES" \
+            "${{ github.sha }}" \
+            > dist-rel/latest.json
+          echo "--- generated latest.json ---"; cat dist-rel/latest.json
+
+      # Tauri は .app は notarize+staple するが .dmg はしない → dmg を手動で notarize+staple。
+      # staple は dmg を書き換えるため、artifact upload / release create より前に行う
+      # （minisign の対象は .app.tar.gz のみなので干渉しない）。
+      - name: Notarize and staple dmg
+        run: |
+          set -euo pipefail
+          xcrun notarytool submit dist-rel/mojiroku-macos-aarch64.dmg \
+            --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            --wait --output-format json | tee dmg-notarize.json
+          STATUS="$(jq -r .status dmg-notarize.json)"
+          if [ "$STATUS" != "Accepted" ]; then
+            ID="$(jq -r .id dmg-notarize.json)"
+            xcrun notarytool log "$ID" \
+              --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" || true
+            echo "dmg notarization failed: status=$STATUS"; exit 1
+          fi
+          xcrun stapler staple dist-rel/mojiroku-macos-aarch64.dmg
+
+      # 最重要: 生成署名が baked-in pubkey で検証できるか。
+      # CI 署名鍵 ≠ tauri.conf.json の pubkey なら全 0.2.0 ユーザが永久にサイレント更新失敗する。
+      # checkForUpdate() が例外を握り潰すため、この検証が「失敗が見える」唯一の場所。
+      - name: Verify signature against baked-in pubkey
+        run: |
+          set -euo pipefail
+          brew install minisign
+          # baked-in pubkey（base64）→ minisign .pub（2行）
+          jq -r .plugins.updater.pubkey src-tauri/tauri.conf.json | base64 -d > ci.pub
+          # .sig（単一行 base64）→ minisign .minisig（4行）。
+          # macOS の base64(BSD) はファイルを位置引数で受けない → stdin リダイレクトで渡す。
+          base64 -d < dist-rel/mojiroku-macos-aarch64.app.tar.gz.sig > app.minisig
+          # 検証失敗なら set -e でジョブ失敗 = publish に進まない
+          minisign -Vm dist-rel/mojiroku-macos-aarch64.app.tar.gz -x app.minisig -p ci.pub
+          echo "signature verified against tauri.conf.json pubkey"
+
+      # Apple 署名/notarization の fail-closed 検証（上の minisign 検証と対をなす二層目）。
+      # env 不足で Tauri が署名をスキップした場合や staple 漏れは配布後に初回起動「damaged」
+      # として現れるため、ユーザーに届く 3 実体（.app / updater .app.tar.gz の中身 / .dmg）
+      # をすべてここで検証してから公開に進む。
+      - name: Verify Apple signature and notarization
+        run: |
+          set -euo pipefail
+          APP=target/release/bundle/macos/mojiroku.app
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dvv "$APP" 2>&1 | grep -q "Authority=Developer ID Application"
+          xcrun stapler validate "$APP"
+          spctl -a -vv -t exec "$APP" 2>&1 | grep -q "Notarized Developer ID"
+          # sidecar が hardened runtime 付きで署名されているか
+          codesign -d --verbose "$APP/Contents/MacOS/mojiroku-llm" 2>&1 | grep -Eq "flags=.*\(.*runtime.*\)"
+          # updater 配布物（自動更新でユーザーに届く実体）を展開して検証
+          rm -rf "$RUNNER_TEMP/upd" && mkdir -p "$RUNNER_TEMP/upd"
+          tar -xzf dist-rel/mojiroku-macos-aarch64.app.tar.gz -C "$RUNNER_TEMP/upd"
+          codesign --verify --deep --strict "$RUNNER_TEMP/upd/mojiroku.app"
+          xcrun stapler validate "$RUNNER_TEMP/upd/mojiroku.app"
+          # dmg（本ワークフローで手動 notarize + staple 済み）
+          xcrun stapler validate dist-rel/mojiroku-macos-aarch64.dmg
+          spctl -a -vv -t open --context context:primary-signature \
+            dist-rel/mojiroku-macos-aarch64.dmg 2>&1 | grep -q accepted
+          echo "apple signature & notarization verified (.app / .app.tar.gz / .dmg)"
+
+      # ビルド+署名+検証まで成功した成果物（.dmg/.app.tar.gz/.sig/latest.json）を必ず artifact 化。
+      # dry_run の clean-machine 検証用であり、かつ本番でも publish 後段が失敗したとき再ビルド無しで
+      # 手動公開できるリカバリ用（高価な macOS ビルドを取り直さない）。
+      - name: Upload built artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mojiroku-${{ env.VERSION }}-build
+          path: dist-rel/
+          if-no-files-found: error
+
+      # draft で全3アセットを同時添付。draft 中は releases/latest/download は前リリースに
+      # 解決し続けるため、途中で失敗してもユーザは壊れない。
+      - name: Create draft release
+        if: needs.gate.outputs.dry_run != 'true'
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" -R daichi8120/mojiroku-releases \
+            --draft --target main \
+            --title "v$VERSION" \
+            --notes "$NOTES (src ${{ github.sha }})" \
+            dist-rel/mojiroku-macos-aarch64.dmg \
+            dist-rel/mojiroku-macos-aarch64.app.tar.gz \
+            dist-rel/latest.json
+
+      # 3アセットが揃ったことを確認してから publish に flip（原子的切替）
+      - name: Verify assets then publish
+        if: needs.gate.outputs.dry_run != 'true'
+        run: |
+          set -euo pipefail
+          for a in mojiroku-macos-aarch64.dmg mojiroku-macos-aarch64.app.tar.gz latest.json; do
+            gh release view "v$VERSION" -R daichi8120/mojiroku-releases --json assets \
+              -q '.assets[].name' | grep -qx "$a" || { echo "missing asset: $a"; exit 1; }
+          done
+          gh release edit "v$VERSION" -R daichi8120/mojiroku-releases --draft=false
+          echo "published v$VERSION"

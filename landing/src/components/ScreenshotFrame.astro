@@ -1,0 +1,97 @@
+---
+// アプリ画面を収めるダークな macOS 風ウィンドウ枠。
+// 実画像（public/screenshots/*.png）があれば表示。無い/読み込み失敗時は
+// 「意図的なデザインのプレースホルダ」を出す（壊れた枠に見せない）。
+// 実画像は実装フェーズで `just dev` 起動 → 撮影 → 差し替え（CAPTURE_GUIDE.md 参照）。
+import { getCopy } from "../copy";
+
+interface Props {
+  src?: string;
+  alt?: string;
+  caption?: string;
+  /** プレースホルダ時に表示する画面名 */
+  label?: string;
+  /** aspect-ratio。例 "16/10"（既定）, "16/9" */
+  ratio?: string;
+  /** ファーストビュー(LCP候補)の画像は priority で eager 読み込みする */
+  priority?: boolean;
+  class?: string;
+}
+
+const {
+  src,
+  alt = "",
+  caption,
+  label = getCopy(Astro.currentLocale).screenshotFrame.defaultLabel,
+  ratio = "16/10",
+  priority = false,
+  class: className = "",
+} = Astro.props;
+---
+
+<figure class={`group ${className}`}>
+  <div
+    class="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/70 shadow-2xl shadow-indigo-950/40 ring-1 ring-white/5 backdrop-blur-sm"
+  >
+    {/* タイトルバー */}
+    <div
+      class="flex items-center gap-2 border-b border-slate-800 bg-slate-900/80 px-4 py-2.5"
+    >
+      <span class="h-3 w-3 rounded-full bg-slate-700"></span>
+      <span class="h-3 w-3 rounded-full bg-slate-700"></span>
+      <span class="h-3 w-3 rounded-full bg-slate-700"></span>
+      <span class="ml-3 font-mono text-[11px] tracking-tight text-slate-500"
+        >mojiroku</span
+      >
+    </div>
+
+    {/* スクリーン領域 */}
+    <div class="relative" style={`aspect-ratio:${ratio}`}>
+      {
+        src && (
+          <img
+            src={src}
+            alt={alt || label}
+            loading={priority ? "eager" : "lazy"}
+            fetchpriority={priority ? "high" : "auto"}
+            decoding="async"
+            class="absolute inset-0 h-full w-full object-cover object-top"
+            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"
+          />
+        )
+      }
+      <div
+        class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-900 via-slate-900 to-indigo-950/40"
+        style={src ? "display:none" : "display:flex"}
+      >
+        {/* 波形グリフ（favicon と同系。ブランド感のあるプレースホルダ） */}
+        <svg
+          width="44"
+          height="44"
+          viewBox="0 0 120 120"
+          aria-hidden="true"
+          class="opacity-80"
+        >
+          <rect x="29" y="48" width="8" height="24" rx="4" fill="#818cf8"></rect>
+          <rect x="42" y="40" width="8" height="40" rx="4" fill="#a5b4fc"></rect>
+          <rect x="55" y="46" width="8" height="28" rx="4" fill="#818cf8"></rect>
+          <rect x="70" y="44.5" width="21" height="7" rx="3.5" fill="#a5b4fc"
+          ></rect>
+          <rect x="70" y="56.5" width="21" height="7" rx="3.5" fill="#a5b4fc"
+          ></rect>
+          <rect x="70" y="68.5" width="13" height="7" rx="3.5" fill="#6366f1"
+          ></rect>
+        </svg>
+        <p class="font-mono text-xs text-slate-400">{label}</p>
+      </div>
+    </div>
+  </div>
+
+  {
+    caption && (
+      <figcaption class="mt-3 text-center text-sm text-slate-400">
+        {caption}
+      </figcaption>
+    )
+  }
+</figure>

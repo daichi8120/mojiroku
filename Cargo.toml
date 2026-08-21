@@ -1,0 +1,20 @@
+[workspace]
+members = ["src-tauri", "crates/mojiroku-core", "crates/mojiroku-llm", "crates/mojiroku-mcp"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[profile.release]
+# リリースバイナリの最適化（配布時）
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
+# whisper-rs-sys を vendor 版に差し替え（build.rs に CMAKE_OSX_DEPLOYMENT_TARGET=11.0 を追加）。
+# 依存の release ビルドが whisper.cpp の std::filesystem(10.15+) で失敗する問題への対処。
+# マイク機能とは独立した build-infra 修正。詳細は vendor/whisper-rs-sys/build.rs のコメント。
+[patch.crates-io]
+whisper-rs-sys = { path = "vendor/whisper-rs-sys" }

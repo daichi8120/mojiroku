@@ -1,0 +1,49 @@
+---
+// LP 全体（Layout 込み）。ja=/ と en=/en/ の両ページがこの1コンポーネントを共有し、
+// 文言は Astro.currentLocale → getCopy で解決する。
+import Layout from "../layouts/Layout.astro";
+import Header from "./Header.astro";
+import Hero from "./Hero.astro";
+import Problem from "./Problem.astro";
+import ValueProps from "./ValueProps.astro";
+import FeatureSection from "./FeatureSection.astro";
+import Mcp from "./Mcp.astro";
+import Comparison from "./Comparison.astro";
+import Privacy from "./Privacy.astro";
+import HowItWorks from "./HowItWorks.astro";
+import Pricing from "./Pricing.astro";
+import Faq from "./Faq.astro";
+import Download from "./Download.astro";
+import Footer from "./Footer.astro";
+import { getCopy } from "../copy";
+
+const { meta, features } = getCopy(Astro.currentLocale);
+---
+
+<Layout title={meta.title} description={meta.description}>
+  <Header />
+  <main>
+    <Hero />
+    <Problem />
+    <ValueProps />
+
+    <div
+      class="mx-auto max-w-6xl space-y-24 px-6 py-12 sm:space-y-32 sm:py-16"
+    >
+      {
+        features.map((f, i) => (
+          <FeatureSection feature={f} reverse={i % 2 === 1} />
+        ))
+      }
+    </div>
+
+    <Mcp />
+    <Comparison />
+    <Privacy />
+    <HowItWorks />
+    <Pricing />
+    <Faq />
+    <Download />
+  </main>
+  <Footer />
+</Layout>

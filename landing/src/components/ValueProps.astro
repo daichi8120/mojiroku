@@ -1,0 +1,51 @@
+---
+import { getCopy } from "../copy";
+
+const { valueProps } = getCopy(Astro.currentLocale);
+const icons = ["shield", "spark", "flow"];
+---
+
+<section id="features" class="mx-auto max-w-6xl px-6 py-20 sm:py-28">
+  <div class="reveal mx-auto max-w-2xl text-center">
+    <p
+      class="font-mono text-xs font-medium uppercase tracking-[0.2em] text-indigo-400"
+    >
+      {valueProps.eyebrow}
+    </p>
+    <h2
+      class="mt-3 text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl"
+    >
+      {valueProps.heading}
+    </h2>
+  </div>
+
+  <div class="mt-14 grid gap-6 md:grid-cols-3">
+    {
+      valueProps.items.map((it, i) => (
+        <div class="reveal rounded-2xl border border-slate-800 bg-slate-900/50 p-7 transition hover:border-indigo-500/40 hover:bg-slate-900/80">
+          <div class="flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+            {icons[i] === "shield" && (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
+                <path d="M9.5 12l1.8 1.8 3.2-3.6" />
+              </svg>
+            )}
+            {icons[i] === "spark" && (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v18M3 12h18M6 6l12 12M18 6L6 18" />
+              </svg>
+            )}
+            {icons[i] === "flow" && (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 7h10M4 12h16M4 17h7" />
+                <path d="M17 4l3 3-3 3" />
+              </svg>
+            )}
+          </div>
+          <h3 class="mt-5 text-lg font-semibold text-slate-100">{it.title}</h3>
+          <p class="mt-2.5 text-sm leading-7 text-slate-400">{it.body}</p>
+        </div>
+      ))
+    }
+  </div>
+</section>

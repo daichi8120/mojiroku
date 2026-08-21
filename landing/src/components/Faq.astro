@@ -1,0 +1,50 @@
+---
+import { getCopy } from "../copy";
+
+const { faq } = getCopy(Astro.currentLocale);
+---
+
+<section id="faq" class="mx-auto max-w-3xl px-6 py-20 sm:py-28">
+  <div class="reveal text-center">
+    <h2 class="text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl">
+      {faq.heading}
+    </h2>
+  </div>
+
+  <div class="reveal mt-12 divide-y divide-slate-800 border-y border-slate-800">
+    {
+      faq.items.map((item) => (
+        <details class="group py-5">
+          <summary
+            class="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-base font-medium text-slate-200 transition hover:text-white"
+          >
+            {item.q}
+            <svg
+              class="faq-chev h-5 w-5 flex-none text-slate-500 transition-transform"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </summary>
+          <p class="mt-3 text-sm leading-7 text-slate-400">{item.a}</p>
+        </details>
+      ))
+    }
+  </div>
+</section>
+
+<style>
+  /* アコーディオンの矢印（ゼロJS。details の open 状態で回転） */
+  details[open] .faq-chev {
+    transform: rotate(180deg);
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+</style>

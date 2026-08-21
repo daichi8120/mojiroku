@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+/*
+ * mojiroku デザイントークン（ダーク Studio）。
+ * 値は Claude Design「Mojiroku 案B Studio」から抽出。Tailwind v4 @theme で
+ * `bg-surface` `text-ink` `border-border` `text-brand` のようなユーティリティを生成する。
+ * 既定パレット（white/black 等）も併存させる（オーバーレイの bg-black/50 等で使う）。
+ */
+@theme {
+  /* フォント: 日本語は macOS ネイティブの Hiragino を主、数字は DM Mono（@fontsource で同梱） */
+  --font-sans: "Hiragino Sans", "Noto Sans JP", system-ui, -apple-system, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* サーフェス（暗→明の階層） */
+  --color-bg: #0e1014;
+  --color-surface: #12151b;
+  --color-surface-2: #161a21;
+  --color-chrome: #1c212b;
+  --color-hover: #1b2029;
+  --color-selected: #1e2030;
+  --color-popover: #1a1e26;
+  --color-popover-2: #22262f;
+
+  /* ボーダー（暗→明） */
+  --color-line: #1c2029;
+  --color-border: #20242e;
+  --color-border-2: #242a35;
+  --color-border-3: #2a3140;
+
+  /* テキスト（濃→淡） */
+  --color-ink: #e7e9ee;
+  --color-speech: #d5d9e0;
+  --color-body: #c8cdd6;
+  --color-sub: #aeb4c0;
+  --color-muted: #8a91a0;
+  --color-faint: #6b7280;
+  --color-dim: #5b6270;
+  --color-disabled: #4b515e;
+
+  /* ブランド / アクセント */
+  --color-brand: #6366f1;
+  --color-brand-2: #4f46e5;
+  --color-brand-light: #818cf8;
+  --color-brand-lighter: #a5b4fc;
+  --color-brand-tint: #c7d2fe;
+
+  --color-green: #34d399;
+  --color-green-light: #7ee0b5;
+  --color-cyan: #22d3ee;
+  --color-teal: #5eead4;
+  --color-amber: #fcd34d;
+  --color-red: #ef4444;
+  --color-red-light: #f87171;
+  --color-pink: #f472b6;
+  --color-purple: #a78bfa;
+
+  /* 角丸 */
+  --radius-win: 14px;
+  --radius-card: 12px;
+  --radius-btn: 10px;
+
+  /* アニメーション（keyframes は下で定義） */
+  --animate-mjspin: mjspin 0.8s linear infinite;
+  --animate-mjpulse: mjpulse 1.3s ease-in-out infinite;
+  --animate-mjfade: mjfade 0.16s ease-out both;
+  --animate-mjdrawer: mjdrawer 0.18s ease-out both;
+}
+
+@keyframes mjspin {
+  to { transform: rotate(360deg); }
+}
+@keyframes mjpulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes mjfade {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mjdrawer {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes mjbar {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(1); }
+}
+
+/* ベース */
+:root {
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-body);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* スクロールバー（Design の指定） */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(120, 130, 150, 0.28);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 130, 150, 0.42);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* タイマー・タイムスタンプ用の等幅数字 */
+.tnum {
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}

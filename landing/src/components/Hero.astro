@@ -1,0 +1,58 @@
+---
+import { getCopy } from "../copy";
+import ScreenshotFrame from "./ScreenshotFrame.astro";
+
+const { hero } = getCopy(Astro.currentLocale);
+---
+
+<section
+  id="top"
+  class="relative mx-auto max-w-6xl px-6 pt-16 pb-20 text-center sm:pt-24 sm:pb-28"
+>
+  <p
+    class="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-4 py-1.5 text-sm font-medium text-indigo-300"
+  >
+    <span class="h-1.5 w-1.5 rounded-full bg-indigo-400"></span>
+    {hero.badge}
+  </p>
+
+  <h1
+    class="mx-auto mt-6 max-w-3xl text-4xl font-bold leading-[1.15] tracking-tight text-slate-50 sm:text-6xl"
+  >
+    {hero.headline}
+  </h1>
+
+  <p
+    class="mx-auto mt-6 max-w-2xl text-base leading-8 text-slate-400 sm:text-lg"
+  >
+    {hero.sub}
+  </p>
+
+  <div class="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
+    <a
+      href={hero.primaryCta.href}
+      class="w-full rounded-xl bg-indigo-600 px-7 py-3.5 text-base font-semibold text-white shadow-xl shadow-indigo-950/50 transition hover:bg-indigo-500 sm:w-auto"
+    >
+      {hero.primaryCta.label}
+    </a>
+    <a
+      href={hero.secondaryCta.href}
+      class="text-base font-semibold text-slate-300 transition hover:text-indigo-300"
+    >
+      {hero.secondaryCta.label} <span aria-hidden="true">→</span>
+    </a>
+  </div>
+
+  <p class="mt-5 text-sm text-slate-400">{hero.sysreq}</p>
+  <p class="mt-1 font-mono text-xs text-slate-400">{hero.note}</p>
+
+  <div class="mx-auto mt-16 max-w-5xl">
+    <ScreenshotFrame
+      src="/screenshots/detail.png"
+      label={hero.screenshot.label}
+      alt={hero.screenshot.alt}
+      ratio="16/10"
+      priority={true}
+    />
+  </div>
+</section>

@@ -1,0 +1,47 @@
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+.env
+.env.*
+!.env.example
+
+# --- Dev signing (マシンローカルの identity 設定。scripts/dev-sign-run.sh が source) ---
+.mojiroku-dev-sign.env
+
+# --- Rust / Tauri ---
+target/
+**/*.rs.bk
+src-tauri/gen/
+# sidecar バイナリはビルド成果物（scripts/build-sidecar.sh で生成、triple 付き名）
+src-tauri/binaries/
+
+# --- Models (large; downloaded/cached at runtime, never commit) ---
+# 注: 実モデルは拡張子で除外する。`models/` のような広いディレクトリ名は
+# ソースの crates/mojiroku-core/src/models/ まで巻き込むため使わない。
+*.gguf
+*.onnx
+*.bin
+*.ggml
+ggml-*.bin
+
+# --- Logs / temp ---
+*.log
+.tmp/
+.cache/
+
+# --- Editor ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- Claude local overrides ---
+.claude/settings.local.json
+
+# plan-exec の作業台帳（セッションローカル）
+.plan-exec/

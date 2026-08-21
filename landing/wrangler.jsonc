@@ -1,0 +1,18 @@
+{
+  // Cloudflare Worker + 静的アセット配信。
+  // - ⚠️ Static Assets の既定挙動: リクエストパスが ./dist の静的ファイルに**一致するとアセットが
+  //   優先**され Worker は呼ばれない（run_worker_first 未設定時）。一致しないパスのみ Worker が動く。
+  //   → /oauth/* は一致アセットが無いので Worker が捌く。逆に Worker で動的応答したいパスは、
+  //   同名の静的ファイルを dist に置かないこと（例: updater マニフェスト /updater/latest.json は
+  //   worker/index.ts のプロキシ route で配信するため、静的 public/updater/latest.json は置かない）。
+  // - 一致アセットが無いパスは worker/index.ts が捌き、未処理は env.ASSETS で ./dist へ委譲する。
+  // - npx wrangler deploy がこの設定を読み、Worker + dist をアップロードする。
+  // Secret は `npx wrangler secret put SLACK_CLIENT_ID` / `… SLACK_CLIENT_SECRET` で設定（コード非同梱）。
+  "name": "mojiroku",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2025-05-28",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  }
+}

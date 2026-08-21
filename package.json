@@ -1,0 +1,15 @@
+{
+  "name": "mojiroku",
+  "private": true,
+  "version": "0.5.1",
+  "license": "AGPL-3.0-or-later",
+  "description": "文字起こし → 要約・議事録作成をローカル完結・基本無料で行うデスクトップアプリ",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

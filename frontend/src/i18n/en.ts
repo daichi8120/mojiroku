@@ -1,0 +1,633 @@
+// UI dictionary (English). Must match the shape of ja.ts (`Dict`); tsc enforces it.
+import type { Dict } from "./ja";
+
+const en: Dict = {
+  common: {
+    save: "Save",
+    cancel: "Cancel",
+    delete: "Delete",
+    close: "Close",
+    copy: "Copy",
+    open: "Open",
+    retry: "Retry",
+    loading: "Loading…",
+    untitled: "(Untitled)",
+    untitledRecording: "Untitled recording",
+    clickToRename: "Click to rename",
+  },
+
+  app: {
+    meetingBar: {
+      recording: "Recording meeting",
+      backToMeeting: "Back to meeting",
+      saving: "Saving…",
+      stopAndSave: "Stop & save",
+      dismiss: "Hide bar",
+      dismissHint: "Hide (recording continues)",
+    },
+    // 会議開始の自動録音プロンプト（ADR-0026）。
+    meetingStartPrompt: {
+      heading: "Meeting started",
+      body: (title: string) => `Start recording “${title}”?`,
+      record: "Record",
+      dismiss: "Dismiss",
+    },
+    systemAudioDenied:
+      "Please allow screen and system audio recording (System Settings > Privacy & Security)",
+    longRecordingWarn:
+      "Recording has passed 90 minutes — long meetings use more memory. Stopping to save periodically is safer",
+    autoStopAtLimit:
+      "Reached 3 hours — saving and stopping automatically (memory protection for long meetings)",
+  },
+
+  sidebar: {
+    newRecording: "New recording",
+    nav: {
+      meeting: "Meeting mode",
+      home: "Home",
+      history: "History",
+      speakers: "Speaker library",
+      integrations: "Integrations",
+      settings: "Settings",
+    },
+    recordingDot: "Recording",
+    recent: "Recent",
+    recentEmpty: "Nothing yet",
+    sendFeedback: "Send feedback",
+  },
+
+  home: {
+    title: "New recording",
+    subtitle:
+      "Record meetings as they happen. Import audio files or record from the mic — transcription and summaries all run locally.",
+    meetingCard: {
+      title: "Record a meeting",
+      desc: "Captures Zoom, Google Meet, and more from both sides — the other participants (system audio) and you (microphone) — locally. When you stop, it is transcribed with speaker separation and saved.",
+      start: "Start meeting recording",
+    },
+    otherImports: "Other ways to import",
+    dropTitle: "Drag & drop an audio file",
+    chooseFile: "Choose file",
+    recordMic: "Record with mic",
+    diarize: {
+      label: "Speaker separation",
+      title: "Speaker separation (who spoke)",
+      desc: "Downloads an extra model (~110 MB) on first use. Speaker separation runs in addition to transcription, so it takes a bit longer.",
+    },
+    recordOnly: {
+      label: "Save audio only",
+      title: "Save audio only (transcribe later)",
+      desc: "Saves just the audio without transcribing on stop/import. You can process it later from the detail view's “Transcribe” action.",
+    },
+    privacy: "Recording and inference stay on your Mac. Nothing goes to the cloud.",
+    meetingBusy: "A meeting is being recorded. Stop it first, then try again",
+    unsupportedFile: "Unsupported file type",
+    audioFilterName: "Audio files",
+  },
+
+  history: {
+    title: "History",
+    searchPlaceholder: "Search all transcripts…",
+    clearSearch: "Clear search",
+    filters: {
+      all: "All",
+      withSummary: "Has summary",
+      withSpeakers: "Has speakers",
+      week: "This week",
+      comingSoon: "Soon",
+      notReady: "This filter will be available after the history metadata upgrade",
+    },
+    count: (n: number) => (n === 1 ? "1 item" : `${n} items`),
+    countMatch: (n: number) => (n === 1 ? "1 match" : `${n} matches`),
+    empty: {
+      noMatch: (q: string) => `No results for “${q}”`,
+      noneThisWeek: "No recordings this week",
+      none: "No recordings yet",
+      hint: "Transcribe audio from Home and it will show up here",
+    },
+    deleted: "Deleted",
+    renamed: "Title updated",
+    renameTitle: "Rename",
+    deleteConfirmTitle: "Delete this recording?",
+    deleteConfirmBody: (title: string) =>
+      `“${title}”, along with its transcript and summaries, will be deleted. This cannot be undone.`,
+  },
+
+  meeting: {
+    idle: {
+      title: "Record a meeting",
+      desc: "Captures Zoom, Google Meet, and other meetings from both sides — the other participants (system audio) and you (microphone) — locally. When you stop, it is transcribed with speaker separation and saved.",
+      permTitle: "System audio permission needed",
+      permBody:
+        "Allow mojiroku under System Settings > Privacy & Security > Screen & System Audio Recording, then start.",
+      permStart: "Check permission and start",
+      start: "Start meeting recording",
+      privacy: "Audio is processed only on this Mac · nothing goes to the cloud",
+      headphoneHint:
+        "Headphones recommended — with speakers, the other side's voice can bleed into your mic and be attributed to “you”.",
+    },
+    live: {
+      title: "Recording meeting",
+      subtitle: "Recording locally · stopping transcribes with speaker separation and saves",
+      meterCapturing: "Recording system audio + mic",
+      discard: "Discard",
+      privacy: "No bots joined · audio is processed only on this Mac · nothing goes to the cloud",
+      transcriptLabel: "Live transcript",
+      draftFooter:
+        "The live view is a draft (it is rebuilt with speaker separation when you save). Headphones recommended — with speakers, the other side's voice can bleed into your mic and be attributed to “you”.",
+      warmupTitle: "Recording system audio + mic",
+      warmupHint: "Live transcription will appear here once someone starts speaking",
+      aiNotesLabel: "Live AI notes",
+      aiNotesAfterStop: "Created after you stop",
+      aiNotesSoon:
+        "Real-time notes during the meeting are coming soon. When you “Stop & save”, system audio (the other side) is transcribed with speaker separation, together with your mic (you).",
+      aiNotesDetail:
+        "After saving, you can create AI minutes, summaries, and action items locally from the detail view.",
+    },
+    discardConfirm: {
+      title: "Discard this recording?",
+      body: "The meeting audio captured so far will be discarded, not saved. This cannot be undone.",
+      confirm: "Discard",
+    },
+  },
+
+  speakers: {
+    title: "Speaker library",
+    privacyNote:
+      "Only voice features (vectors) are stored on this device. The audio itself is never saved.",
+    addPlaceholder: "Type a name to add (e.g. Tanaka)",
+    add: "Add",
+    registered: "Registered speakers",
+    empty:
+      "No speakers registered yet. Add one above, or link speakers from a recording's detail view.",
+    identifiedCount: (n: number) =>
+      n === 1 ? "Identified in 1 recording" : `Identified in ${n} recordings`,
+    cancelDelete: "Cancel",
+    footer: "In a recording's detail view, you can link its speakers to the people registered here.",
+  },
+
+  // Background jobs (ADR-0024). Detail-view processing state + completion/failure toasts.
+  job: {
+    processing: "Processing locally",
+    queued: "Queued (waiting for another task to finish)",
+    elapsed: "Elapsed",
+    remaining: (min: number) => (min <= 1 ? "~1 min left" : `~${min} min left`),
+    cancel: "Cancel",
+    transcribeCompleted: "Transcription complete",
+    diarizeCompleted: "Speaker separation complete",
+    failedToast: "Processing failed",
+    stages: {
+      queued: "Queued",
+      download: "Downloading model",
+      download_llm: "Downloading model",
+      decode: "Decoding audio",
+      transcribe: "Transcribing",
+      diarization: "Separating speakers",
+      merge: "Matching speakers",
+    } as Record<string, string>,
+  },
+
+  ui: {
+    confirmDelete: "Delete",
+  },
+
+  composite: {
+    translated: "Translated",
+    valueProps: {
+      local: {
+        title: "Fully local",
+        body: "Recording and inference stay on your Mac. Nothing is uploaded.",
+      },
+      free: { title: "Free to use", body: "Local inference, no API needed. $0 to run." },
+      speakers: {
+        title: "Speaker-labeled notes",
+        body: "Summaries and minutes with who said what.",
+      },
+    },
+    localStatus: "Local inference · Metal · Free",
+    previewTag: "Preview",
+    previewTagTitle:
+      "This screen is a design preview (mock data). The backend is not implemented yet.",
+  },
+
+  recording: {
+    status: "Recording · transcribes automatically",
+    statusRecordOnly: "Recording · saves audio only",
+    stopAndTranscribe: "Stop & transcribe",
+    stopAndSaveOnly: "Stop & save audio only",
+    diarizeOn: "Speaker separation on",
+    diarizeOff: "Speaker separation off",
+    footer: "Everything stays on your Mac · nothing is uploaded",
+    recordOnlyHint: "Saves audio only · transcribe later from the detail view",
+  },
+
+  update: {
+    newVersion: (version: string) => `Version ${version} is available`,
+    failed: "Update failed",
+    updating: "Updating…",
+    updateNow: "Update & restart now",
+    later: "Later",
+  },
+
+  detail: {
+    loadFailed: "Couldn't load this recording",
+    backToHistory: "Back to history",
+    noAudio: "No audio for this recording",
+    templateNames: {
+      minutes: "AI minutes",
+      summary: "Summary",
+      action_items: "Action items",
+    },
+    summaryCardLabel: (name: string) => `${name} · Generated locally`,
+    regenerate: "Regenerate",
+    createMinutesCta: "Create AI minutes",
+    createMinutesCtaDesc:
+      "Generates minutes with decisions, action items, and open questions — locally.",
+    tabs: {
+      transcript: "Transcript",
+    },
+    noTranscriptTitle: "No transcript",
+    noTranscriptHint: "This session has no transcription results.",
+    // Post-hoc processing (ADR-0024).
+    runTranscribe: "Transcribe",
+    runTranscribeDesc: "Transcribe this recording's audio locally.",
+    runTranscribeDiarize: "Separate speakers too",
+    runDiarize: "Separate speakers",
+    runDiarizeDesc: "Analyze who spoke and assign it to the transcript afterwards.",
+    summaryStale: "May be out of date",
+    summaryStaleTitle: "The transcript or speakers were updated. Regenerating is recommended.",
+    aiCreate: "Create with AI",
+    createMinutes: "Create minutes",
+    createSummary: "Summary (3 lines)",
+    createActionItems: "Action items",
+    mcpNote: "Also available from Claude and other tools via MCP",
+    audio: {
+      play: "Play",
+      pause: "Pause",
+      seek: "Playback position",
+    },
+    speakerPanel: {
+      title: "Speakers",
+      librarySpeaker: "Library speaker",
+      unlink: "Unlink",
+      noVoiceprint: "No voiceprint",
+      confirmSuggestion: "Confirm this suggestion",
+      someoneElse: "Someone else…",
+      link: "Link",
+      registerPlaceholder: "Register a new name",
+      registerAndLink: "Register and link",
+    },
+    templateModal: {
+      title: "Create minutes & summary",
+      subtitle: "Pick a template to generate",
+      templates: {
+        minutes: { title: "Minutes", desc: "Decisions, action items, and open questions" },
+        summary: { title: "Summary (3 lines)", desc: "Just the key points, kept short" },
+        actionItems: { title: "Action items", desc: "To-dos with owners and due dates" },
+        custom: { title: "Custom prompt…", desc: "Save your own format (soon)" },
+      },
+      customPlaceholder: "e.g. Summarize in 5 points: conclusion → reasoning → next steps",
+      customSoonToast: "Custom prompts are coming soon",
+      customSoonNote: "Custom prompts are coming soon.",
+      engineSection: "Generation engine",
+      engineCloud: (provider: string) => `Cloud / ${provider}`,
+      engineLocal: "Local / Metal",
+      cloudBadge: (provider: string) => `Cloud (${provider}) · BYOK`,
+      cloudWarn: (provider: string) =>
+        `To summarize, your transcript is sent to ${provider}.`,
+      localBadge: "Local · Free",
+      localNote: "Everything is processed on your Mac · nothing is uploaded.",
+      engineHint: "You can switch engines in Settings → Summary engine.",
+      footerCloud: (provider: string) => `Generates with ${provider} · transcript is sent`,
+      footerLocal: "Generates with the local model · no extra cost",
+      progressQueued: "Waiting for another task (transcription, …) to finish…",
+      progressDownload: (pct: number) => `Downloading summary model… ${pct}%`,
+      progressGenerating: (engine: string) => `Generating summary… (${engine})`,
+      created: "Created",
+      generating: "Generating…",
+      generate: "Generate",
+    },
+    share: {
+      trigger: "Send to AI",
+      secCopy: "Copy",
+      minutesMd: "Minutes (Markdown)",
+      minutesMdSub: "With headings and bullet lists",
+      summaryRow: "Summary (3 lines)",
+      transcriptSpeakers: "Transcript (with speakers)",
+      transcriptTimestamps: "Transcript (with timestamps)",
+      needMinutes: "Create minutes first",
+      needSummary: "Create a summary first",
+      copied: "Copied",
+      copyFailed: (e: string) => `Copy failed: ${e}`,
+      secAi: "Open in AI",
+      openChatGpt: "Open in ChatGPT",
+      openClaude: "Open in Claude",
+      copyWithPrompt: "Copy with prompt",
+      aiOpened: "Prompt copied — opening in your browser",
+      aiOpenFailed: (e: string) => `Couldn't open: ${e}`,
+      secExport: "Export to file",
+      fmtObsidian: "Markdown (Obsidian)",
+      fmtMarkdown: "Markdown",
+      fmtText: "Text",
+      fmtSrt: "SRT subtitles",
+      obsidianNote: "Obsidian note",
+      srtButton: ".srt subtitles",
+      pdfButton: "PDF (print)",
+      exported: "Exported",
+      exportFailed: (e: string) => `Export failed: ${e}`,
+      pdfFailed: (e: string) => `Couldn't open the PDF: ${e}`,
+      exportNote:
+        "Obsidian note = frontmatter + summary + transcript. .md/.txt/.srt = transcript. For PDF, choose “Save as PDF” in the print dialog (summary + transcript).",
+      secIntegrations: "Integrations",
+      notionTitle: "Send to Notion",
+      notionSub: "Creates a page with the summary and transcript",
+      notionSending: "Sending to Notion…",
+      notionSent: "Sent to Notion",
+      notionFailed: (e: string) => `Failed to send to Notion: ${e}`,
+      slackTitle: "Send to Slack",
+      slackSub: "Posts the summary to your channel (transcript is not sent)",
+      slackSending: "Sending to Slack…",
+      slackSent: "Sent to Slack",
+      slackFailed: (e: string) => `Failed to send to Slack: ${e}`,
+      integrationsNote:
+        "Sends data to external servers (Notion = summary + transcript / Slack = summary only). Set up under “Integrations” in the sidebar.",
+      privacyFooter:
+        "Copy and export stay local · data leaves only when you press AI / Notion / Slack",
+    },
+  },
+
+  integrations: {
+    title: "Integrations",
+    intro:
+      "Connect your calendar and calls to make recording smoother. Imports happen when you open this screen; exports only when you press a button — nothing leaves automatically.",
+    previewToast: "This is a preview",
+    howToTitle: "Getting started",
+    disconnectFailed: (e: string) => `Failed to disconnect: ${e}`,
+    footer:
+      "Every integration acts only on your action — nothing is sent or received in the background.",
+    connect: {
+      connected: "Connected",
+      reconnect: "Reconnect",
+      disconnect: "Disconnect",
+      waitingBrowser: "Waiting for approval in your browser…",
+    },
+    calendar: {
+      title: "Calendar",
+      desc: "Auto-fills titles from your events so you can start recording in one click. Read-only, and everything stays on this Mac.",
+      checking: "Checking connection…",
+      googleName: "Google Calendar",
+      connectedBadge: "Connected · read-only",
+      refresh: "Refresh",
+      disconnect: "Disconnect",
+      upcoming: "Upcoming events",
+      loadingEvents: "Loading events…",
+      loadFailed: (e: string) => `Couldn't load events: ${e}`,
+      noEvents: "No upcoming events (within 2 weeks from today; all-day events excluded).",
+      prepare: "Prepare to record",
+      cacheNote:
+        "Newly added or changed events can take minutes to hours to appear due to caching on Google's side. Press “Refresh” to fetch again.",
+      connectTitle: "Connect Google Calendar",
+      connectDesc:
+        "One click to connect. Read-only (it only reads your events), everything stays on this Mac, and tokens are stored only in your keychain.",
+      connectCta: "Connect Google",
+      connectedToast: "Connected to Google Calendar",
+      connectFailed: (e: string) => `Failed to connect: ${e}`,
+      disconnectedToast: "Calendar disconnected",
+      step1: "Press “Connect Google” — Google's consent screen opens in your browser",
+      step2: "Pick your account and press “Allow”",
+      step2Note: "(if an unverified-app warning appears, continue via “Advanced” → “Go to”)",
+      step3: "Return to mojiroku — you're connected",
+    },
+    platforms: {
+      title: "Meeting platforms",
+      desc: "Detects calls and captures system audio.",
+      noBots: "No bots join your meetings.",
+      toggleLabel: (name: string) => `${name} integration`,
+    },
+    export: {
+      title: "Export destinations",
+      desc: "Export minutes to external services. Data is sent only when you press the button.",
+      configured: "Configured",
+      pageNotSelected: "No page selected",
+      notConfigured: "Not set",
+    },
+    notion: {
+      desc: "One click to connect. Pick a destination page and you can export minutes (summary + transcript) to Notion.",
+      connectCta: "Connect Notion",
+      parentLabel: "Destination page",
+      parentPlaceholder: "Select a page",
+      noPages:
+        "No shared pages found. Press “Reconnect” to open Notion's consent screen and select the page you want to export to.",
+      step1: "Press “Connect Notion” — Notion's consent screen opens in your browser",
+      step2: "Choose the page you want to export to and press “Allow access”",
+      step3: "Return to mojiroku and pick the page under “Destination page” — done",
+      notePre: "When you send to Notion, ",
+      noteStrong: "the summary and transcript are sent to Notion's servers",
+      notePost:
+        " (even when using local summaries). The token is stored only in this Mac's keychain, and formatting such as bold is removed.",
+      noPagesToast: "Connected, but no pages are shared. Reconnect and choose a destination page.",
+      connectedToast: "Connected to Notion",
+      connectFailed: (e: string) => `Failed to connect to Notion: ${e}`,
+      disconnectedToast: "Notion disconnected",
+    },
+    slack: {
+      desc: "One click to connect. Posts the summary to the channel you choose on Slack's screen (the transcript is not sent).",
+      connectCta: "Connect Slack",
+      step1: "Press “Connect Slack” — Slack's consent screen opens in your browser",
+      step2: "Choose the workspace and channel to post to, then press “Allow”",
+      step3: "Return to mojiroku — you're connected",
+      notePre: "When you send to Slack, ",
+      noteStrong: "the summary is sent to Slack's servers",
+      notePost:
+        " (the transcript is not sent; this happens even with local summaries). The webhook URL is stored only in this Mac's keychain, and formatting such as bold is converted to Slack markup.",
+      connectedToast: "Connected to Slack",
+      connectFailed: (e: string) => `Failed to connect to Slack: ${e}`,
+      disconnectedToast: "Slack disconnected",
+    },
+  },
+
+  settings: {
+    title: "Settings",
+    nav: {
+      models: "Models",
+      engine: "Summary engine",
+      privacy: "Privacy",
+      general: "General",
+    },
+    loadFailed: (e: string) => `Failed to load settings: ${e}`,
+    saveFailed: (e: string) => `Failed to save settings: ${e}`,
+    models: {
+      desc: "All stored on this Mac and work offline.",
+      stt: "Transcription",
+      summarize: "Summary",
+      diarize: "Speaker separation",
+      manage: "Manage",
+      fetch: "Download",
+      savedBadge: "Downloaded",
+      onDemandBadge: "On demand",
+      manageSoon: "Model management is coming soon",
+    },
+    engine: {
+      desc: "Local by default. Switch to the cloud with your own API key only when you want higher quality.",
+      local: {
+        title: "Local",
+        badge: "Default · Free · Nothing sent",
+        desc: "Generates with the bundled model. No extra cost, nothing sent.",
+      },
+      cloud: {
+        title: "Cloud (BYOK)",
+        badge: "Higher quality",
+        desc: "Use OpenAI / Anthropic with your own key.",
+      },
+      provider: "Provider",
+      model: "Model",
+      modelEmptyHint: "(blank = default)",
+      apiKey: "API key",
+      keySavedBadge: "Saved",
+      keySavedPlaceholder: "(saved · type to replace)",
+      keySavedToast: "API key saved to your keychain",
+      keySaveFailed: (e: string) => `Failed to save: ${e}`,
+      keyDeletedToast: "API key deleted",
+      keyDeleteFailed: (e: string) => `Failed to delete: ${e}`,
+      cloudNotePre: "With cloud summaries, ",
+      cloudNoteStrong: (provider: string) => `your transcript is sent to ${provider}`,
+      cloudNotePost:
+        " to generate the summary. Your API key is stored only in this Mac's keychain.",
+    },
+    privacy: {
+      cloudIntro:
+        "Recording and transcription are processed on your Mac. Data goes to external servers in these cases: (1) ",
+      cloudByokStrong: "cloud (BYOK) summaries are selected",
+      cloudByokRest: (provider: string) =>
+        `, so your transcript is sent to ${provider} each time you summarize; (2) `,
+      cloudExportStrong: "when you export via an integration",
+      cloudExportRest: " (Notion = summary + transcript / Slack = summary only); (3) ",
+      cloudAiStrong: "when you open in an AI (ChatGPT / Claude)",
+      cloudAiRest:
+        " (includes the transcript). To stop BYOK uploads, switch the summary engine back to “Local”. (2) and (3) happen only when you press the button.",
+      localIntro:
+        "Recording and inference are processed on this Mac. Data goes to external servers only when you do one of the following: (1) cloud (BYOK) summaries; (2) ",
+      localExportStrong: "export via an integration",
+      localExportRest:
+        " (Notion = summary + transcript / Slack = summary only — sent even with local summaries); (3) ",
+      localAiStrong: "open in an AI (ChatGPT / Claude)",
+      localAiRest: " (includes the transcript). None of this happens automatically.",
+      saveRecordings: {
+        title: "Keep recordings on this Mac",
+        desc: "Used for history and full-text search",
+      },
+      sendUsage: {
+        title: "Send usage data",
+        desc: "Off by default. Anonymous bug reports only",
+      },
+      note: "These values are stored on this Mac. Applying them to behavior (stop saving, sending) is coming soon.",
+    },
+    general: {
+      desc: "App info and feedback.",
+      version: "Version",
+      feedbackTitle: "Send feedback",
+      feedbackDesc:
+        "Share beta impressions and bugs via a browser form. App and OS info is filled in automatically.",
+      feedbackOpened: "Opened the feedback form in your browser",
+      feedbackOpenFailed: (e: string) => `Couldn't open the browser: ${e}`,
+      autoRecordPrompt: {
+        title: "Prompt to record when a meeting starts",
+        desc: "When a calendar event begins, a notification offers to record. Recording always starts with your click (requires calendar integration).",
+      },
+    },
+    language: {
+      title: "Language",
+      uiLabel: "App language",
+      uiDesc: "Used for the interface, and also for summaries, speaker labels, and export headings",
+      transcribeLabel: "Transcription language",
+      transcribeDesc: "Speech-recognition language. If your meetings are in one language, picking it is the most accurate",
+      followApp: "Match app language (default)",
+      auto: "Auto-detect",
+      names: { ja: "日本語", en: "English" },
+    },
+  },
+
+  // Shared formatting strings referenced by pure functions in lib/ via dicts[lang].
+  format: {
+    speakerLabel: (n: string) => `Speaker ${n}`,
+    durationMin: (m: number) => `${m} min`,
+    durationHour: (h: number) => `${h} hr`,
+    durationHourMin: (h: number, m: number) => `${h} hr ${m} min`,
+    eventToday: (time: string) => `Today ${time}`,
+    eventTomorrow: (time: string) => `Tomorrow ${time}`,
+    weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    listSeparator: ", ",
+  },
+
+  // ⚠️ Output strings for export/print/AI prompts (distinct from in-app UI labels).
+  // templateLabels must match Rust's export::template_label in both languages
+  // (pinned by tests on both sides; a mismatch breaks Notion/Slack append consistency).
+  output: {
+    fallbackTitle: "Meeting",
+    transcriptHeading: "Transcript",
+    aiPromptHead: (title: string) =>
+      `Below is the transcript of "${title}". Summarize the key points, decisions, and action items (with owners) in English.\n\n`,
+    templateLabels: {
+      minutes: "Minutes",
+      summary: "Summary",
+      action_items: "Action Items",
+    },
+    templateFallback: "Notes",
+  },
+
+  // Err keys from Rust commands ("error.<domain>.<cause>[: detail]") → display text.
+  // Looked up by translateError (i18n/index.tsx); unknown keys fall back to the raw message.
+  // ja/en key parity is verified by translateError.test.ts (tsc can't check inside Record).
+  errors: {
+    "error.mic.busy": "Already recording",
+    "error.mic.no_input_device": "No microphone (input device) found",
+    "error.mic.input_config": "Couldn't read the microphone input configuration",
+    "error.recording.empty": "The recording is empty",
+    "error.recording.copy_failed": "Couldn't import the audio file",
+    "error.recording.mic_start": "Couldn't start microphone recording",
+    "error.recording.meeting_silent":
+      "The meeting audio was almost silent (check that the permission is still granted and that neither side is muted)",
+    "error.recording.not_found": "Recording not found",
+    "error.system_audio.busy": "Already capturing system audio",
+    "error.system_audio.permission":
+      "Couldn't get system-audio permission (allow mojiroku in System Settings > Privacy & Security > Screen & System Audio Recording)",
+    "error.system_audio.no_display": "No display found",
+    "error.summarize.api_key_missing": "Cloud summarization requires an API key (Settings → Summary engine)",
+    "error.summarize.sidecar_failed": "Local summarization failed",
+    "error.model.download": "Model download failed (check your network connection)",
+    "error.model.download_incomplete":
+      "Model download was interrupted (check your network connection and try again)",
+    "error.model.checksum_mismatch":
+      "Downloaded model failed verification (it may be corrupted; please try again)",
+    "error.export.notion_parent_missing": "Notion export page is not set (Integrations → Notion)",
+    "error.export.notion_not_connected": "Notion is not connected (Integrations → Notion)",
+    "error.export.notion_unauthorized":
+      "The Notion token is invalid (reconnect in Integrations → Notion)",
+    "error.export.notion_page_access":
+      "Can't access the Notion page (check that it's shared with the integration and the ID/URL is correct)",
+    "error.export.notion_api": "Failed to send to Notion",
+    "error.export.slack_not_connected": "Slack is not connected (Integrations → Slack)",
+    "error.export.slack_webhook_invalid":
+      "The Slack webhook is invalid (reconnect in Integrations → Slack)",
+    "error.export.slack_api": "Failed to send to Slack",
+    "error.export.slack_no_summary":
+      "No summary to send to Slack (create minutes or a summary first)",
+    "error.calendar.not_connected": "Calendar is not connected (Integrations → Calendar)",
+    "error.calendar.google_refresh":
+      "Couldn't refresh the Google token (reconnect in Integrations → Calendar)",
+    "error.oauth.timeout": "The connection timed out (the browser authorization was not completed)",
+    "error.oauth.denied": "Authorization was not granted (complete the authorization in the browser)",
+    "error.oauth.state_mismatch":
+      "Couldn't verify the authorization response (stopped for safety — please try again)",
+    "error.speaker.name_empty": "Name is empty",
+    "error.secret.unknown_key": "Unknown secret name",
+    "error.job.no_audio": "The audio file for this recording was not found",
+    "error.job.no_transcript": "Transcribe this recording first",
+    "error.job.no_pertrack": "This recording has no per-track audio",
+    "error.job.already_diarized": "Meetings are already speaker-separated at record time",
+    "error.job.unknown_kind": "Unknown job kind",
+    "error.job.failed": "Processing failed",
+  } as Record<string, string>,
+};
+
+export default en;

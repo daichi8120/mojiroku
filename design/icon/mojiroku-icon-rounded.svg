@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 120 120"><defs>
+  <linearGradient id="bgIndigo" x1="0" y1="0" x2="0.22" y2="1">
+    <stop offset="0" stop-color="#6F6CF6"></stop><stop offset="1" stop-color="#5750E6"></stop>
+  </linearGradient>
+  <radialGradient id="hl" cx="0.5" cy="0.02" r="0.85">
+    <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"></stop>
+    <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0"></stop>
+  </radialGradient><clipPath id="r"><rect width="120" height="120" rx="27"></rect></clipPath></defs><g clip-path="url(#r)">
+  <rect width="120" height="120" fill="url(#bgIndigo)"></rect>
+  <rect width="120" height="120" fill="url(#hl)"></rect>
+  <rect x="29" y="48" width="8" height="24" rx="4" fill="#FFFFFF"></rect>
+  <rect x="42" y="40" width="8" height="40" rx="4" fill="#FFFFFF"></rect>
+  <rect x="55" y="46" width="8" height="28" rx="4" fill="#FFFFFF"></rect>
+  <rect x="70" y="44.5" width="21" height="7" rx="3.5" fill="#FFFFFF"></rect>
+  <rect x="70" y="56.5" width="21" height="7" rx="3.5" fill="#FFFFFF"></rect>
+  <rect x="70" y="68.5" width="13" height="7" rx="3.5" fill="#CBC9FF"></rect></g></svg>

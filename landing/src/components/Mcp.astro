@@ -1,0 +1,98 @@
+---
+import { getCopy } from "../copy";
+
+const { mcp } = getCopy(Astro.currentLocale);
+---
+
+<section id="mcp" class="relative overflow-hidden border-y border-slate-900">
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-0 bg-gradient-to-b from-indigo-950/20 to-transparent"
+  >
+  </div>
+
+  <div
+    class="relative mx-auto grid max-w-6xl items-center gap-12 px-6 py-20 sm:py-28 lg:grid-cols-2 lg:gap-16"
+  >
+    <div class="reveal">
+      <p
+        class="font-mono text-xs font-medium uppercase tracking-[0.2em] text-indigo-400"
+      >
+        {mcp.eyebrow}
+      </p>
+      <h2
+        class="mt-3 text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl"
+      >
+        {mcp.heading}
+      </h2>
+      <p class="mt-5 text-base leading-8 text-slate-400">{mcp.body}</p>
+
+      <ul class="mt-7 space-y-3.5">
+        {
+          mcp.bullets.map((b) => (
+            <li class="flex gap-3">
+              <span class="mt-1 flex h-5 w-5 flex-none items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M5 12l4.5 4.5L19 7" />
+                </svg>
+              </span>
+              <span class="text-sm leading-7 text-slate-300">{b}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    {/* 擬似 Claude チャット（MCP 経由で議事録を検索→引用回答する様子） */}
+    <div class="reveal">
+      <div
+        class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/70 shadow-2xl shadow-indigo-950/40 ring-1 ring-white/5"
+      >
+        <div
+          class="flex items-center gap-2 border-b border-slate-800 bg-slate-900/80 px-4 py-2.5"
+        >
+          <span class="h-3 w-3 rounded-full bg-slate-700"></span>
+          <span class="h-3 w-3 rounded-full bg-slate-700"></span>
+          <span class="h-3 w-3 rounded-full bg-slate-700"></span>
+          <span class="ml-3 font-mono text-[11px] text-slate-500">Claude</span>
+        </div>
+
+        <div class="space-y-4 p-5">
+          {/* ユーザー発話 */}
+          <div class="flex justify-end">
+            <p
+              class="max-w-[85%] rounded-2xl rounded-tr-sm bg-indigo-600/90 px-4 py-2.5 text-sm leading-6 text-white"
+            >
+              {mcp.demo.user}
+            </p>
+          </div>
+
+          {/* MCP ツール呼び出し */}
+          <div
+            class="rounded-xl border border-slate-800 bg-slate-950/60 px-3.5 py-3"
+          >
+            <p class="font-mono text-[11px] text-indigo-300">
+              <span class="text-slate-500">mojiroku ▸</span>
+              {mcp.demo.toolCall}
+            </p>
+            <p class="mt-1.5 font-mono text-[11px] text-slate-500">
+              {mcp.demo.toolResult}
+            </p>
+          </div>
+
+          {/* アシスタント回答 */}
+          <div class="flex justify-start">
+            <p
+              class="max-w-[90%] rounded-2xl rounded-tl-sm border border-slate-800 bg-slate-800/40 px-4 py-2.5 text-sm leading-7 text-slate-200"
+            >
+              {mcp.demo.assistant}
+            </p>
+          </div>
+        </div>
+      </div>
+      <p class="mt-3 text-center font-mono text-xs text-slate-400">
+        {mcp.demoCaption}
+      </p>
+    </div>
+  </div>
+</section>

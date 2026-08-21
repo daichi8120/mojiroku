@@ -1,0 +1,16 @@
+# whisper.cpp / llama.cpp（ggml）が使う std::filesystem は macOS 10.15+ 専用。
+# mojiroku は Apple Silicon / Metal 前提なので deployment target を 11.0 に固定し、
+# release ビルド（.app）で "introduced in macOS 10.15" コンパイルエラーを防ぐ。
+# [env] は cargo build / test / `tauri build` 内の cargo すべてに効く（dev/release 統一）。
+[env]
+MACOSX_DEPLOYMENT_TARGET = "11.0"
+
+# dev バイナリを「安定した自己署名 identity（mojiroku-dev）」で毎ビルド署名してから実行する。
+# 目的: 未署名/アドホック署名だと再ビルド毎にバイナリ同一性が変わり、macOS の TCC 許可
+# （会議モードのマイク/画面収録など）が毎回リセットされ再許可ダイアログが出る。安定署名なら
+# designated requirement が固定され、一度与えた TCC 許可が再ビルドをまたいで永続する。
+# （BYOK/OAuth のキーチェーンは dev では平文ストアに切替済み。src-tauri/src/secrets.rs 参照）
+# runner なので launcher（just/npm/cargo）非依存。相対パスは .cargo の親（repo ルート）基準で
+# 解決される（cwd 非依存）。初回: bash scripts/dev-codesign-setup.sh（証明書が無ければ素通し）。
+[target.aarch64-apple-darwin]
+runner = "scripts/dev-sign-run.sh"

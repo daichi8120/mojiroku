@@ -1,0 +1,26 @@
+[package]
+name = "mojiroku-mcp"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "mojiroku ローカル MCP サーバー（stdio / streamable HTTP）。履歴 DB を読み取り専用で公開し、Claude 等から議事録を検索・参照できるようにする。ADR-0010 / ADR-0025。"
+
+[[bin]]
+name = "mojiroku-mcp"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+mojiroku-core = { path = "../mojiroku-core" }
+rmcp = { version = "1.8.0", features = [
+    "server",
+    "transport-io",
+    "macros",
+    "transport-streamable-http-server",
+] }
+schemars = "1.2.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "net"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"

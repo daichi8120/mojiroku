@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>議事録を録音するためにマイクへのアクセスを使用します。</string>
+    <!-- 会議モード（ADR-0017）: 通話相手のシステム音声をローカル文字起こしするために
+         「画面とシステムオーディオの収録」の TCC が必要。無いとキャプチャでクラッシュ/拒否される。
+         注意: tauri dev（非バンドル直起動）には効かない → バンドル .app を open で検証すること。 -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>会議モードで、通話相手の音声をこの Mac 上で文字起こしするために、画面とシステムオーディオの収録の許可が必要です。録音内容は外部に送信されず、すべてローカルで処理されます。</string>
+</dict>
+</plist>

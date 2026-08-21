@@ -1,0 +1,18 @@
+# Phase 7 会議モード スパイク（throwaway de-risking 用・本体ワークスペースから切り離す）。
+# 空の [workspace] で親ワークスペース（/Cargo.toml）から detach し、本体ビルドへ影響させない。
+[workspace]
+
+[package]
+name = "meeting-audio-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "AGPL-3.0-or-later"
+
+[[bin]]
+name = "meeting-audio-spike"
+path = "src/main.rs"
+
+[dependencies]
+screencapturekit = "8.0"
+hound = "3.5"

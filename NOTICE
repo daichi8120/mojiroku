@@ -1,0 +1,181 @@
+mojiroku
+Copyright (C) 2026 daichi8120
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. The full text is in the LICENSE file at the root of this
+repository.
+
+Source code: https://github.com/daichi8120/mojiroku
+
+================================================================================
+THIRD-PARTY NOTICES
+================================================================================
+
+このリポジトリは、以下の第三者ソフトウェアを同梱または依存として利用しています。
+各ライセンスの条件に従って帰属を表示します。
+
+--------------------------------------------------------------------------------
+1. whisper.cpp  (同梱・vendor/whisper-rs-sys/whisper.cpp/)
+--------------------------------------------------------------------------------
+
+Copyright (c) 2023-2024 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+2. whisper-rs-sys 0.15.0  (同梱・改変あり・vendor/whisper-rs-sys/)
+--------------------------------------------------------------------------------
+
+License: Unlicense (public domain equivalent)
+
+**改変内容 / Modification**: `build.rs` の cmake 設定に
+`.define("CMAKE_OSX_DEPLOYMENT_TARGET", "11.0")` を追加しました。whisper.cpp(ggml)
+の `std::filesystem` が macOS 10.15+ 専用であるのに対し、cmake の既定値 10.13 では
+release ビルドが `ggml-backend-reg.cpp` で "introduced in macOS 10.15" エラーに
+なるためです。上流の公開版との**機能上の差分はこの 1 行**で、経緯を説明する
+コメント 5 行を含めても計 6 行です。
+
+Upstream: https://crates.io/crates/whisper-rs-sys
+
+--------------------------------------------------------------------------------
+3. Rust crate 依存（ビルド時に取得。このリポジトリには同梱されません）
+--------------------------------------------------------------------------------
+
+主要な ML / メディアコンポーネント:
+
+  sherpa-onnx        Apache-2.0    話者分離（pyannote segmentation-3.0 ONNX）
+  whisper-rs         Unlicense     whisper.cpp の Rust バインディング
+  llama-cpp-2        MIT OR Apache-2.0   ローカル要約 sidecar
+  llama-cpp-sys-2    MIT OR Apache-2.0
+  rubato             MIT           リサンプリング
+  rusqlite           MIT           履歴 DB
+  rmcp               Apache-2.0    MCP サーバー
+
+Mozilla Public License 2.0 のコンポーネント（いずれも未改変で利用）:
+
+  symphonia, symphonia-core, symphonia-bundle-mp3, symphonia-codec-aac,
+  symphonia-codec-alac, symphonia-codec-pcm, symphonia-format-isomp4,
+  symphonia-format-riff, symphonia-metadata, symphonia-utils-xiph
+      音声デコード。Source: https://github.com/pdeljanov/Symphonia
+
+  cssparser, cssparser-macros, selectors, dtoa-short, option-ext
+      Tauri (WRY) が間接的に依存。Source: https://github.com/servo/rust-cssparser
+                                          https://github.com/servo/servo
+
+MPL-2.0 はファイル単位のコピーレフトです。上記はいずれも未改変で利用しているため、
+本プロジェクトのコードには波及しません。改変した場合は当該ファイルのソース公開義務が
+生じます。各ライセンス全文は該当 crate のリポジトリを参照してください。
+
+依存全体の一覧は `Cargo.lock` を、機械可読な内訳は `cargo about` 等で生成できます。
+
+--------------------------------------------------------------------------------
+4. 実行時にダウンロードされるモデル（配布物には含まれません）
+--------------------------------------------------------------------------------
+
+mojiroku は初回利用時にユーザーの端末へモデルを取得します。これらは本ソフトウェアの
+配布物に含まれず、mojiroku が再配布するものでもありません。**それぞれの提供元の
+ライセンスが適用されます。**利用前に各提供元の条件を確認してください。
+
+  文字起こし   ggml-large-v3-turbo-q5_0.bin  (約 547MiB)
+               https://huggingface.co/ggerganov/whisper.cpp
+
+  要約         Qwen2.5-7B-Instruct-Q4_K_M.gguf
+               https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF
+
+  VAD          ggml-silero-v5.1.2.bin
+               https://huggingface.co/ggml-org/whisper-vad
+
+  話者分離     sherpa-onnx-pyannote-segmentation-3-0  (segmentation, 約 6MB)
+  （2 段構成） nemo_en_titanet_large.onnx             (embedding, 約 101MB)
+               https://github.com/k2-fsa/sherpa-onnx/releases
+
+    segmentation は `pyannote/segmentation-3.0`（CNRS）の ONNX 変換版です。ONNX への
+    変換は k2-fsa/sherpa-onnx が行っています。
+
+      License: MIT License — Copyright (c) 2022 CNRS
+
+    pyannote/segmentation-3.0 のモデルカードは、以下の論文の引用を求めています。
+
+      Alexis Plaquet and Hervé Bredin,
+      "Powerset multi-class cross entropy loss for neural speaker diarization",
+      Proc. INTERSPEECH 2023.
+
+      Hervé Bredin,
+      "pyannote.audio 2.1 speaker diarization pipeline: principle, benchmark,
+      and recipe", Proc. INTERSPEECH 2023.
+
+    embedding は NVIDIA NeMo の TitaNet-Large の ONNX 変換版です。
+
+      License: CC-BY-4.0
+
+    NGC のモデルページは「NeMo Toolkit のライセンス（Apache-2.0）に従う」と記載し、
+    Hugging Face のモデルカードは CC-BY-4.0 と記載しています。いずれも商用利用可
+    ですが、本プロジェクトは**厳しい方の CC-BY-4.0** に合わせて帰属を表示します。
+
+    **改変内容 / Modification**（CC-BY-4.0 は改変の明示を要求します）:
+    元の NeMo チェックポイントから k2-fsa が ONNX 形式へ変換したものです。
+    **重みの再学習は行われていません。**
+
+取得元のリビジョンは SHA-256 とともに `crates/mojiroku-core/src/models/mod.rs` で固定
+しています。保存先は
+`~/Library/Application Support/com.daichi0812.mojiroku/models/` です。
+
+--------------------------------------------------------------------------------
+5. npm 依存（ビルド済みフロントエンドとして `.app` に同梱されます）
+--------------------------------------------------------------------------------
+
+`frontend/` のビルド成果物は `.app` に含まれるため、そこに取り込まれる第三者パッケージの
+帰属を示します（バージョンは 2026-08-21 時点の `frontend/node_modules` 実測）。
+ビルド時にしか使わない devDependencies（Vite / TypeScript / Vitest 等）は配布物に
+含まれないため、ここには挙げていません。
+
+  react              19.2.7   MIT                  Copyright (c) Meta Platforms, Inc. and affiliates
+  react-dom          19.2.7   MIT                  同上
+  scheduler          0.27.0   MIT                  同上（react-dom の依存）
+      Source: https://github.com/facebook/react
+
+  @tauri-apps/api             2.11.1   Apache-2.0 OR MIT
+  @tauri-apps/plugin-dialog   2.7.1    MIT OR Apache-2.0
+  @tauri-apps/plugin-opener   2.5.4    MIT OR Apache-2.0
+  @tauri-apps/plugin-os       2.3.2    MIT OR Apache-2.0
+  @tauri-apps/plugin-process  2.3.1    MIT OR Apache-2.0
+  @tauri-apps/plugin-updater  2.10.1   MIT OR Apache-2.0
+      Copyright (c) 2019-2024 Tauri Programme within The Commons Conservancy
+      Source: https://github.com/tauri-apps/tauri / https://github.com/tauri-apps/plugins-workspace
+
+  tailwindcss        4.3.1    MIT      Copyright (c) Tailwind Labs, Inc.
+      ユーティリティ CSS。生成された CSS が `.app` に入ります。
+      Source: https://github.com/tailwindlabs/tailwindcss
+
+フォント（SIL Open Font License 1.1）:
+
+  @fontsource/dm-mono  5.2.7  OFL-1.1
+      DM Mono のフォントファイル（woff2 / woff）を同梱します
+      （`frontend/src/main.tsx` で `400.css` / `500.css` を import）。
+
+      Copyright 2020 The DM Mono Project Authors
+      (https://www.github.com/googlefonts/dm-mono)
+
+      This Font Software is licensed under the SIL Open Font License, Version 1.1.
+      ライセンス全文は `frontend/node_modules/@fontsource/dm-mono/LICENSE` および
+      http://scripts.sil.org/OFL を参照してください。
+
+依存全体の一覧は `frontend/package-lock.json` を参照してください。

@@ -1,0 +1,48 @@
+[package]
+name = "mojiroku-core"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "mojiroku ML core: STT / diarization / summarization pipeline"
+
+[build-dependencies]
+# FFI 例外シールド（src/ffi_guard.cc）のコンパイル。build.rs 参照。
+cc = "1"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+# STT: whisper.cpp（Core ML/Metal）。ADR-0005。
+whisper-rs = { version = "0.16", default-features = false, features = ["metal"] }
+# 注: llama-cpp-2 はここに置けない。whisper.cpp と llama.cpp は ggml シンボルが衝突し、
+# 同一バイナリだと実行時に whisper が壊れる（既知問題）。ローカル要約は別バイナリ/別手段で行う。
+
+# 話者分離: sherpa-onnx（onnxruntime, ggml 非依存）。ADR-0004 / ADR-0009。
+# whisper(ggml) と同居安全（強シンボル衝突 0 を nm で実証済み）。static は build.rs が
+# prebuilt 静的ライブラリ（osx-arm64）を DL してリンク（ソースビルド不要）→ 初回ビルドは要ネット。
+sherpa-onnx = { version = "1.13.3", default-features = false, features = ["static"] }
+# diarization segmentation モデル（pyannote seg-3.0）は k2-fsa の tar.bz2 配布のため展開に使う。
+tar = "0.4"
+bzip2 = "0.4"
+
+# 音声デコード（mp3/aac/alac/mp4/wav/pcm）+ リサンプル。
+symphonia = { version = "0.5", default-features = false, features = [
+    "mp3",
+    "aac",
+    "alac",
+    "isomp4",
+    "wav",
+    "pcm",
+] }
+rubato = "0.16"
+
+# モデルDL + BYOK API + カレンダー iCal フィード取得（blocking + rustls、core は非 async）。
+ureq = { version = "2", features = ["json"] }
+# モデルDLの完全性検証（截断・改竄の検出。models/mod.rs の期待ハッシュと突き合わせ）。
+sha2 = "0.10"
+serde_json = "1"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
+# カレンダー: iCal の日時パース / RRULE 展開（Naive 中心、now は呼び出し側が注入するので
+# clock は不要 = テスト決定的）。"std" で alloc(parse/format) を有効化。
+chrono = { version = "0.4", default-features = false, features = ["std"] }

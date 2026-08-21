@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Developer ID 署名（hardened runtime）用の entitlements（ADR-0022）。
+  bundler は同一の entitlements を全署名ターゲット（sidecar mojiroku-llm 含む）に適用する。
+
+  audio-input のみで足りる根拠:
+  - 画面収録（ScreenCaptureKit）に対応する hardened runtime entitlement は存在しない（TCC のみ）
+  - disable-library-validation 不要: bundle 内 dylib は同一 identity で署名、/usr/lib/swift は Apple 署名
+  - allow-jit / allow-unsigned-executable-memory 不要: ggml/Metal は実行時 CPU コード生成をしない。
+    WKWebView の JIT は Apple 署名の WebContent 別プロセス側
+  - network / keychain 系は App Sandbox 専用（sandbox は使わない）
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

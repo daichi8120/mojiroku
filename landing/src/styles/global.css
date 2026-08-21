@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/* ──────────────────────────────────────────────────────────────
+   mojiroku ランディング — ダーク Studio テーマ
+   アプリ本体（indigo / Noto Sans JP / DM Mono のダーク Studio）と統一。
+   フォントは全セルフホスト（@fontsource）。Google CDN へのホットリンクはしない
+   ＝「データは端末から出ない」という本サイトの主張と整合させるため。
+   配色は Tailwind 既定の slate / indigo / emerald を基調にする。
+   ─────────────────────────────────────────────────────────────── */
+
+@theme {
+  --font-sans: "Noto Sans JP", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /* sticky ヘッダー分のアンカーオフセット */
+    scroll-padding-top: 5rem;
+  }
+  body {
+    /* 日本語の詰め組み・小書き調整 */
+    font-feature-settings: "palt" 1;
+    text-rendering: optimizeLegibility;
+  }
+  /* 長い見出しの折り返しを綺麗に（対応ブラウザのみ） */
+  h1, h2, h3 {
+    text-wrap: balance;
+  }
+  /* キーボード操作時の可視フォーカス（ダーク背景で視認性の高い indigo リング） */
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid #818cf8;
+    outline-offset: 2px;
+    border-radius: 0.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* スクロールで静かに現れる（IntersectionObserver。JS未対応/低速設定では即表示） */
+@media (prefers-reduced-motion: no-preference) {
+  .reveal {
+    opacity: 0;
+    transform: translateY(16px);
+    transition:
+      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .reveal.is-visible {
+    opacity: 1;
+    transform: none;
+  }
+}

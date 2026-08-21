@@ -1,0 +1,21 @@
+// mojiroku リモート MCP の OAuth 2.1 ゲートウェイ（ADR-0025）
+//
+// claude.ai カスタムコネクタ → mcp.mojiroku.com（この Worker）→ mcp-origin.mojiroku.com
+// （Cloudflare Tunnel）→ ローカルの mojiroku-mcp --http。
+//
+// デプロイ: cd workers/mcp-gateway && npx wrangler deploy（手動。リリース CI には載せない）
+// Secrets（コード非同梱。npx wrangler secret put <NAME> で設定）:
+//   GATEWAY_PASSPHRASE … /authorize 同意画面のパスフレーズ（自分専用ゲート）
+//   ORIGIN_TOKEN       … origin（mojiroku-mcp --http）の Bearer トークン。
+//                        Mac 側 launchd plist の MOJIROKU_MCP_TOKEN と同じ値にする
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mojiroku-mcp-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "routes": [{ "pattern": "mcp.mojiroku.com", "custom_domain": true }],
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "a826ec3e7a1642c981aa13a485e73aa9" }
+  ],
+  "observability": { "enabled": true }
+}
