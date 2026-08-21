@@ -18,7 +18,7 @@ import {
   useJobUpdate,
   useMeetingStarting,
 } from "@/lib/tauri";
-import { formatTimestamp, type Recording, type StartingMeeting } from "@/lib/types";
+import { elapsedSeconds, formatTimestamp, type Recording, type StartingMeeting } from "@/lib/types";
 import { Sidebar } from "@/components/Sidebar";
 import { CheckIcon, StopIcon, VideoIcon, XIcon } from "@/components/icons";
 
@@ -250,7 +250,7 @@ function App() {
     }
     const started = meeting.startedAt;
     const timer = window.setInterval(() => {
-      const sec = Math.floor((Date.now() - started) / 1000);
+      const sec = elapsedSeconds(started, Date.now());
       if (sec >= 3 * 60 * 60) {
         toast(t.app.autoStopAtLimit, "info");
         void stopMeeting();
@@ -365,12 +365,10 @@ function MeetingBar({
   onDismiss: () => void;
 }) {
   const { t } = useI18n();
-  const [elapsed, setElapsed] = useState(() =>
-    startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0,
-  );
+  const [elapsed, setElapsed] = useState(() => elapsedSeconds(startedAt, Date.now()));
   useEffect(() => {
     const t = window.setInterval(() => {
-      setElapsed(startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0);
+      setElapsed(elapsedSeconds(startedAt, Date.now()));
     }, 1000);
     return () => clearInterval(t);
   }, [startedAt]);

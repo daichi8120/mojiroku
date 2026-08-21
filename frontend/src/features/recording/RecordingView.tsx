@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { translateError, useI18n } from "@/i18n";
 import { useApp } from "@/lib/app";
 import { stopMicRecording } from "@/lib/tauri";
-import { formatDuration } from "@/lib/types";
+import { elapsedSeconds, formatDuration } from "@/lib/types";
 import { Waveform } from "@/components/composite";
 import { StopIcon } from "@/components/icons";
 
@@ -19,22 +19,30 @@ export function RecordingView({
 }) {
   const { navigate, toast, refreshRecents } = useApp();
   const { t } = useI18n();
-  const [elapsed, setElapsed] = useState(0);
+  // 経過時間は開始時刻からの差分で出す（MeetingView と同方式）。setInterval は再描画の
+  // トリガにのみ使い、発火回数は数えない（数えると誤差が過小方向へ累積する。Issue #6）。
+  const [startedAt] = useState(() => Date.now());
+  // 停止を押した時刻。以降は表示を止める（バックエンドの確定待ちの間もカウントし続けないため）。
+  const [stoppedAt, setStoppedAt] = useState<number | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [, forceTick] = useState(0);
   const timer = useRef<number | null>(null);
 
   useEffect(() => {
-    timer.current = window.setInterval(() => setElapsed((e) => e + 1), 1000);
+    timer.current = window.setInterval(() => forceTick((n) => n + 1), 1000);
     return () => {
       if (timer.current !== null) clearInterval(timer.current);
     };
   }, []);
+
+  const elapsed = elapsedSeconds(startedAt, stoppedAt ?? Date.now());
 
   const stop = async () => {
     if (timer.current !== null) {
       clearInterval(timer.current);
       timer.current = null;
     }
+    setStoppedAt(Date.now());
     setStopping(true);
     try {
       const res = await stopMicRecording(diarize, title, recordOnly);
