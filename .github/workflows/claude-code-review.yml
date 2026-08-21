@@ -4,7 +4,11 @@
 # 公式例に対して、このリポジトリの事情から3点を追加している:
 #   1. fork PR を除外する job レベルの if:（後述）
 #   2. concurrency — 連続 push でレビューが積み上がるのを防ぐ（サブスク枠の節約）
-#   3. timeout-minutes / --max-turns — CLAUDE.md が大きいので暴走を止める
+#   3. timeout-minutes — CLAUDE.md が大きいので暴走を止める
+#
+# ⚠️ --max-turns は入れないこと。公式例には無く、2026-08-22 に 30 を入れたところ
+#    小さな PR（2ファイル）でも上限に到達してジョブが落ちた。暴走の歯止めは
+#    timeout-minutes 側で足りる。
 #
 # ⚠️ 除外は必ず job レベルの if: で書くこと。ワークフローレベルの paths:/branches:
 #    フィルタでスキップすると、将来これを required status check にしたときに
@@ -55,6 +59,4 @@ jobs:
           # --comment が無いと PR に何も投稿されず、結果は run のログにしか出ない。
           # --allowedTools のツール名は、action がインラインコメント用 MCP を起動する条件。
           # skill 側の frontmatter に書いてあってもこの行は必要。
-          claude_args: |
-            --max-turns 30
-            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
