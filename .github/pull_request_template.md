@@ -13,10 +13,16 @@
 - [ ] ハードコード・デバッグ用の一時コードが残っていない
 - [ ] README / `docs/` / `CLAUDE.md` が最新の挙動を反映している
 
-## develop → main（リリース）の場合のみ
-- [ ] `src-tauri/tauri.conf.json` の `version` を上げた（自動リリース CI のトリガ・ADR-0020）
+## develop → main の場合のみ
+- [ ] **リリースなら** `src-tauri/tauri.conf.json` の `version` を上げた（自動リリース CI のトリガ・ADR-0020）
+- [ ] **リリースでないなら** `version` を据え置いた（gate が `HEAD^` と比較し、macOS ジョブをスキップする）
 - [ ] 実機（Apple Silicon / macOS）で文字起こし→要約の基本フローを確認した
-- [ ] 未署名配布の起動手順（`xattr -dr com.apple.quarantine`）に影響する変更がないか確認した
+- [ ] 署名・公証（ADR-0022）に影響する変更がないか確認した
+      （`src-tauri/entitlements.plist` / `tauri.conf.json` の `bundle` / `release.yml` の署名まわり）
 
-## 関連リンク（Notion ToDo / ADR / Issue）
+## 外部からの貢献の場合
+- [ ] [CLA.md](../blob/main/CLA.md) を読み、内容に同意している
+- [ ] [docs/CONTRIBUTING.md](../blob/main/docs/CONTRIBUTING.md) に目を通した
+
+## 関連リンク（ADR / Issue）
 -
