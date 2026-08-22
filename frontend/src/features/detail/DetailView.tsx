@@ -303,6 +303,10 @@ export function DetailView({ id }: { id: string }) {
     setAskOpen(false);
     setConfirmDel(false);
     setEditingTitle(false);
+    // 訂正モーダルも必ず捨てる。残すと「別録音へ遷移したのにモーダルだけ前の録音の
+    // 発言を掴んでいる」状態になり、選んだ瞬間に**別録音の無関係な発言**が書き換わる
+    // （話者候補は新録音のものなので、コア側の話者検証も素通りしてしまう）。
+    setFixingSeg(null);
     setAudioSrc(null);
     setJob(null);
     setJobProgress({ done: 0, total: null });
@@ -358,6 +362,12 @@ export function DetailView({ id }: { id: string }) {
   const [fixingSeg, setFixingSeg] = useState<Segment | null>(null);
 
   const fixSegmentSpeaker = async (segIdx: number, speakerId: string | null) => {
+    // 掴んでいる detail が本当にこの id のものかを確かめてから書く（上の state リセットと
+    // 二重化）。state が残る経路を将来また作っても、ここで止まる。
+    if (!detail || detail.recording.id !== id) {
+      setFixingSeg(null);
+      return;
+    }
     setFixingSeg(null);
     try {
       await setSegmentSpeaker(id, segIdx, speakerId);

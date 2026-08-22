@@ -148,11 +148,6 @@ impl SqliteStore {
         Ok(())
     }
 
-    /// 後付け（再）話者分離の結果で話者割当を差し替える（ベスト努力引き継ぎ・ADR-0024）。
-    /// `transcript` は既存本文に新 diarization を `merge::assign_speakers` した後のもの（text 不変・
-    /// speaker_id のみ変化）。`remap` は新 speaker_id → 引き継ぐ display_name（声紋 cosine で新旧一致した改名）。
-    /// speaker_matches（ライブラリ照合）は再計算対象なので消し、既存要約は stale マークする。
-    #[allow(clippy::too_many_arguments)]
     /// 発言 1 件の話者を差し替える（発言単位の手動訂正・Issue #19）。
     ///
     /// 対象は `(recording_id, idx)` で指す。`idx` は `get_recording_detail` が返す値
@@ -175,6 +170,8 @@ impl SqliteStore {
         speaker_id: Option<&str>,
     ) -> Result<()> {
         let mut conn = self.conn();
+        // rusqlite の Transaction は DropBehavior 既定が Rollback。以降の早期 return では
+        // tx が drop された時点で自動的にロールバックされる（明示の rollback は不要）。
         let tx = conn.transaction()?;
 
         if let Some(sid) = speaker_id {
@@ -190,15 +187,31 @@ impl SqliteStore {
             }
         }
 
-        let n = tx.execute(
+        // 対象が存在するかを先に見る（存在しない idx を黙って 0 行更新にすると、
+        // 訂正が失われたことに気づけない）。
+        let current: Option<String> = tx
+            .query_row(
+                "SELECT speaker_id FROM segments WHERE recording_id = ?1 AND idx = ?2",
+                params![recording_id, idx],
+                |r| r.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| {
+                crate::error::CoreError::Db(format!(
+                    "segment not found: recording={recording_id} idx={idx}"
+                ))
+            })?;
+
+        // 同じ話者を選び直しただけなら何もしない。要約を stale にすると 7B モデルでの
+        // 作り直しが分単位で走るため、内容が変わっていないのに促すのは害。
+        if current.as_deref() == speaker_id {
+            return Ok(());
+        }
+
+        tx.execute(
             "UPDATE segments SET speaker_id = ?3 WHERE recording_id = ?1 AND idx = ?2",
             params![recording_id, idx, speaker_id],
         )?;
-        if n == 0 {
-            return Err(crate::error::CoreError::Db(format!(
-                "segment not found: recording={recording_id} idx={idx}"
-            )));
-        }
 
         tx.execute(
             "UPDATE summaries SET stale = 1 WHERE recording_id = ?1",
@@ -208,6 +221,11 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// 後付け（再）話者分離の結果で話者割当を差し替える（ベスト努力引き継ぎ・ADR-0024）。
+    /// `transcript` は既存本文に新 diarization を `merge::assign_speakers` した後のもの（text 不変・
+    /// speaker_id のみ変化）。`remap` は新 speaker_id → 引き継ぐ display_name（声紋 cosine で新旧一致した改名）。
+    /// speaker_matches（ライブラリ照合）は再計算対象なので消し、既存要約は stale マークする。
+    #[allow(clippy::too_many_arguments)]
     pub fn replace_speaker_assignments(
         &self,
         recording_id: &str,

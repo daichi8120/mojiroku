@@ -652,8 +652,13 @@ mod tests {
         assert_eq!(d.speakers[0].id, "S1");
         assert_eq!(d.speakers[0].label, "話者1");
         assert!(d.speakers[0].display_name.is_none());
-        // 最重要: 話者表の id 集合が segment.speaker_id の集合と一致する
-        // （ズレると改名が表示外のラベルに掛かる/掛からない話者が出る）。
+        // 最重要: segment.speaker_id に、話者表に無い id が現れない（seg_ids ⊆ spk_ids）。
+        // 崩れると改名 UI に出ない話者が発言側だけに生まれる。
+        //
+        // 逆向き（spk_ids ⊆ seg_ids）は**保存直後だけ**成り立つ。発言単位の訂正で
+        // 最後の 1 件を移すと発言ゼロの話者行が残るため（Issue #19。行を消すと
+        // 声紋とライブラリ紐づけまで失われ、訂正を戻せなくなる）。
+        // ここは save_recording 直後を見るテストなので、両向きの一致を確かめてよい。
         let seg_ids: BTreeSet<_> =
             d.transcript.segments.iter().filter_map(|x| x.speaker_id.clone()).collect();
         let spk_ids: BTreeSet<_> = d.speakers.iter().map(|x| x.id.clone()).collect();
@@ -698,6 +703,21 @@ mod tests {
 
         // 要約本文に話者名が出るため、話者を訂正したら作り直す価値がある。
         assert!(s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
+    }
+
+    #[test]
+    fn set_segment_speaker_same_value_is_noop() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_summary("r1", &summary("minutes", vec![])).unwrap();
+
+        // idx=0 は元から S1。同じ話者を選び直しても要約を stale にしない
+        // （7B モデルでの作り直しが分単位で走るため、内容が変わっていないのに促すのは害）。
+        s.set_segment_speaker("r1", 0, Some("S1")).unwrap();
+
+        let d = s.get_recording_detail("r1").unwrap().unwrap();
+        assert!(!d.summaries[0].stale, "同値なら stale を立てない");
+        assert_eq!(d.transcript.segments[0].speaker_id.as_deref(), Some("S1"));
     }
 
     #[test]

@@ -106,7 +106,6 @@ export const recordingAudioSrc = async (id: string): Promise<string | null> => {
   return path ? convertFileSrc(path) : null;
 };
 
-/** 話者改名（null で既定ラベルに戻す）。 */
 /**
  * 発言 1 件の話者を差し替える（発言単位の手動訂正・Issue #19）。
  * `segmentIdx` は Segment.idx。`speakerId` が null なら「話者不明」に戻す。
@@ -123,6 +122,7 @@ export const setSegmentSpeaker = (
     speakerId,
   });
 
+/** 話者改名（null で既定ラベルに戻す）。クラスタ全体が対象。 */
 export const renameSpeaker = (
   recordingId: string,
   speakerId: string,
