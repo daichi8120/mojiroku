@@ -2,7 +2,7 @@
 #
 # 出所: 2026-06-25 のセッションでユーザーが提供した「大雑把な」手動区間。
 #       transcript にしか残っておらず、2026-08-21 に復元した。
-# 音声: mojiroku recordings f5a6cb30-8bec-4f91-ab3f-03a4a696a764.wav（3215s）
+# 音声: mojiroku recordings f5a6cb30-8bec-4f91-ab3f-03a4a696a764.wav（duration_ms=3209640）
 # 抜粋: ffmpeg -ss 180 -t 600 -ac 1 -ar 16000  → 3:00-13:00 の 600s
 # 注意: 4人目はほとんど発話がないため実質3話者。厳密 DER ではない。
 #

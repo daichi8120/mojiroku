@@ -13,9 +13,14 @@
 評価に使う音声は**非公開の実会議録音**で、リポジトリには入っていない。会議名・参加者名も残さない
 （GT の話者は A / B / C のまま）。作者の手元では次の手順で同じ音声を再取得できる。
 
-1. mojiroku の履歴 DB（`~/Library/Application Support/com.daichi0812.mojiroku/mojiroku.sqlite3`）の
-   `recordings` テーブルから、`duration_ms` が `3209000` のレコードを引く。
-   録音 ID は `f5a6cb30-8bec-4f91-ab3f-03a4a696a764`。
+1. mojiroku の履歴 DB（`~/Library/Application Support/com.daichi0812.mojiroku/mojiroku.db`）の
+   `recordings` テーブルから、**録音 ID `f5a6cb30-8bec-4f91-ab3f-03a4a696a764`** を引く。
+   `duration_ms` は `3209640`（≒ 53分30秒）。ID のほうが確実な鍵なのでそちらで引く。
+
+   ```bash
+   sqlite3 "$HOME/Library/Application Support/com.daichi0812.mojiroku/mojiroku.db" \
+     "SELECT id, duration_ms FROM recordings WHERE id LIKE 'f5a6cb30%';"
+   ```
 2. その `.wav` の **3:00〜13:00 の 600 秒**を 16kHz mono に切り出す（GT の時刻はこの抜粋の相対秒）。
 
 ```bash
