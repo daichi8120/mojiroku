@@ -1,6 +1,6 @@
 // 録音の詳細（Studio 04 + 06 + 10 + 11）。最も大きいビュー。
 // 中央メイン（AI議事録 + 文字起こし/チャプター）+ 右ペイン 222px（話者 + MCP）。
-// 左サイドバーは App が描く。実機能: 取得 / 話者改名 / 要約生成 / 共有。
+// 左サイドバーは App が描く。実機能: 取得 / 話者改名 / 話者訂正（発言単位）/ 要約生成 / 共有。
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { getJobStart, getStageStart, markJobStart } from "@/lib/jobClock";
 import { useApp } from "@/lib/app";
@@ -15,6 +15,7 @@ import {
   renameRecording,
   transcribeRecording,
   useJobUpdate,
+  setSegmentSpeaker,
 } from "@/lib/tauri";
 import { MOCK_PREVIEW } from "@/lib/mockData";
 import { translateError, useI18n } from "@/i18n";
@@ -24,8 +25,12 @@ import {
   type Job,
   type RecordingDetail,
   type Summary,
+  type Segment,
+  formatTimestamp,
+  speakerChipStyle,
+  speakerName,
 } from "@/lib/types";
-import { ConfirmDialog, Spinner, Toggle } from "@/components/ui";
+import { ConfirmDialog, MenuItem, Modal, ModalHeader, Spinner, Toggle } from "@/components/ui";
 import { EmptyState, PreviewTag, TranscriptList, Waveform } from "@/components/composite";
 import {
   ArrowUpRightIcon,
@@ -123,8 +128,17 @@ export function DetailView({ id }: { id: string }) {
     setModalOpen(true);
   };
 
+  // 発言単位の話者訂正（Issue #19）。チップを押すと、その発言だけ話者を選び直せる。
+  // 改名（onRenamed）がクラスタ全体を変えるのに対し、こちらは 1 行だけを動かす。
+  const [fixingSeg, setFixingSeg] = useState<Segment | null>(null);
+
   // 本文/話者/音声を取り直す（ジョブ完了後の反映用。UI 状態＝タブ等はリセットしない）。
   const reloadDetail = useCallback(() => {
+    // 訂正モーダルは押した瞬間の Segment を掴んでいる。再取得で segments が
+    // 総入れ替えになると（再文字起こし等）、旧発言の本文を表示したまま新しい idx の
+    // 別発言へ書き込む経路ができる。いまは canTranscribe / canDiarize が塞いでいて
+    // 到達しないが、条件を緩めた瞬間に開く穴なのでここで捨てる。
+    setFixingSeg(null);
     getRecording(id)
       .then((d) => {
         if (d) {
@@ -298,6 +312,10 @@ export function DetailView({ id }: { id: string }) {
     setAskOpen(false);
     setConfirmDel(false);
     setEditingTitle(false);
+    // 訂正モーダルも必ず捨てる。残すと「別録音へ遷移したのにモーダルだけ前の録音の
+    // 発言を掴んでいる」状態になり、選んだ瞬間に**別録音の無関係な発言**が書き換わる
+    // （話者候補は新録音のものなので、コア側の話者検証も素通りしてしまう）。
+    setFixingSeg(null);
     setAudioSrc(null);
     setJob(null);
     setJobProgress({ done: 0, total: null });
@@ -347,6 +365,62 @@ export function DetailView({ id }: { id: string }) {
           : [...prev.summaries, summary];
       return { ...prev, summaries };
     });
+
+  const fixSegmentSpeaker = async (segIdx: number, speakerId: string | null) => {
+    // detail が prop の id に追いついていない窓（遷移直後）を弾く。
+    //
+    // ⚠️ **これは id 変更 effect の setFixingSeg(null) の二重化ではない。** 別録音へ遷移すると
+    // detail も id も新録音になるので、この条件は成立してしまう。「モーダルが前の録音の発言を
+    // 掴んだまま残る」を止めているのは effect 側のリセットだけで、そちらを消すと防御はゼロ。
+    // 本当に二重化するなら fixingSeg に録音 id を同梱して比べる必要がある。
+    // 選んだ時点でモーダルは必ず閉じる（成否・分岐によらず）。
+    setFixingSeg(null);
+    if (!detail || detail.recording.id !== id) {
+      // 起きないはずの分岐。黙って return すると「二重防御が効いた」のか「壊れた」のか
+      // 区別できないので、必ず痕跡を残す。
+      console.warn("[mojiroku] 訂正の対象録音が一致しないため中止", {
+        expected: id,
+        got: detail?.recording.id,
+      });
+      return;
+    }
+    let changed: boolean;
+    try {
+      // 戻り値は「実際に変えたか」。同じ話者を選び直したときは false。
+      // ここを見ずに stale を撒くと、DB は無変更なのに画面だけ「要約が古い」になり、
+      // 7B モデルでの作り直し（分単位）を無駄に促してしまう。
+      changed = await setSegmentSpeaker(id, segIdx, speakerId);
+    } catch (e) {
+      toast(translateError(e, t), "error");
+      return;
+    }
+    if (!changed) {
+      // 同じ話者を選び直した場合。コア側が何も変えていないので、こちらも
+      // 要約の stale を撒かない（撒くと 7B 要約の作り直しを無駄に促す）。
+      // 「押したのに無反応」に見えないよう、変化が無かったことは伝える。
+      toast(t.composite.speakerUnchanged, "info");
+      return;
+    }
+    // 再取得せずローカル state をパッチする（改名・タイトル変更と同じ作法）。
+    // await の間に別録音へ遷移していることがあるので、prev 側でも id を確かめる
+    // （DB は prop の id で書いているので誤書き込みは起きないが、画面だけズレる）。
+    setDetail((prev) =>
+      prev && prev.recording.id === id
+        ? {
+            ...prev,
+            transcript: {
+              ...prev.transcript,
+              segments: prev.transcript.segments.map((x) =>
+                x.idx === segIdx ? { ...x, speaker_id: speakerId } : x,
+              ),
+            },
+            // 要約はコア側で stale が立つので、こちらでも印を合わせる。
+            summaries: prev.summaries.map((x) => ({ ...x, stale: true })),
+          }
+        : prev,
+    );
+    toast(t.composite.speakerFixed, "success");
+  };
 
   const onRenamed = (speakerId: string, displayName: string | null) =>
     setDetail((prev) =>
@@ -796,6 +870,10 @@ export function DetailView({ id }: { id: string }) {
               translate={
                 translateOn && MOCK_PREVIEW ? () => MOCK_TRANSLATION : undefined
               }
+              // 話者が 1 人も居ない録音（話者分離していない）では訂正の選択肢が無いので出さない。
+              onSpeakerClick={
+                speakers.length > 0 ? setFixingSeg : undefined
+              }
             />
           ) : (
             <EmptyState
@@ -865,6 +943,50 @@ export function DetailView({ id }: { id: string }) {
         onConfirm={onDelete}
         onCancel={() => setConfirmDel(false)}
       />
+
+      {/* 発言単位の話者訂正（Issue #19）。押した発言だけを別の話者へ移す。 */}
+      <Modal open={!!fixingSeg} onClose={() => setFixingSeg(null)} width={380}>
+        {fixingSeg && (
+          <>
+            <ModalHeader
+              title={t.composite.fixSpeakerHeading}
+              onClose={() => setFixingSeg(null)}
+            />
+            <div className="px-5 py-4">
+              {/* どの発言を直そうとしているかを示す（押し間違いに気づけるように）。 */}
+              <p className="mb-3 rounded-[10px] bg-surface-2 px-3 py-2 text-[12.5px] leading-6 text-sub">
+                <span className="mr-2 font-mono text-[11px] text-dim tnum">
+                  {formatTimestamp(fixingSeg.start_ms)}
+                </span>
+                {fixingSeg.text}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {speakers.map((sp) => (
+                  <MenuItem
+                    key={sp.id}
+                    onClick={() => void fixSegmentSpeaker(fixingSeg.idx, sp.id)}
+                    icon={
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ background: speakerChipStyle(sp.id).color }}
+                      />
+                    }
+                    hint={sp.id === fixingSeg.speaker_id ? "✓" : undefined}
+                  >
+                    {speakerName(sp.id, speakers, lang)}
+                  </MenuItem>
+                ))}
+                <MenuItem
+                  onClick={() => void fixSegmentSpeaker(fixingSeg.idx, null)}
+                  hint={fixingSeg.speaker_id === null ? "✓" : undefined}
+                >
+                  {t.composite.fixSpeakerToUnknown}
+                </MenuItem>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

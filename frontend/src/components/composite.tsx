@@ -21,7 +21,8 @@ export function SpeakerChip({
   title,
   block,
 }: {
-  id: string;
+  /** null は「話者不明」。色を割り当てず控えめな中間色で描く。 */
+  id: string | null;
   name: string;
   onClick?: () => void;
   title?: string;
@@ -51,6 +52,7 @@ export function TranscriptList({
   speakers,
   showTimestamps = true,
   translate,
+  onSpeakerClick,
   className,
 }: {
   segments: Segment[];
@@ -58,25 +60,39 @@ export function TranscriptList({
   showTimestamps?: boolean;
   /** seg → 訳文（あれば原文の下に「訳」付きで表示）。翻訳プレビュー用。 */
   translate?: (seg: Segment) => string | null;
+  /**
+   * 話者チップを押せるようにする（発言単位の訂正・Issue #19）。
+   *
+   * 渡すと **話者が付いていない発言にも「?」チップを描く**（クリック対象を作るため。
+   * ついでに本文の左ずれも消える）。渡さないときの見た目は従来どおりで、
+   * 他の利用箇所には影響しない。
+   */
+  onSpeakerClick?: (seg: Segment) => void;
   className?: string;
 }) {
   const { t, lang } = useI18n();
   return (
     <ol className={cx("divide-y divide-line", className)}>
-      {segments.map((seg, i) => {
+      {segments.map((seg) => {
         const ja = translate?.(seg) ?? null;
         return (
-          <li key={i} className="flex gap-3 px-1 py-2.5 text-[13.5px]">
+          <li key={seg.idx} className="flex gap-3 px-1 py-2.5 text-[13.5px]">
             {showTimestamps && (
               <span className="shrink-0 pt-0.5 font-mono text-[11px] text-dim tnum">
                 {formatTimestamp(seg.start_ms)}
               </span>
             )}
-            {seg.speaker_id && (
+            {(seg.speaker_id || onSpeakerClick) && (
               <span className="shrink-0 self-start">
                 <SpeakerChip
                   id={seg.speaker_id}
-                  name={speakerName(seg.speaker_id, speakers, lang)}
+                  name={
+                    seg.speaker_id
+                      ? speakerName(seg.speaker_id, speakers, lang)
+                      : t.composite.speakerUnknown
+                  }
+                  onClick={onSpeakerClick ? () => onSpeakerClick(seg) : undefined}
+                  title={onSpeakerClick ? t.composite.clickToFixSpeaker : undefined}
                 />
               </span>
             )}

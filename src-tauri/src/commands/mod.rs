@@ -110,10 +110,17 @@ pub(crate) async fn acquire_heavy_job_permit() -> tokio::sync::SemaphorePermit<'
 /// 原文フォールバック）。core 側でキー化済みのメッセージは `CoreError` の Display 接頭辞
 /// （"model error: " 等）を外し、**キーが文字列の先頭に来る**ようにする（translateError は
 /// 先頭のキーしか解釈しない）。それ以外は従来どおり Display 文字列を返す。
+///
+/// **対象バリアントは match の arm がすべて。** キー化したエラーを新しいバリアントで
+/// 返すときは、ここに足さないと接頭辞が付いたまま UI に出る（Issue #19 で Db を追加）。
 pub(crate) fn core_err(e: mojiroku_core::CoreError) -> String {
     use mojiroku_core::CoreError;
     match e {
-        CoreError::Model(m) | CoreError::Calendar(m) if m.starts_with("error.") => m,
+        CoreError::Model(m) | CoreError::Calendar(m) | CoreError::Db(m)
+            if m.starts_with("error.") =>
+        {
+            m
+        }
         other => other.to_string(),
     }
 }
@@ -348,5 +355,12 @@ mod tests {
 
         let io = mojiroku_core::CoreError::Io("error.model.download: fake".into());
         assert_eq!(core_err(io), "io error: error.model.download: fake");
+
+        // Db も対象（発言単位の話者訂正が返すキー・Issue #19）。接頭辞が付くと
+        // translateError の辞書に当たらず、日本語 UI に英語が素通しで出る。
+        let db = mojiroku_core::CoreError::Db("error.segment.not_found".into());
+        assert_eq!(core_err(db), "error.segment.not_found");
+        let db_plain = mojiroku_core::CoreError::Db("boom".into());
+        assert_eq!(core_err(db_plain), "db error: boom");
     }
 }

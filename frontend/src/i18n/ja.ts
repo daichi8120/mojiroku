@@ -195,6 +195,13 @@ const ja = {
 
   composite: {
     translated: "訳",
+    /** 発言単位の話者訂正（Issue #19）。 */
+    speakerUnknown: "?",
+    clickToFixSpeaker: "クリックで話者を訂正",
+    fixSpeakerHeading: "この発言の話者",
+    fixSpeakerToUnknown: "話者不明に戻す",
+    speakerFixed: "話者を訂正しました",
+    speakerUnchanged: "すでにその話者です",
     valueProps: {
       local: { title: "ローカル完結", body: "録音も推論も Mac の中だけ。送信なし。" },
       free: { title: "基本無料", body: "ローカル推論で API 不要。維持費 $0。" },
@@ -624,6 +631,8 @@ const ja = {
     "error.oauth.state_mismatch":
       "連携の応答を検証できませんでした（安全のため中断しました。もう一度お試しください）",
     "error.speaker.name_empty": "名前が空です",
+    "error.speaker.unknown_for_recording": "この録音に存在しない話者です",
+    "error.segment.not_found": "対象の発言が見つかりません（画面を開き直してください）",
     "error.secret.unknown_key": "不明なシークレット名です",
     "error.job.no_audio": "この録音の音声ファイルが見つかりません",
     "error.job.no_transcript": "先に文字起こしを実行してください",

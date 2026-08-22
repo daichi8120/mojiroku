@@ -187,6 +187,8 @@ impl WhisperStt {
                 end_ms = filtered_ms_to_original(map, end_ms, true);
             }
             segments.push(Segment {
+                // idx は保存時に insert_segments が enumerate で採番し直す（schemas.rs 参照）。
+                idx: 0,
                 start_ms,
                 end_ms,
                 text: text.trim().to_string(),

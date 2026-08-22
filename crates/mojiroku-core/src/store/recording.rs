@@ -148,6 +148,82 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// 発言 1 件の話者を差し替える（発言単位の手動訂正・Issue #19）。
+    ///
+    /// 対象は `(recording_id, idx)` で指す。`idx` は `get_recording_detail` が返す値
+    /// （`insert_segments` が `enumerate()` で採番した連番）。
+    ///
+    /// `speaker_id` に `Some` を渡す場合、**その話者が当該録音の `speakers` に実在すること**を
+    /// 検証する。存在しない id を許すと、改名 UI に出ない話者が発言側にだけ生まれる
+    /// （`speakers` の id 集合と `segments.speaker_id` の集合がズレる）。
+    /// `None` は「話者不明に戻す」。
+    ///
+    /// **移動元の話者行は消さない。** 最後の 1 発言を移して発言ゼロになっても
+    /// `speakers` 行・声紋・ライブラリ紐づけは残す（訂正を戻せるようにするため）。
+    ///
+    /// 既存要約は stale にする（要約本文に話者名が出るため）。
+    /// 本文は変わらないので `rec_fts` は触らない。
+    ///
+    /// **戻り値は「実際に変えたか」。** 同じ話者を選び直したときは `false` を返して何もしない。
+    /// 呼び出し側（UI）はこれを見て「要約が古い」の表示を出し分ける — 真偽を知っているのは
+    /// ここだけなので、UI 側で現在値と比較させない（UI の値が DB と一致している前提に依存してしまう）。
+    pub fn set_segment_speaker(
+        &self,
+        recording_id: &str,
+        idx: u32,
+        speaker_id: Option<&str>,
+    ) -> Result<bool> {
+        let mut conn = self.conn();
+        // rusqlite の Transaction は DropBehavior 既定が Rollback。以降の早期 return では
+        // tx が drop された時点で自動的にロールバックされる（明示の rollback は不要）。
+        let tx = conn.transaction()?;
+
+        if let Some(sid) = speaker_id {
+            let known: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM speakers WHERE recording_id = ?1 AND speaker_id = ?2",
+                params![recording_id, sid],
+                |r| r.get(0),
+            )?;
+            if known == 0 {
+                // キーは `error.` 始まりにする。コマンド層の core_err が Display 接頭辞を外す。
+                return Err(crate::error::CoreError::Db(
+                    "error.speaker.unknown_for_recording".to_string(),
+                ));
+            }
+        }
+
+        // 対象が存在するかを先に見る（存在しない idx を黙って 0 行更新にすると、
+        // 訂正が失われたことに気づけない）。
+        let current: Option<String> = tx
+            .query_row(
+                "SELECT speaker_id FROM segments WHERE recording_id = ?1 AND idx = ?2",
+                params![recording_id, idx],
+                |r| r.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| {
+                crate::error::CoreError::Db("error.segment.not_found".to_string())
+            })?;
+
+        // 同じ話者を選び直しただけなら何もしない。要約を stale にすると 7B モデルでの
+        // 作り直しが分単位で走るため、内容が変わっていないのに促すのは害。
+        if current.as_deref() == speaker_id {
+            return Ok(false);
+        }
+
+        tx.execute(
+            "UPDATE segments SET speaker_id = ?3 WHERE recording_id = ?1 AND idx = ?2",
+            params![recording_id, idx, speaker_id],
+        )?;
+
+        tx.execute(
+            "UPDATE summaries SET stale = 1 WHERE recording_id = ?1",
+            params![recording_id],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// 後付け（再）話者分離の結果で話者割当を差し替える（ベスト努力引き継ぎ・ADR-0024）。
     /// `transcript` は既存本文に新 diarization を `merge::assign_speakers` した後のもの（text 不変・
     /// speaker_id のみ変化）。`remap` は新 speaker_id → 引き継ぐ display_name（声紋 cosine で新旧一致した改名）。
@@ -293,16 +369,17 @@ impl SqliteStore {
         // segments（idx 昇順で順序保持）
         let segments = {
             let mut stmt = conn.prepare(
-                "SELECT start_ms, end_ms, text, speaker_id FROM segments
+                "SELECT idx, start_ms, end_ms, text, speaker_id FROM segments
                  WHERE recording_id = ?1 ORDER BY idx ASC",
             )?;
             let rows = stmt
                 .query_map(params![recording_id], |r| {
                     Ok(Segment {
-                        start_ms: r.get::<_, i64>(0)? as u64,
-                        end_ms: r.get::<_, i64>(1)? as u64,
-                        text: r.get(2)?,
-                        speaker_id: r.get(3)?,
+                        idx: r.get::<_, i64>(0)? as u32,
+                        start_ms: r.get::<_, i64>(1)? as u64,
+                        end_ms: r.get::<_, i64>(2)? as u64,
+                        text: r.get(3)?,
+                        speaker_id: r.get(4)?,
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
