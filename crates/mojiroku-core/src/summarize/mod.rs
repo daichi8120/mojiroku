@@ -118,7 +118,7 @@ mod tests {
     use crate::schemas::Segment;
 
     fn seg(text: &str, speaker: Option<&str>) -> Segment {
-        Segment {
+        Segment { idx: 0,
             start_ms: 0,
             end_ms: 1000,
             text: text.into(),

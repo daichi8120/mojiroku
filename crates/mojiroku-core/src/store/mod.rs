@@ -439,9 +439,9 @@ mod tests {
         Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { start_ms: 0, end_ms: 1000, text: "あ".into(), speaker_id: None },
-                Segment { start_ms: 1000, end_ms: 2000, text: "い".into(), speaker_id: None },
-                Segment { start_ms: 2000, end_ms: 3000, text: "う".into(), speaker_id: None },
+                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "あ".into(), speaker_id: None },
+                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "い".into(), speaker_id: None },
+                Segment { idx: 0, start_ms: 2000, end_ms: 3000, text: "う".into(), speaker_id: None },
             ],
         }
     }
@@ -628,9 +628,9 @@ mod tests {
         Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { start_ms: 0, end_ms: 1000, text: "おはよう".into(), speaker_id: Some("S1".into()) },
-                Segment { start_ms: 1000, end_ms: 2000, text: "はい".into(), speaker_id: Some("S2".into()) },
-                Segment { start_ms: 2000, end_ms: 3000, text: "了解".into(), speaker_id: Some("S1".into()) },
+                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "おはよう".into(), speaker_id: Some("S1".into()) },
+                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "はい".into(), speaker_id: Some("S2".into()) },
+                Segment { idx: 0, start_ms: 2000, end_ms: 3000, text: "了解".into(), speaker_id: Some("S1".into()) },
             ],
         }
     }
@@ -658,6 +658,71 @@ mod tests {
             d.transcript.segments.iter().filter_map(|x| x.speaker_id.clone()).collect();
         let spk_ids: BTreeSet<_> = d.speakers.iter().map(|x| x.id.clone()).collect();
         assert_eq!(seg_ids, spk_ids);
+    }
+
+    #[test]
+    fn set_segment_speaker_moves_one_utterance_only() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+
+        // 2 番目（idx=1）を S2 → S1 へ訂正する。
+        s.set_segment_speaker("r1", 1, Some("S1")).unwrap();
+
+        let d = s.get_recording_detail("r1").unwrap().unwrap();
+        let got: Vec<_> = d.transcript.segments.iter().map(|x| x.speaker_id.clone()).collect();
+        assert_eq!(
+            got,
+            vec![Some("S1".into()), Some("S1".into()), Some("S1".into())],
+            "指定した 1 件だけが変わる"
+        );
+
+        // idx が API に出ていて、配列の添字と一致する。
+        let idxs: Vec<u32> = d.transcript.segments.iter().map(|x| x.idx).collect();
+        assert_eq!(idxs, vec![0, 1, 2]);
+
+        // 移動元（S2）の話者行は消さない。発言ゼロでも残す（訂正を戻せるように）。
+        assert!(d.speakers.iter().any(|x| x.id == "S2"), "S2 の行が残っている");
+
+        // 本文は変わらないので検索は壊れない。
+        assert!(!s.search_recordings("はい").unwrap().is_empty());
+    }
+
+    #[test]
+    fn set_segment_speaker_marks_summaries_stale() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_summary("r1", &summary("minutes", vec![])).unwrap();
+        assert!(!s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
+
+        s.set_segment_speaker("r1", 0, Some("S2")).unwrap();
+
+        // 要約本文に話者名が出るため、話者を訂正したら作り直す価値がある。
+        assert!(s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
+    }
+
+    #[test]
+    fn set_segment_speaker_rejects_unknown_speaker_and_missing_segment() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+
+        // 当該録音の speakers に無い id は拒否する。許すと speakers の id 集合と
+        // segments.speaker_id の集合がズレ、改名 UI に出ない話者が生まれる。
+        assert!(s.set_segment_speaker("r1", 0, Some("S99")).is_err());
+        // 存在しない発言も拒否する（黙って何もしないと訂正が失われたことに気づけない）。
+        assert!(s.set_segment_speaker("r1", 999, Some("S1")).is_err());
+
+        // 拒否されたので中身は無傷。
+        let d = s.get_recording_detail("r1").unwrap().unwrap();
+        assert_eq!(d.transcript.segments[0].speaker_id.as_deref(), Some("S1"));
+    }
+
+    #[test]
+    fn set_segment_speaker_can_clear_to_unknown() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.set_segment_speaker("r1", 0, None).unwrap();
+        let d = s.get_recording_detail("r1").unwrap().unwrap();
+        assert!(d.transcript.segments[0].speaker_id.is_none(), "話者不明へ戻せる");
     }
 
     #[test]
@@ -993,8 +1058,8 @@ mod tests {
         Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { start_ms: 0, end_ms: 1000, text: "今日の会議の議題".into(), speaker_id: None },
-                Segment { start_ms: 1000, end_ms: 2000, text: "来期の予算について話す".into(), speaker_id: None },
+                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "今日の会議の議題".into(), speaker_id: None },
+                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "来期の予算について話す".into(), speaker_id: None },
             ],
         }
     }
@@ -1041,8 +1106,8 @@ mod tests {
         let t = Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { start_ms: 0, end_ms: 1000, text: "予算の確認".into(), speaker_id: None },
-                Segment { start_ms: 1000, end_ms: 2000, text: "予算の承認".into(), speaker_id: None },
+                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "予算の確認".into(), speaker_id: None },
+                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "予算の承認".into(), speaker_id: None },
             ],
         };
         s.save_recording(&rec_titled("r1", None), &t, &[]).unwrap();
@@ -1056,7 +1121,7 @@ mod tests {
         // 本文には "営業" を含まず、タイトルにだけ含む。
         let t = Transcript {
             language: Some("ja".into()),
-            segments: vec![Segment {
+            segments: vec![Segment { idx: 0,
                 start_ms: 0,
                 end_ms: 1000,
                 text: "雑談のみ".into(),
@@ -1075,7 +1140,7 @@ mod tests {
         s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[]).unwrap();
         let other = Transcript {
             language: Some("ja".into()),
-            segments: vec![Segment {
+            segments: vec![Segment { idx: 0,
                 start_ms: 0,
                 end_ms: 1000,
                 text: "週末の買い物リスト".into(),
@@ -1114,7 +1179,7 @@ mod tests {
         let s = SqliteStore::open_in_memory().unwrap();
         let t = Transcript {
             language: Some("ja".into()),
-            segments: vec![Segment {
+            segments: vec![Segment { idx: 0,
                 start_ms: 0,
                 end_ms: 1000,
                 text: r#"foo AND "bar" baz"#.into(),

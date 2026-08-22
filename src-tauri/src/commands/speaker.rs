@@ -21,6 +21,25 @@ pub(crate) fn rename_speaker(
         .map_err(|e| e.to_string())
 }
 
+/// 発言 1 件の話者を差し替える（発言単位の手動訂正・Issue #19）。
+///
+/// `segment_idx` は `get_recording` が返す `Segment.idx`。`speaker_id` が null なら
+/// 「話者不明」に戻す。当該録音に存在しない話者 id はコア側で拒否される。
+///
+/// 改名（`rename_speaker`）がクラスタ全体を変えるのに対し、こちらは 1 発言だけを動かす。
+#[tauri::command]
+pub(crate) fn set_segment_speaker(
+    store: State<'_, SqliteStore>,
+    recording_id: String,
+    segment_idx: u32,
+    speaker_id: Option<String>,
+) -> Result<(), String> {
+    let sid = speaker_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    store
+        .set_segment_speaker(&recording_id, segment_idx, sid)
+        .map_err(|e| e.to_string())
+}
+
 // ── 話者ライブラリ（クロス会議の声紋照合・ADR-0018） ──────────────────────────
 
 /// 端末内の登録話者一覧（名前昇順・対応づけ数つき）。

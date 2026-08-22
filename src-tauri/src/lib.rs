@@ -88,6 +88,7 @@ pub fn run() {
             commands::history::delete_recording,
             commands::history::rename_recording,
             commands::speaker::rename_speaker,
+            commands::speaker::set_segment_speaker,
             commands::speaker::list_speaker_library,
             commands::speaker::add_speaker_to_library,
             commands::speaker::rename_speaker_library,

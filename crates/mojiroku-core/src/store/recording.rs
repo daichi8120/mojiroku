@@ -153,6 +153,61 @@ impl SqliteStore {
     /// speaker_id のみ変化）。`remap` は新 speaker_id → 引き継ぐ display_name（声紋 cosine で新旧一致した改名）。
     /// speaker_matches（ライブラリ照合）は再計算対象なので消し、既存要約は stale マークする。
     #[allow(clippy::too_many_arguments)]
+    /// 発言 1 件の話者を差し替える（発言単位の手動訂正・Issue #19）。
+    ///
+    /// 対象は `(recording_id, idx)` で指す。`idx` は `get_recording_detail` が返す値
+    /// （`insert_segments` が `enumerate()` で採番した連番）。
+    ///
+    /// `speaker_id` に `Some` を渡す場合、**その話者が当該録音の `speakers` に実在すること**を
+    /// 検証する。存在しない id を許すと、改名 UI に出ない話者が発言側にだけ生まれる
+    /// （`speakers` の id 集合と `segments.speaker_id` の集合がズレる）。
+    /// `None` は「話者不明に戻す」。
+    ///
+    /// **移動元の話者行は消さない。** 最後の 1 発言を移して発言ゼロになっても
+    /// `speakers` 行・声紋・ライブラリ紐づけは残す（訂正を戻せるようにするため）。
+    ///
+    /// 既存要約は stale にする（要約本文に話者名が出るため）。
+    /// 本文は変わらないので `rec_fts` は触らない。
+    pub fn set_segment_speaker(
+        &self,
+        recording_id: &str,
+        idx: u32,
+        speaker_id: Option<&str>,
+    ) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+
+        if let Some(sid) = speaker_id {
+            let known: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM speakers WHERE recording_id = ?1 AND speaker_id = ?2",
+                params![recording_id, sid],
+                |r| r.get(0),
+            )?;
+            if known == 0 {
+                return Err(crate::error::CoreError::Db(format!(
+                    "unknown speaker_id for this recording: {sid}"
+                )));
+            }
+        }
+
+        let n = tx.execute(
+            "UPDATE segments SET speaker_id = ?3 WHERE recording_id = ?1 AND idx = ?2",
+            params![recording_id, idx, speaker_id],
+        )?;
+        if n == 0 {
+            return Err(crate::error::CoreError::Db(format!(
+                "segment not found: recording={recording_id} idx={idx}"
+            )));
+        }
+
+        tx.execute(
+            "UPDATE summaries SET stale = 1 WHERE recording_id = ?1",
+            params![recording_id],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn replace_speaker_assignments(
         &self,
         recording_id: &str,
@@ -293,16 +348,17 @@ impl SqliteStore {
         // segments（idx 昇順で順序保持）
         let segments = {
             let mut stmt = conn.prepare(
-                "SELECT start_ms, end_ms, text, speaker_id FROM segments
+                "SELECT idx, start_ms, end_ms, text, speaker_id FROM segments
                  WHERE recording_id = ?1 ORDER BY idx ASC",
             )?;
             let rows = stmt
                 .query_map(params![recording_id], |r| {
                     Ok(Segment {
-                        start_ms: r.get::<_, i64>(0)? as u64,
-                        end_ms: r.get::<_, i64>(1)? as u64,
-                        text: r.get(2)?,
-                        speaker_id: r.get(3)?,
+                        idx: r.get::<_, i64>(0)? as u32,
+                        start_ms: r.get::<_, i64>(1)? as u64,
+                        end_ms: r.get::<_, i64>(2)? as u64,
+                        text: r.get(3)?,
+                        speaker_id: r.get(4)?,
                     })
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;

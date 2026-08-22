@@ -43,8 +43,16 @@ pub struct Transcript {
 }
 
 /// セグメント。`speaker_id` を Phase 1 から保持し、話者分離の retrofit を不要にする。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Segment {
+    /// DB 上の並び順。**1 発言を指す識別子**として API 境界に出す
+    /// （発言単位の話者訂正がこれで対象を指す。Issue #19）。
+    ///
+    /// ⚠️ 保存前は意味を持たない。`insert_segments` が `enumerate()` で採番し直すため、
+    /// 文字起こし直後などの構築時は 0 のままでよい。読み出し時は配列の添字と一致する
+    /// （`ORDER BY idx ASC` かつ採番が連番のため）。
+    #[serde(default)]
+    pub idx: u32,
     pub start_ms: u64,
     pub end_ms: u64,
     pub text: String,
