@@ -185,9 +185,7 @@ impl SqliteStore {
                 |r| r.get(0),
             )?;
             if known == 0 {
-                // 文言はフロントの i18n キー。translateError が未知キーを原文フォールバックする
-                // ため、生の英語を返すと日本語 UI にそのまま出る（同ファイルの
-                // add_speaker_to_library と同じ作法に揃える）。
+                // キーは `error.` 始まりにする。コマンド層の core_err が Display 接頭辞を外す。
                 return Err(crate::error::CoreError::Db(
                     "error.speaker.unknown_for_recording".to_string(),
                 ));

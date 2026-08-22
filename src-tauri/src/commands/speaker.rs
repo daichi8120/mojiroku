@@ -40,7 +40,7 @@ pub(crate) fn set_segment_speaker(
     let sid = speaker_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
     store
         .set_segment_speaker(&recording_id, segment_idx, sid)
-        .map_err(|e| e.to_string())
+        .map_err(core_err)
 }
 
 // ── 話者ライブラリ（クロス会議の声紋照合・ADR-0018） ──────────────────────────

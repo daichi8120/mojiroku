@@ -731,6 +731,13 @@ mod tests {
         // 存在しない発言も拒否する（黙って何もしないと訂正が失われたことに気づけない）。
         assert!(s.set_segment_speaker("r1", 999, Some("S1")).is_err());
 
+        // メッセージは `error.` 始まりの i18n キー。コマンド層の core_err が Display 接頭辞を
+        // 外してフロントへ渡すので、キーが文字列の先頭に来ることが条件になる。
+        let e1 = s.set_segment_speaker("r1", 0, Some("S99")).unwrap_err();
+        assert!(matches!(&e1, crate::error::CoreError::Db(m) if m == "error.speaker.unknown_for_recording"));
+        let e2 = s.set_segment_speaker("r1", 999, Some("S1")).unwrap_err();
+        assert!(matches!(&e2, crate::error::CoreError::Db(m) if m == "error.segment.not_found"));
+
         // 拒否されたので中身は無傷。
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         assert_eq!(d.transcript.segments[0].speaker_id.as_deref(), Some("S1"));

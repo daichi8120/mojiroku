@@ -113,7 +113,11 @@ pub(crate) async fn acquire_heavy_job_permit() -> tokio::sync::SemaphorePermit<'
 pub(crate) fn core_err(e: mojiroku_core::CoreError) -> String {
     use mojiroku_core::CoreError;
     match e {
-        CoreError::Model(m) | CoreError::Calendar(m) if m.starts_with("error.") => m,
+        CoreError::Model(m) | CoreError::Calendar(m) | CoreError::Db(m)
+            if m.starts_with("error.") =>
+        {
+            m
+        }
         other => other.to_string(),
     }
 }
@@ -348,5 +352,12 @@ mod tests {
 
         let io = mojiroku_core::CoreError::Io("error.model.download: fake".into());
         assert_eq!(core_err(io), "io error: error.model.download: fake");
+
+        // Db も対象（発言単位の話者訂正が返すキー・Issue #19）。接頭辞が付くと
+        // translateError の辞書に当たらず、日本語 UI に英語が素通しで出る。
+        let db = mojiroku_core::CoreError::Db("error.segment.not_found".into());
+        assert_eq!(core_err(db), "error.segment.not_found");
+        let db_plain = mojiroku_core::CoreError::Db("boom".into());
+        assert_eq!(core_err(db_plain), "db error: boom");
     }
 }
