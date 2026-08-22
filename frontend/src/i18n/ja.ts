@@ -195,6 +195,12 @@ const ja = {
 
   composite: {
     translated: "訳",
+    /** 発言単位の話者訂正（Issue #19）。 */
+    speakerUnknown: "?",
+    clickToFixSpeaker: "クリックで話者を訂正",
+    fixSpeakerHeading: "この発言の話者",
+    fixSpeakerToUnknown: "話者不明に戻す",
+    speakerFixed: "話者を訂正しました",
     valueProps: {
       local: { title: "ローカル完結", body: "録音も推論も Mac の中だけ。送信なし。" },
       free: { title: "基本無料", body: "ローカル推論で API 不要。維持費 $0。" },

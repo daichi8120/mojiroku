@@ -19,9 +19,9 @@ function detail(): RecordingDetail {
     transcript: {
       language: "ja",
       segments: [
-        { start_ms: 0, end_ms: 1_000, text: "おはよう", speaker_id: "S1" },
-        { start_ms: 1_000, end_ms: 2_000, text: "やあ", speaker_id: "S2" },
-        { start_ms: 2_000, end_ms: 3_000, text: "（無名）", speaker_id: null },
+        { idx: 0, start_ms: 0, end_ms: 1_000, text: "おはよう", speaker_id: "S1" },
+        { idx: 1, start_ms: 1_000, end_ms: 2_000, text: "やあ", speaker_id: "S2" },
+        { idx: 2, start_ms: 2_000, end_ms: 3_000, text: "（無名）", speaker_id: null },
       ],
     },
     summaries: [{ template_id: "minutes", content: "  # 決定\n- A  ", action_items: [] }],

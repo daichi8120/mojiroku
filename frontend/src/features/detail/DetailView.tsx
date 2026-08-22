@@ -15,6 +15,7 @@ import {
   renameRecording,
   transcribeRecording,
   useJobUpdate,
+  setSegmentSpeaker,
 } from "@/lib/tauri";
 import { MOCK_PREVIEW } from "@/lib/mockData";
 import { translateError, useI18n } from "@/i18n";
@@ -24,8 +25,12 @@ import {
   type Job,
   type RecordingDetail,
   type Summary,
+  type Segment,
+  formatTimestamp,
+  speakerChipStyle,
+  speakerName,
 } from "@/lib/types";
-import { ConfirmDialog, Spinner, Toggle } from "@/components/ui";
+import { ConfirmDialog, MenuItem, Modal, ModalHeader, Spinner, Toggle } from "@/components/ui";
 import { EmptyState, PreviewTag, TranscriptList, Waveform } from "@/components/composite";
 import {
   ArrowUpRightIcon,
@@ -347,6 +352,37 @@ export function DetailView({ id }: { id: string }) {
           : [...prev.summaries, summary];
       return { ...prev, summaries };
     });
+
+  // 発言単位の話者訂正（Issue #19）。チップを押すと、その発言だけ話者を選び直せる。
+  // 改名（onRenamed）がクラスタ全体を変えるのに対し、こちらは 1 行だけを動かす。
+  const [fixingSeg, setFixingSeg] = useState<Segment | null>(null);
+
+  const fixSegmentSpeaker = async (segIdx: number, speakerId: string | null) => {
+    setFixingSeg(null);
+    try {
+      await setSegmentSpeaker(id, segIdx, speakerId);
+    } catch (e) {
+      toast(translateError(e, t), "error");
+      return;
+    }
+    // 再取得せずローカル state をパッチする（改名・タイトル変更と同じ作法）。
+    // 要約はコア側で stale が立つので、こちらでも印を合わせる。
+    setDetail((prev) =>
+      prev
+        ? {
+            ...prev,
+            transcript: {
+              ...prev.transcript,
+              segments: prev.transcript.segments.map((x) =>
+                x.idx === segIdx ? { ...x, speaker_id: speakerId } : x,
+              ),
+            },
+            summaries: prev.summaries?.map((x) => ({ ...x, stale: true })),
+          }
+        : prev,
+    );
+    toast(t.composite.speakerFixed, "success");
+  };
 
   const onRenamed = (speakerId: string, displayName: string | null) =>
     setDetail((prev) =>
@@ -796,6 +832,10 @@ export function DetailView({ id }: { id: string }) {
               translate={
                 translateOn && MOCK_PREVIEW ? () => MOCK_TRANSLATION : undefined
               }
+              // 話者が 1 人も居ない録音（話者分離していない）では訂正の選択肢が無いので出さない。
+              onSpeakerClick={
+                detail.speakers && detail.speakers.length > 0 ? setFixingSeg : undefined
+              }
             />
           ) : (
             <EmptyState
@@ -865,6 +905,50 @@ export function DetailView({ id }: { id: string }) {
         onConfirm={onDelete}
         onCancel={() => setConfirmDel(false)}
       />
+
+      {/* 発言単位の話者訂正（Issue #19）。押した発言だけを別の話者へ移す。 */}
+      <Modal open={!!fixingSeg} onClose={() => setFixingSeg(null)} width={380}>
+        {fixingSeg && (
+          <>
+            <ModalHeader
+              title={t.composite.fixSpeakerHeading}
+              onClose={() => setFixingSeg(null)}
+            />
+            <div className="px-5 py-4">
+              {/* どの発言を直そうとしているかを示す（押し間違いに気づけるように）。 */}
+              <p className="mb-3 rounded-[10px] bg-surface-2 px-3 py-2 text-[12.5px] leading-6 text-sub">
+                <span className="mr-2 font-mono text-[11px] text-dim tnum">
+                  {formatTimestamp(fixingSeg.start_ms)}
+                </span>
+                {fixingSeg.text}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {detail.speakers?.map((sp) => (
+                  <MenuItem
+                    key={sp.id}
+                    onClick={() => void fixSegmentSpeaker(fixingSeg.idx, sp.id)}
+                    icon={
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ background: speakerChipStyle(sp.id).color }}
+                      />
+                    }
+                    hint={sp.id === fixingSeg.speaker_id ? "✓" : undefined}
+                  >
+                    {speakerName(sp.id, detail.speakers, lang)}
+                  </MenuItem>
+                ))}
+                <MenuItem
+                  onClick={() => void fixSegmentSpeaker(fixingSeg.idx, null)}
+                  hint={fixingSeg.speaker_id === null ? "✓" : undefined}
+                >
+                  {t.composite.fixSpeakerToUnknown}
+                </MenuItem>
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -3,6 +3,11 @@
 import { dicts, type Locale } from "@/i18n";
 
 export interface Segment {
+  /**
+   * DB 上の並び順。**1 発言を指す識別子**（発言単位の話者訂正がこれで対象を指す）。
+   * 読み出し時は配列の添字と一致するが、依存せずこの値を使うこと。
+   */
+  idx: number;
   start_ms: number;
   end_ms: number;
   text: string;
@@ -249,7 +254,9 @@ export function speakerInk(id: string): SpeakerInk {
 }
 
 /** 話者チップの inline style（文字色 + 地色）。 */
-export function speakerChipStyle(id: string): { color: string; background: string } {
+export function speakerChipStyle(id: string | null): { color: string; background: string } {
+  // 話者不明は色を割り当てない（特定の人に見えてしまうため）。控えめな中間色。
+  if (id === null) return { color: "var(--mj-sub)", background: "rgba(148,163,184,0.14)" };
   const ink = speakerInk(id);
   return { color: ink.text, background: ink.bg };
 }

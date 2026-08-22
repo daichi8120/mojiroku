@@ -193,6 +193,12 @@ const en: Dict = {
 
   composite: {
     translated: "Translated",
+    /** 発言単位の話者訂正（Issue #19）。 */
+    speakerUnknown: "?",
+    clickToFixSpeaker: "Click to fix the speaker",
+    fixSpeakerHeading: "Speaker for this line",
+    fixSpeakerToUnknown: "Set to unknown",
+    speakerFixed: "Speaker corrected",
     valueProps: {
       local: {
         title: "Fully local",
