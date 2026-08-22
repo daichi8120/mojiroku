@@ -374,7 +374,8 @@ mod tests {
     }
 
     fn seg(text: &str, speaker: Option<&str>) -> Segment {
-        Segment { idx: 0,
+        Segment {
+            idx: 0,
             start_ms: 0,
             end_ms: 0,
             text: text.into(),

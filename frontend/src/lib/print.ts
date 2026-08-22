@@ -15,7 +15,7 @@
 // ⚠️ 直接ファイル保存ではなく **OS の印刷パネル経由**（macOS は「PDF として保存」）。UI で開示する。
 import { dicts } from "@/i18n";
 import { exportBaseName } from "./share";
-import { speakerName, type Lang, type RecordingDetail } from "./types";
+import { speakerName, speakingSpeakerNames, type Lang, type RecordingDetail } from "./types";
 import { templateLabel } from "./templates";
 
 const PRINT_ROOT_ID = "mojiroku-print-root";
@@ -174,16 +174,7 @@ export function meetingPrintBody(detail: RecordingDetail, lang: Lang): string {
   const title = esc(r.title?.trim() || o.fallbackTitle);
   const date = r.created_at.slice(0, 10);
   const durMin = Math.round(r.duration_ms / 60000);
-  // 実際に発言している話者だけ並べる。発言単位の訂正で最後の 1 件を移すと、
-  // 話者行は残る（訂正を戻せるように意図してそうしている）ため、
-  // detail.speakers をそのまま並べると 1 件も喋っていない人が載る。
-  const spoke = new Set(
-    detail.transcript.segments.map((x) => x.speaker_id).filter(Boolean) as string[],
-  );
-  const speakers = (detail.speakers ?? [])
-    .filter((s) => spoke.has(s.id))
-    .map((s) => s.display_name ?? s.label)
-    .join(f.listSeparator);
+  const speakers = speakingSpeakerNames(detail).join(f.listSeparator);
   const meta = esc([date, f.durationMin(durMin), speakers].filter(Boolean).join(" · "));
 
   const summaries = detail.summaries

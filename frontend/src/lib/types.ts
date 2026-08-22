@@ -254,6 +254,24 @@ export function speakerInk(id: string): SpeakerInk {
 }
 
 /** 話者チップの inline style（文字色 + 地色）。 */
+/**
+ * 実際に発言している話者の表示名だけを並べる（**書き出しヘッダー専用**）。
+ *
+ * 発言単位の訂正で最後の 1 件を移しても `speakers` 行は残す設計（訂正を戻せるように。
+ * Issue #19）。そのため `detail.speakers` をそのまま並べると 1 件も喋っていない人が載る。
+ *
+ * ⚠️ **一貫性を理由に他の話者リストへ広げないこと。** 訂正モーダルと SpeakerPanel は
+ * 未フィルタの全話者を出す必要がある（発言ゼロになった話者を選び直せないと訂正が戻せない）。
+ */
+export function speakingSpeakerNames(detail: RecordingDetail): string[] {
+  const spoke = new Set(
+    detail.transcript.segments.map((x) => x.speaker_id).filter((x): x is string => !!x),
+  );
+  return (detail.speakers ?? [])
+    .filter((s) => spoke.has(s.id))
+    .map((s) => s.display_name ?? s.label);
+}
+
 export function speakerChipStyle(id: string | null): { color: string; background: string } {
   // 話者不明は色を割り当てない（特定の人に見えてしまうため）。控えめな中間色。
   if (id === null) return { color: "var(--mj-sub)", background: "rgba(148,163,184,0.14)" };

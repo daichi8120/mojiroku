@@ -369,6 +369,8 @@ export function DetailView({ id }: { id: string }) {
   const fixSegmentSpeaker = async (segIdx: number, speakerId: string | null) => {
     // 掴んでいる detail が本当にこの id のものかを確かめてから書く（上の state リセットと
     // 二重化）。state が残る経路を将来また作っても、ここで止まる。
+    // 選んだ時点でモーダルは必ず閉じる（成否・分岐によらず）。
+    setFixingSeg(null);
     if (!detail || detail.recording.id !== id) {
       // 起きないはずの分岐。黙って return すると「二重防御が効いた」のか「壊れた」のか
       // 区別できないので、必ず痕跡を残す。
@@ -376,10 +378,8 @@ export function DetailView({ id }: { id: string }) {
         expected: id,
         got: detail?.recording.id,
       });
-      setFixingSeg(null);
       return;
     }
-    setFixingSeg(null);
     let changed: boolean;
     try {
       // 戻り値は「実際に変えたか」。同じ話者を選び直したときは false。
@@ -390,7 +390,13 @@ export function DetailView({ id }: { id: string }) {
       toast(translateError(e, t), "error");
       return;
     }
-    if (!changed) return;
+    if (!changed) {
+      // 同じ話者を選び直した場合。コア側が何も変えていないので、こちらも
+      // 要約の stale を撒かない（撒くと 7B 要約の作り直しを無駄に促す）。
+      // 「押したのに無反応」に見えないよう、変化が無かったことは伝える。
+      toast(t.composite.speakerUnchanged, "info");
+      return;
+    }
     // 再取得せずローカル state をパッチする（改名・タイトル変更と同じ作法）。
     // await の間に別録音へ遷移していることがあるので、prev 側でも id を確かめる
     // （DB は prop の id で書いているので誤書き込みは起きないが、画面だけズレる）。
@@ -405,7 +411,7 @@ export function DetailView({ id }: { id: string }) {
               ),
             },
             // 要約はコア側で stale が立つので、こちらでも印を合わせる。
-            summaries: prev.summaries?.map((x) => ({ ...x, stale: true })),
+            summaries: prev.summaries.map((x) => ({ ...x, stale: true })),
           }
         : prev,
     );
@@ -862,7 +868,7 @@ export function DetailView({ id }: { id: string }) {
               }
               // 話者が 1 人も居ない録音（話者分離していない）では訂正の選択肢が無いので出さない。
               onSpeakerClick={
-                detail.speakers && detail.speakers.length > 0 ? setFixingSeg : undefined
+                speakers.length > 0 ? setFixingSeg : undefined
               }
             />
           ) : (
@@ -951,7 +957,7 @@ export function DetailView({ id }: { id: string }) {
                 {fixingSeg.text}
               </p>
               <div className="flex flex-col gap-0.5">
-                {detail.speakers?.map((sp) => (
+                {speakers.map((sp) => (
                   <MenuItem
                     key={sp.id}
                     onClick={() => void fixSegmentSpeaker(fixingSeg.idx, sp.id)}
@@ -963,7 +969,7 @@ export function DetailView({ id }: { id: string }) {
                     }
                     hint={sp.id === fixingSeg.speaker_id ? "✓" : undefined}
                   >
-                    {speakerName(sp.id, detail.speakers, lang)}
+                    {speakerName(sp.id, speakers, lang)}
                   </MenuItem>
                 ))}
                 <MenuItem

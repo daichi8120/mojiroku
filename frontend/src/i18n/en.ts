@@ -199,6 +199,7 @@ const en: Dict = {
     fixSpeakerHeading: "Speaker for this line",
     fixSpeakerToUnknown: "Set to unknown",
     speakerFixed: "Speaker corrected",
+    speakerUnchanged: "Already set to that speaker",
     valueProps: {
       local: {
         title: "Fully local",

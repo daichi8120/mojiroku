@@ -111,7 +111,8 @@ mod tests {
     use crate::schemas::{Segment, Speaker, Transcript};
 
     fn seg(start_ms: u64, end_ms: u64) -> Segment {
-        Segment { idx: 0,
+        Segment {
+            idx: 0,
             start_ms,
             end_ms,
             text: "x".into(),
@@ -185,7 +186,8 @@ mod tests {
     }
 
     fn seg_t(start_ms: u64, end_ms: u64, text: &str) -> Segment {
-        Segment { idx: 0,
+        Segment {
+            idx: 0,
             start_ms,
             end_ms,
             text: text.into(),

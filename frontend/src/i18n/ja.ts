@@ -201,6 +201,7 @@ const ja = {
     fixSpeakerHeading: "この発言の話者",
     fixSpeakerToUnknown: "話者不明に戻す",
     speakerFixed: "話者を訂正しました",
+    speakerUnchanged: "すでにその話者です",
     valueProps: {
       local: { title: "ローカル完結", body: "録音も推論も Mac の中だけ。送信なし。" },
       free: { title: "基本無料", body: "ローカル推論で API 不要。維持費 $0。" },

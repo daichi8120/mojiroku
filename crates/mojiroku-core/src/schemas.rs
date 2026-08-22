@@ -43,7 +43,7 @@ pub struct Transcript {
 }
 
 /// セグメント。`speaker_id` を Phase 1 から保持し、話者分離の retrofit を不要にする。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Segment {
     /// DB 上の並び順。**1 発言を指す識別子**として API 境界に出す
     /// （発言単位の話者訂正がこれで対象を指す。Issue #19）。

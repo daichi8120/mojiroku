@@ -1148,7 +1148,8 @@ mod tests {
         // 本文には "営業" を含まず、タイトルにだけ含む。
         let t = Transcript {
             language: Some("ja".into()),
-            segments: vec![Segment { idx: 0,
+            segments: vec![Segment {
+                idx: 0,
                 start_ms: 0,
                 end_ms: 1000,
                 text: "雑談のみ".into(),
@@ -1167,7 +1168,8 @@ mod tests {
         s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[]).unwrap();
         let other = Transcript {
             language: Some("ja".into()),
-            segments: vec![Segment { idx: 0,
+            segments: vec![Segment {
+                idx: 0,
                 start_ms: 0,
                 end_ms: 1000,
                 text: "週末の買い物リスト".into(),
@@ -1206,7 +1208,8 @@ mod tests {
         let s = SqliteStore::open_in_memory().unwrap();
         let t = Transcript {
             language: Some("ja".into()),
-            segments: vec![Segment { idx: 0,
+            segments: vec![Segment {
+                idx: 0,
                 start_ms: 0,
                 end_ms: 1000,
                 text: r#"foo AND "bar" baz"#.into(),
