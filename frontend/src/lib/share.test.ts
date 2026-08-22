@@ -32,6 +32,27 @@ function detail(): RecordingDetail {
   };
 }
 
+describe("発言単位の話者訂正が書き出しに反映される（Issue #19）", () => {
+  it("訂正した speaker_id の表示名で書き出される", () => {
+    const d = detail();
+    // 2 件目（idx=1）を S2 → S1 へ訂正した状態。
+    d.transcript.segments[1] = { ...d.transcript.segments[1], speaker_id: "S1" };
+    const md = transcriptMarkdown(d, "ja");
+    // S1 の display_name は「田中」。訂正した行もそちらで出る。
+    expect(md).toContain("**田中**: やあ");
+    // 既定ラベルのままだった「話者2」は、もうどの行にも出ない。
+    expect(md).not.toContain("話者2");
+  });
+
+  it("話者不明に戻すと話者の接頭辞が消える", () => {
+    const d = detail();
+    d.transcript.segments[0] = { ...d.transcript.segments[0], speaker_id: null };
+    const md = transcriptMarkdown(d, "ja");
+    expect(md).not.toContain("**田中**: おはよう");
+    expect(md).toContain("おはよう");
+  });
+});
+
 describe("summaryMarkdown", () => {
   it("content を trim する", () => {
     expect(

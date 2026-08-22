@@ -117,6 +117,49 @@ SummaryTemplate      { id, name, prompt, kind(minutes|summary|action_items) }
 - 📌 **宿題（B/C 分岐の真の肝）: 会議は話者数が未知**。sherpa-onnx のオフライン diarization は「話者数既知」または「クラスタリングしきい値」を要求する → **しきい値ベースのクラスタリングが必須**で、**このしきい値が日本語会議での実用可否を決める**（生 DER の数字より重要）。実機チューニング項目として明記。
 - **案C フォールバックの切替点**: 日本語品質がしきい値調整でも不足する場合、torch pyannote(full pyannote.audio) を**薄い Python サイドカーで Phase 2 のみ遅延起動**する。whisper/llama は Rust ネイティブのまま、Phase 1 は Python ゼロを維持。切替は diarization トレイトの実装差し替えで吸収する（[ADR-0004](./decisions/ADR-0004_話者分離はsherpa-onnxで実現.md)）。
 
+### 9.1 発言単位の話者訂正（Issue #19 増分1）
+
+話者を変える手段は 2 つあり、**粒度が違う**。
+
+| 操作 | 対象 | コマンド |
+|---|---|---|
+| 改名 | **クラスタ全体**（S1 の表示名を「田中」に） | `rename_speaker` |
+| **訂正** | **発言 1 件**（この発言だけ S2 → S1） | `set_segment_speaker` |
+
+訂正は `segments.speaker_id` を 1 行だけ更新する。対象は `(recording_id, idx)` で指す。
+`idx` は `insert_segments` が `enumerate()` で採番した連番で、`Segment.idx` として API 境界に出る。
+
+制約:
+
+- **当該録音の `speakers` に無い id は拒否する。** 許すと `speakers` の id 集合と
+  `segments.speaker_id` の集合がズレ、改名 UI に出ない話者が発言側だけに生まれる。
+- **移動元の話者行は消さない。** 最後の 1 発言を移して発言ゼロになっても、
+  `speakers` 行・声紋・ライブラリ紐づけを残す（訂正を戻せるようにするため）。
+- **要約は stale にする。** 要約本文に話者名が出るため。
+- `rec_fts` は触らない。body は `segment.text` のみで話者を含まない。
+
+#### ⚠️ 再話者分離すると訂正は消える
+
+`replace_speaker_assignments` は `segments` を**全削除して再挿入**する（ADR-0024）。
+訂正した `speaker_id` は残らない。
+
+いま事故が起きないのは **UI が塞いでいるからだけ**である。
+
+```ts
+// frontend/src/features/detail/DetailView.tsx
+const canDiarize =
+  !processing && hasTranscript && speakers.length === 0 && rec.source_type !== "live";
+```
+
+`speakers.length === 0` の条件により、話者が付いている録音では再分離ボタンが出ない。
+**バックエンド（`diarize_recording`）が拒否するのは Live のみ**で、「既に話者付き」は拒否していない
+（エラーキー名が `already_diarized` だが、実際に弾いているのは Live）。
+
+**`canDiarize` の条件を緩めるときは、訂正の引き継ぎ方を先に決めること。**
+改名は `carry_display_names` が声紋 cosine でベスト努力の引き継ぎをするが、訂正は
+「この発言はこの人」という分離結果そのものへの否定なので、より強い主張である。
+引き継ぎに失敗したときに黙って捨ててよいものではない。
+
 ## 10. モデル管理
 
 - 初回 DL・キャッシュ（ユーザーデータディレクトリ）・モデル選択 UI。
