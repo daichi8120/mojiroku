@@ -655,10 +655,13 @@ mod tests {
         // 最重要: segment.speaker_id に、話者表に無い id が現れない（seg_ids ⊆ spk_ids）。
         // 崩れると改名 UI に出ない話者が発言側だけに生まれる。
         //
-        // 逆向き（spk_ids ⊆ seg_ids）は**保存直後だけ**成り立つ。発言単位の訂正で
-        // 最後の 1 件を移すと発言ゼロの話者行が残るため（Issue #19。行を消すと
-        // 声紋とライブラリ紐づけまで失われ、訂正を戻せなくなる）。
-        // ここは save_recording 直後を見るテストなので、両向きの一致を確かめてよい。
+        // 逆向き（spk_ids ⊆ seg_ids）は**一般には成り立たない**。
+        // merge::assign_speakers は各セグメントに「最も重なる turn」だけを割り当てるので、
+        // turn は持つが常に他話者に負けるクラスタは**保存直後から**発言ゼロになる。
+        // 発言単位の訂正（Issue #19）でも生じる — 最後の 1 件を移しても話者行は残す設計
+        // （行を消すと声紋とライブラリ紐づけまで失われ、訂正を戻せなくなる）。
+        // ここは全話者に発言があるフィクスチャを save_recording した直後なので、
+        // このテストに限り両向きの一致を確かめてよい。
         let seg_ids: BTreeSet<_> =
             d.transcript.segments.iter().filter_map(|x| x.speaker_id.clone()).collect();
         let spk_ids: BTreeSet<_> = d.speakers.iter().map(|x| x.id.clone()).collect();
@@ -703,6 +706,43 @@ mod tests {
 
         // 要約本文に話者名が出るため、話者を訂正したら作り直す価値がある。
         assert!(s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
+    }
+
+    #[test]
+    fn set_segment_speaker_does_not_touch_other_recordings() {
+        // 話者 id は録音ごとに S1/S2 と採番されるので、r1 にも r2 にも "S1" が存在する。
+        // つまり話者の実在検証は別録音への誤書き込みを止められず、唯一の防御は
+        // UPDATE ... WHERE recording_id = ?1 のスコープだけ。ここを固定する。
+        let s = SqliteStore::open_in_memory().unwrap();
+        for id in ["r1", "r2"] {
+            s.save_recording(&rec(id), &transcript_with_speakers(), &speakers()).unwrap();
+            s.save_summary(id, &summary("minutes", vec![])).unwrap();
+        }
+
+        s.set_segment_speaker("r1", 1, Some("S1")).unwrap();
+
+        let d2 = s.get_recording_detail("r2").unwrap().unwrap();
+        let got: Vec<_> = d2.transcript.segments.iter().map(|x| x.speaker_id.clone()).collect();
+        assert_eq!(
+            got,
+            vec![Some("S1".into()), Some("S2".into()), Some("S1".into())],
+            "r2 は無傷"
+        );
+        assert!(!d2.summaries[0].stale, "r2 の要約も stale にしない");
+    }
+
+    #[test]
+    fn set_segment_speaker_handles_speakerless_recording() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        // 話者ゼロの録音（話者分離をしていない）。
+        s.save_recording(&rec("r1"), &transcript(), &[]).unwrap();
+        s.save_summary("r1", &summary("minutes", vec![])).unwrap();
+
+        // 候補が居ないので、どの話者 id も拒否される。
+        assert!(s.set_segment_speaker("r1", 0, Some("S1")).is_err());
+        // 元から NULL なので「話者不明へ」は no-op。要約も stale にしない。
+        assert!(!s.set_segment_speaker("r1", 0, None).unwrap(), "None → None は no-op");
+        assert!(!s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
     }
 
     #[test]

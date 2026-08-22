@@ -1,6 +1,6 @@
 // 録音の詳細（Studio 04 + 06 + 10 + 11）。最も大きいビュー。
 // 中央メイン（AI議事録 + 文字起こし/チャプター）+ 右ペイン 222px（話者 + MCP）。
-// 左サイドバーは App が描く。実機能: 取得 / 話者改名 / 要約生成 / 共有。
+// 左サイドバーは App が描く。実機能: 取得 / 話者改名 / 話者訂正（発言単位）/ 要約生成 / 共有。
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { getJobStart, getStageStart, markJobStart } from "@/lib/jobClock";
 import { useApp } from "@/lib/app";
@@ -367,8 +367,12 @@ export function DetailView({ id }: { id: string }) {
     });
 
   const fixSegmentSpeaker = async (segIdx: number, speakerId: string | null) => {
-    // 掴んでいる detail が本当にこの id のものかを確かめてから書く（上の state リセットと
-    // 二重化）。state が残る経路を将来また作っても、ここで止まる。
+    // detail が prop の id に追いついていない窓（遷移直後）を弾く。
+    //
+    // ⚠️ **これは id 変更 effect の setFixingSeg(null) の二重化ではない。** 別録音へ遷移すると
+    // detail も id も新録音になるので、この条件は成立してしまう。「モーダルが前の録音の発言を
+    // 掴んだまま残る」を止めているのは effect 側のリセットだけで、そちらを消すと防御はゼロ。
+    // 本当に二重化するなら fixingSeg に録音 id を同梱して比べる必要がある。
     // 選んだ時点でモーダルは必ず閉じる（成否・分岐によらず）。
     setFixingSeg(null);
     if (!detail || detail.recording.id !== id) {

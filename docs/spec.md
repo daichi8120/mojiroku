@@ -129,14 +129,28 @@ SummaryTemplate      { id, name, prompt, kind(minutes|summary|action_items) }
 訂正は `segments.speaker_id` を 1 行だけ更新する。対象は `(recording_id, idx)` で指す。
 `idx` は `insert_segments` が `enumerate()` で採番した連番で、`Segment.idx` として API 境界に出る。
 
+**戻り値は「実際に変えたか」**（`Result<bool>` → コマンド → `invoke<boolean>`）。
+同じ話者を選び直したときは `false` を返して何もしない。UI はこれを見て「要約が古い」の表示を
+出し分ける — 真偽を知っているのはコアだけなので、**UI 側で現在値と比較させない**
+（UI の値が DB と一致している前提に依存してしまう）。
+
 制約:
 
 - **当該録音の `speakers` に無い id は拒否する。** 許すと `speakers` の id 集合と
   `segments.speaker_id` の集合がズレ、改名 UI に出ない話者が発言側だけに生まれる。
 - **移動元の話者行は消さない。** 最後の 1 発言を移して発言ゼロになっても、
   `speakers` 行・声紋・ライブラリ紐づけを残す（訂正を戻せるようにするため）。
-- **要約は stale にする。** 要約本文に話者名が出るため。
+  書き出しヘッダーの話者一覧は `speakingSpeakerNames`（`frontend/src/lib/types.ts`）で
+  実際に発言している人だけに絞る。**訂正モーダルと SpeakerPanel は絞らない**
+  （発言ゼロになった話者を選び直せないと訂正が戻せない）。
+- **実際に変えたときだけ要約を stale にする。** 要約本文に話者名が出るため。
+  同値なら立てない — ローカル要約の作り直しは 7B モデルで分単位かかるので、内容が
+  変わっていないのに促すのは害。
 - `rec_fts` は触らない。body は `segment.text` のみで話者を含まない。
+- **エラーは `error.` 始まりのキーで返し、コマンド層の `core_err` が `CoreError` の
+  Display 接頭辞を外す。** キーをコア側の文字列に詰めただけでは `db error: ` が前置され、
+  フロントの `translateError`（最初の `": "` でキーを切り出す）に掛からず、
+  日本語 UI に英語がそのまま出る。
 
 #### ⚠️ 再話者分離すると訂正は消える
 

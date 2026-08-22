@@ -33,15 +33,13 @@ function detail(): RecordingDetail {
 }
 
 describe("発言単位の話者訂正が書き出しに反映される（Issue #19）", () => {
-  it("訂正した speaker_id の表示名で書き出される", () => {
+  it("訂正した speaker_id の表示名で本文が書き出される", () => {
     const d = detail();
     // 2 件目（idx=1）を S2 → S1 へ訂正した状態。
     d.transcript.segments[1] = { ...d.transcript.segments[1], speaker_id: "S1" };
     const md = transcriptMarkdown(d, "ja");
     // S1 の display_name は「田中」。訂正した行もそちらで出る。
     expect(md).toContain("**田中**: やあ");
-    // 既定ラベルのままだった「話者2」は、もうどの行にも出ない。
-    expect(md).not.toContain("話者2");
   });
 
   it("話者不明に戻すと話者の接頭辞が消える", () => {
@@ -50,6 +48,22 @@ describe("発言単位の話者訂正が書き出しに反映される（Issue #
     const md = transcriptMarkdown(d, "ja");
     expect(md).not.toContain("**田中**: おはよう");
     expect(md).toContain("おはよう");
+  });
+
+  // ⚠️ 下の 2 本は speakingSpeakerNames を通す。
+  // 当初は transcriptMarkdown の出力に "話者2" が無いことで代用していたが、
+  // それは S2 を参照する行が無いだけで**フィルタを丸ごと消しても通る**（実測で確認）。
+  // 発言ゼロの話者が残るのは frontmatter / 印刷ヘッダーなので、そこを直接見る。
+  it("frontmatter の話者一覧から、発言ゼロになった話者が消える", () => {
+    const d = detail();
+    // idx=1 を S2 → S1 へ。これで S2 は発言ゼロだが speakers[] には残る（訂正を戻せるように）。
+    d.transcript.segments[1] = { ...d.transcript.segments[1], speaker_id: "S1" };
+    expect(obsidianMarkdown(d, "ja")).toContain('speakers: ["田中"]');
+  });
+
+  it("訂正していなければ、発言している話者は落とさない", () => {
+    // 過剰フィルタの回帰。上のテストだけだと「常に空になる」実装でも通ってしまう。
+    expect(obsidianMarkdown(detail(), "ja")).toContain('speakers: ["田中", "話者2"]');
   });
 });
 
