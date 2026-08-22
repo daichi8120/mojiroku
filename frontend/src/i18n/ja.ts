@@ -630,6 +630,8 @@ const ja = {
     "error.oauth.state_mismatch":
       "連携の応答を検証できませんでした（安全のため中断しました。もう一度お試しください）",
     "error.speaker.name_empty": "名前が空です",
+    "error.speaker.unknown_for_recording": "この録音に存在しない話者です",
+    "error.segment.not_found": "対象の発言が見つかりません（画面を開き直してください）",
     "error.secret.unknown_key": "不明なシークレット名です",
     "error.job.no_audio": "この録音の音声ファイルが見つかりません",
     "error.job.no_transcript": "先に文字起こしを実行してください",

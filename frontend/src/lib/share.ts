@@ -81,7 +81,15 @@ export function obsidianMarkdown(detail: RecordingDetail, lang: Lang): string {
   const title = r.title?.trim() || dicts[lang].output.fallbackTitle;
   const date = r.created_at.slice(0, 10); // RFC3339 → YYYY-MM-DD
   const durMin = Math.round(r.duration_ms / 60000);
-  const speakers = (detail.speakers ?? []).map((s) => s.display_name ?? s.label);
+  // 実際に発言している話者だけ並べる（print.ts のヘッダーと同じ規則）。
+  // 発言単位の訂正で最後の 1 件を移すと話者行は残るため、そのまま並べると
+  // 1 件も喋っていない人が frontmatter に載る。
+  const spoke = new Set(
+    detail.transcript.segments.map((x) => x.speaker_id).filter(Boolean) as string[],
+  );
+  const speakers = (detail.speakers ?? [])
+    .filter((s) => spoke.has(s.id))
+    .map((s) => s.display_name ?? s.label);
 
   const frontmatter = [
     "---",

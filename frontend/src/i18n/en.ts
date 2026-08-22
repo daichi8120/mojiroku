@@ -626,6 +626,8 @@ const en: Dict = {
     "error.oauth.state_mismatch":
       "Couldn't verify the authorization response (stopped for safety — please try again)",
     "error.speaker.name_empty": "Name is empty",
+    "error.speaker.unknown_for_recording": "That speaker does not exist in this recording",
+    "error.segment.not_found": "Could not find that line (try reopening the recording)",
     "error.secret.unknown_key": "Unknown secret name",
     "error.job.no_audio": "The audio file for this recording was not found",
     "error.job.no_transcript": "Transcribe this recording first",

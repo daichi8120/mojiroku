@@ -128,8 +128,17 @@ export function DetailView({ id }: { id: string }) {
     setModalOpen(true);
   };
 
+  // 発言単位の話者訂正（Issue #19）。チップを押すと、その発言だけ話者を選び直せる。
+  // 改名（onRenamed）がクラスタ全体を変えるのに対し、こちらは 1 行だけを動かす。
+  const [fixingSeg, setFixingSeg] = useState<Segment | null>(null);
+
   // 本文/話者/音声を取り直す（ジョブ完了後の反映用。UI 状態＝タブ等はリセットしない）。
   const reloadDetail = useCallback(() => {
+    // 訂正モーダルは押した瞬間の Segment を掴んでいる。再取得で segments が
+    // 総入れ替えになると（再文字起こし等）、旧発言の本文を表示したまま新しい idx の
+    // 別発言へ書き込む経路ができる。いまは canTranscribe / canDiarize が塞いでいて
+    // 到達しないが、条件を緩めた瞬間に開く穴なのでここで捨てる。
+    setFixingSeg(null);
     getRecording(id)
       .then((d) => {
         if (d) {
@@ -357,28 +366,36 @@ export function DetailView({ id }: { id: string }) {
       return { ...prev, summaries };
     });
 
-  // 発言単位の話者訂正（Issue #19）。チップを押すと、その発言だけ話者を選び直せる。
-  // 改名（onRenamed）がクラスタ全体を変えるのに対し、こちらは 1 行だけを動かす。
-  const [fixingSeg, setFixingSeg] = useState<Segment | null>(null);
-
   const fixSegmentSpeaker = async (segIdx: number, speakerId: string | null) => {
     // 掴んでいる detail が本当にこの id のものかを確かめてから書く（上の state リセットと
     // 二重化）。state が残る経路を将来また作っても、ここで止まる。
     if (!detail || detail.recording.id !== id) {
+      // 起きないはずの分岐。黙って return すると「二重防御が効いた」のか「壊れた」のか
+      // 区別できないので、必ず痕跡を残す。
+      console.warn("[mojiroku] 訂正の対象録音が一致しないため中止", {
+        expected: id,
+        got: detail?.recording.id,
+      });
       setFixingSeg(null);
       return;
     }
     setFixingSeg(null);
+    let changed: boolean;
     try {
-      await setSegmentSpeaker(id, segIdx, speakerId);
+      // 戻り値は「実際に変えたか」。同じ話者を選び直したときは false。
+      // ここを見ずに stale を撒くと、DB は無変更なのに画面だけ「要約が古い」になり、
+      // 7B モデルでの作り直し（分単位）を無駄に促してしまう。
+      changed = await setSegmentSpeaker(id, segIdx, speakerId);
     } catch (e) {
       toast(translateError(e, t), "error");
       return;
     }
+    if (!changed) return;
     // 再取得せずローカル state をパッチする（改名・タイトル変更と同じ作法）。
-    // 要約はコア側で stale が立つので、こちらでも印を合わせる。
+    // await の間に別録音へ遷移していることがあるので、prev 側でも id を確かめる
+    // （DB は prop の id で書いているので誤書き込みは起きないが、画面だけズレる）。
     setDetail((prev) =>
-      prev
+      prev && prev.recording.id === id
         ? {
             ...prev,
             transcript: {
@@ -387,6 +404,7 @@ export function DetailView({ id }: { id: string }) {
                 x.idx === segIdx ? { ...x, speaker_id: speakerId } : x,
               ),
             },
+            // 要約はコア側で stale が立つので、こちらでも印を合わせる。
             summaries: prev.summaries?.map((x) => ({ ...x, stale: true })),
           }
         : prev,

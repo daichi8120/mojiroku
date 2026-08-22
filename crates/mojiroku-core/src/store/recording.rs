@@ -163,12 +163,16 @@ impl SqliteStore {
     ///
     /// 既存要約は stale にする（要約本文に話者名が出るため）。
     /// 本文は変わらないので `rec_fts` は触らない。
+    ///
+    /// **戻り値は「実際に変えたか」。** 同じ話者を選び直したときは `false` を返して何もしない。
+    /// 呼び出し側（UI）はこれを見て「要約が古い」の表示を出し分ける — 真偽を知っているのは
+    /// ここだけなので、UI 側で現在値と比較させない（UI の値が DB と一致している前提に依存してしまう）。
     pub fn set_segment_speaker(
         &self,
         recording_id: &str,
         idx: u32,
         speaker_id: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mut conn = self.conn();
         // rusqlite の Transaction は DropBehavior 既定が Rollback。以降の早期 return では
         // tx が drop された時点で自動的にロールバックされる（明示の rollback は不要）。
@@ -181,9 +185,12 @@ impl SqliteStore {
                 |r| r.get(0),
             )?;
             if known == 0 {
-                return Err(crate::error::CoreError::Db(format!(
-                    "unknown speaker_id for this recording: {sid}"
-                )));
+                // 文言はフロントの i18n キー。translateError が未知キーを原文フォールバックする
+                // ため、生の英語を返すと日本語 UI にそのまま出る（同ファイルの
+                // add_speaker_to_library と同じ作法に揃える）。
+                return Err(crate::error::CoreError::Db(
+                    "error.speaker.unknown_for_recording".to_string(),
+                ));
             }
         }
 
@@ -197,15 +204,13 @@ impl SqliteStore {
             )
             .optional()?
             .ok_or_else(|| {
-                crate::error::CoreError::Db(format!(
-                    "segment not found: recording={recording_id} idx={idx}"
-                ))
+                crate::error::CoreError::Db("error.segment.not_found".to_string())
             })?;
 
         // 同じ話者を選び直しただけなら何もしない。要約を stale にすると 7B モデルでの
         // 作り直しが分単位で走るため、内容が変わっていないのに促すのは害。
         if current.as_deref() == speaker_id {
-            return Ok(());
+            return Ok(false);
         }
 
         tx.execute(
@@ -218,7 +223,7 @@ impl SqliteStore {
             params![recording_id],
         )?;
         tx.commit()?;
-        Ok(())
+        Ok(true)
     }
 
     /// 後付け（再）話者分離の結果で話者割当を差し替える（ベスト努力引き継ぎ・ADR-0024）。

@@ -671,7 +671,7 @@ mod tests {
         s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
 
         // 2 番目（idx=1）を S2 → S1 へ訂正する。
-        s.set_segment_speaker("r1", 1, Some("S1")).unwrap();
+        assert!(s.set_segment_speaker("r1", 1, Some("S1")).unwrap(), "変更したので true");
 
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         let got: Vec<_> = d.transcript.segments.iter().map(|x| x.speaker_id.clone()).collect();
@@ -699,7 +699,7 @@ mod tests {
         s.save_summary("r1", &summary("minutes", vec![])).unwrap();
         assert!(!s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
 
-        s.set_segment_speaker("r1", 0, Some("S2")).unwrap();
+        assert!(s.set_segment_speaker("r1", 0, Some("S2")).unwrap());
 
         // 要約本文に話者名が出るため、話者を訂正したら作り直す価値がある。
         assert!(s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
@@ -713,7 +713,7 @@ mod tests {
 
         // idx=0 は元から S1。同じ話者を選び直しても要約を stale にしない
         // （7B モデルでの作り直しが分単位で走るため、内容が変わっていないのに促すのは害）。
-        s.set_segment_speaker("r1", 0, Some("S1")).unwrap();
+        assert!(!s.set_segment_speaker("r1", 0, Some("S1")).unwrap(), "同値なので false");
 
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         assert!(!d.summaries[0].stale, "同値なら stale を立てない");
@@ -740,7 +740,7 @@ mod tests {
     fn set_segment_speaker_can_clear_to_unknown() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
-        s.set_segment_speaker("r1", 0, None).unwrap();
+        assert!(s.set_segment_speaker("r1", 0, None).unwrap());
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         assert!(d.transcript.segments[0].speaker_id.is_none(), "話者不明へ戻せる");
     }

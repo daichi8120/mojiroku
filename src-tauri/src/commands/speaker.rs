@@ -27,13 +27,16 @@ pub(crate) fn rename_speaker(
 /// 「話者不明」に戻す。当該録音に存在しない話者 id はコア側で拒否される。
 ///
 /// 改名（`rename_speaker`）がクラスタ全体を変えるのに対し、こちらは 1 発言だけを動かす。
+///
+/// **戻り値は「実際に変えたか」。** 同じ話者を選び直したときは `false`。
+/// UI はこれを見て「要約が古い」表示を出し分ける。
 #[tauri::command]
 pub(crate) fn set_segment_speaker(
     store: State<'_, SqliteStore>,
     recording_id: String,
     segment_idx: u32,
     speaker_id: Option<String>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let sid = speaker_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
     store
         .set_segment_speaker(&recording_id, segment_idx, sid)
