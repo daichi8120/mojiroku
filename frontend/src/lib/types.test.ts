@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SPEAKER_PALETTE,
+  elapsedSeconds,
   formatDuration,
   formatDurationHuman,
   formatEventTime,
@@ -18,6 +19,33 @@ describe("formatTimestamp", () => {
     expect(formatTimestamp(599_000)).toBe("09:59");
     // mm:ss は時間繰り上げしない（60 分超でも分が伸びる）。
     expect(formatTimestamp(3_600_000)).toBe("60:00");
+  });
+});
+
+describe("elapsedSeconds", () => {
+  const t0 = 1_700_000_000_000;
+
+  it("開始からの差分を秒に切り捨てる", () => {
+    expect(elapsedSeconds(t0, t0)).toBe(0);
+    expect(elapsedSeconds(t0, t0 + 999)).toBe(0);
+    expect(elapsedSeconds(t0, t0 + 1_000)).toBe(1);
+    expect(elapsedSeconds(t0, t0 + 1_999)).toBe(1);
+    expect(elapsedSeconds(t0, t0 + 3_600_000)).toBe(3600);
+  });
+
+  it("startedAt が null なら 0", () => {
+    expect(elapsedSeconds(null, t0 + 60_000)).toBe(0);
+  });
+
+  it("システム時刻が巻き戻っても負にならない", () => {
+    expect(elapsedSeconds(t0, t0 - 5_000)).toBe(0);
+  });
+
+  it("tick が間引かれても値が壊れない（累積方式との違い）", () => {
+    // setInterval が 30 分ぶん間引かれても、壁時計差分なら正しい値が出る。
+    // 累積方式（elapsed + 1）だと、この 1800 秒が丸ごと失われる。
+    const thirtyMin = 30 * 60_000;
+    expect(elapsedSeconds(t0, t0 + thirtyMin)).toBe(1800);
   });
 });
 

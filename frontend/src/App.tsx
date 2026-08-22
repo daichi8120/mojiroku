@@ -18,7 +18,7 @@ import {
   useJobUpdate,
   useMeetingStarting,
 } from "@/lib/tauri";
-import { formatTimestamp, type Recording, type StartingMeeting } from "@/lib/types";
+import { elapsedSeconds, formatTimestamp, type Recording, type StartingMeeting } from "@/lib/types";
 import { Sidebar } from "@/components/Sidebar";
 import { CheckIcon, StopIcon, VideoIcon, XIcon } from "@/components/icons";
 
@@ -50,7 +50,7 @@ function App() {
   // Provider の内側でない App 本体（toast 文言など）用に辞書を直接引く。
   const t = dicts[lang];
   // 会議録音はアプリ全体の状態（録音実体はバックエンドに常駐し、画面遷移で消えない）。
-  const [meeting, setMeeting] = useState<MeetingState>({ status: "idle", startedAt: null });
+  const [meeting, setMeeting] = useState<MeetingState>({ status: "idle", startedAt: null, title: null });
   const meetingRef = useRef(meeting);
   meetingRef.current = meeting;
   // 開始処理は許可確認→開始の間に await を挟むので、status が capturing になる前に
@@ -187,7 +187,7 @@ function App() {
   });
 
   // 会議録音: 許可確認 → キャプチャ開始。画面遷移は呼び出し側に任せる（idle のときだけ開始）。
-  const startMeeting = useCallback(async (): Promise<MeetingStartResult> => {
+  const startMeeting = useCallback(async (title?: string | null): Promise<MeetingStartResult> => {
     if (meetingRef.current.status !== "idle" || startingRef.current) return "started";
     startingRef.current = true;
     try {
@@ -202,7 +202,7 @@ function App() {
         return "denied";
       }
       await startMeetingRecording();
-      setMeeting({ status: "capturing", startedAt: Date.now() });
+      setMeeting({ status: "capturing", startedAt: Date.now(), title: title ?? null });
       setBarDismissed(false); // 新しい会議では常設バーを復帰
       return "started";
     } catch (e) {
@@ -216,15 +216,15 @@ function App() {
   // 会議録音: 停止 → デュアルトラック文字起こし保存 → 詳細へ。
   const stopMeeting = useCallback(async () => {
     if (meetingRef.current.status !== "capturing") return;
-    setMeeting({ status: "stopping", startedAt: meetingRef.current.startedAt });
+    setMeeting({ status: "stopping", startedAt: meetingRef.current.startedAt, title: meetingRef.current.title });
     try {
-      const res = await stopMeetingRecording(null);
-      setMeeting({ status: "idle", startedAt: null });
+      const res = await stopMeetingRecording(meetingRef.current.title);
+      setMeeting({ status: "idle", startedAt: null, title: null });
       refreshRecents();
       navigate({ view: "detail", id: res.recording_id });
     } catch (e) {
       toast(translateError(e, t), "error");
-      setMeeting({ status: "idle", startedAt: null });
+      setMeeting({ status: "idle", startedAt: null, title: null });
       navigate({ view: "home" });
     }
   }, [toast, refreshRecents, navigate, t]);
@@ -232,7 +232,7 @@ function App() {
   // 会議録音: 破棄（保存しない）。誤開始のやり直し用。
   const discardMeeting = useCallback(async () => {
     if (meetingRef.current.status === "idle") return;
-    setMeeting({ status: "idle", startedAt: null });
+    setMeeting({ status: "idle", startedAt: null, title: null });
     try {
       await cancelMeetingRecording();
     } catch {
@@ -250,7 +250,7 @@ function App() {
     }
     const started = meeting.startedAt;
     const timer = window.setInterval(() => {
-      const sec = Math.floor((Date.now() - started) / 1000);
+      const sec = elapsedSeconds(started, Date.now());
       if (sec >= 3 * 60 * 60) {
         toast(t.app.autoStopAtLimit, "info");
         void stopMeeting();
@@ -365,12 +365,10 @@ function MeetingBar({
   onDismiss: () => void;
 }) {
   const { t } = useI18n();
-  const [elapsed, setElapsed] = useState(() =>
-    startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0,
-  );
+  const [elapsed, setElapsed] = useState(() => elapsedSeconds(startedAt, Date.now()));
   useEffect(() => {
     const t = window.setInterval(() => {
-      setElapsed(startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0);
+      setElapsed(elapsedSeconds(startedAt, Date.now()));
     }, 1000);
     return () => clearInterval(t);
   }, [startedAt]);

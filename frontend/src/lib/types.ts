@@ -286,6 +286,23 @@ export function formatTimestamp(ms: number): string {
   return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
+/**
+ * 録音開始時刻（`Date.now()`）からの経過秒数。
+ *
+ * ⚠️ **`setInterval` の発火回数を数える方式にしないこと**（Issue #6 の原因）。
+ * `setInterval` は「1000ms ちょうど」ではなく「**最短でも** 1000ms 後」に発火するため、
+ * tick 回数 ≤ 実経過秒数となり、誤差が過小方向へ単調累積する。ウィンドウが隠れて
+ * tick が間引かれると、累積方式はそこから復帰できない。
+ *
+ * 表示は必ず壁時計との差分から算出し、`setInterval` は**再描画のトリガにのみ**使う。
+ *
+ * `startedAt` が null（未開始）なら 0。システム時刻の巻き戻しでも負を返さない。
+ */
+export function elapsedSeconds(startedAt: number | null, now: number): number {
+  if (startedAt === null) return 0;
+  return Math.max(0, Math.floor((now - startedAt) / 1000));
+}
+
 /** ms → 尺表記。1 時間以上は h:mm:ss、未満は m:ss。 */
 export function formatDuration(ms: number): string {
   const totalSec = Math.floor(ms / 1000);

@@ -38,6 +38,11 @@ export interface MeetingState {
   status: MeetingStatus;
   /** capturing になった時刻（Date.now()）。経過時間はここから算出（遷移しても連続）。 */
   startedAt: number | null;
+  /**
+   * 保存時に使う録音タイトル（カレンダー予定名など）。null なら既定の「会議」/"Meeting"。
+   * 開始から停止まで持ち回る（マイク録音が Route で title を運ぶのと同じ役割）。
+   */
+  title: string | null;
 }
 
 /** startMeeting の結果。denied は許可待ち（呼び出し側で誘導 UI を出す）。 */
@@ -53,7 +58,8 @@ export interface AppApi {
   /** 会議モードの録音状態（idle/capturing/stopping）。 */
   meeting: MeetingState;
   /** 許可確認 → システム音声＋マイクのキャプチャ開始。画面遷移はしない。 */
-  startMeeting: () => Promise<MeetingStartResult>;
+  /** title を渡すとその名前で保存する（未指定なら既定の「会議」）。 */
+  startMeeting: (title?: string | null) => Promise<MeetingStartResult>;
   /** 停止 → 文字起こし保存 → 詳細へ遷移。 */
   stopMeeting: () => Promise<void>;
   /** 破棄（保存しない）。誤開始のやり直し用。 */

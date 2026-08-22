@@ -11,7 +11,7 @@ import {
 } from "@/lib/tauri";
 import { cx } from "@/lib/cx";
 import { useI18n } from "@/i18n";
-import { formatTimestamp } from "@/lib/types";
+import { elapsedSeconds, formatTimestamp } from "@/lib/types";
 import { Button, ConfirmDialog } from "@/components/ui";
 import { PrivacyBar } from "@/components/composite";
 import { ShieldIcon, SparklesIcon, StopIcon, VideoIcon } from "@/components/icons";
@@ -58,7 +58,7 @@ export function MeetingView() {
     const t = window.setInterval(() => forceTick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, [meeting.status]);
-  const elapsed = meeting.startedAt ? Math.floor((Date.now() - meeting.startedAt) / 1000) : 0;
+  const elapsed = elapsedSeconds(meeting.startedAt, Date.now());
 
   // 新しい行が来たら最下部へ自動スクロール。
   useEffect(() => {
