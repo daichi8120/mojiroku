@@ -141,4 +141,5 @@ def main():
             print(f"  {spk} ({R['gt_s']:.0f}s) dom={R['dominant']} purity_all={R['purity_all']*100:.0f}% "
                   f"purity_assigned={R['purity_assigned']*100:.0f}% | {s}")
 
-main()
+if __name__ == "__main__":
+    main()
