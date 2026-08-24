@@ -249,6 +249,16 @@ export const getPendingMeeting = () =>
 export const clearPendingMeeting = () => invoke<void>("clear_pending_meeting");
 
 /**
+ * 会議モードの録音に付ける予定タイトルを解決する。まだ進行中の予定があればその題名、
+ * 無ければ null（呼び出し側は既定の「会議」にフォールバックする）。
+ *
+ * ⚠️ 「まだ進行中か」の判定は Rust 側にしかない。フロントで start / end を比べないこと
+ * （scheduler.rs の窓と二重定義になっていずれズレる）。
+ */
+export const resolveMeetingTitle = () =>
+  invoke<string | null>("resolve_meeting_title");
+
+/**
  * 外部サービスと OAuth 連携する（loopback 受け口・$0）。既定ブラウザで同意ページが開き、許可すると
  * トークン/Webhook がこの Mac のキーチェーンに保存される。
  * - "slack" / "notion": mojiroku.com の Worker ブローカー経由（Worker が client_secret を保持し token 交換）。
