@@ -52,7 +52,9 @@ mod tests {
 
     #[test]
     fn blob_roundtrip_preserves_values() {
-        let v = vec![0.0f32, 1.0, -1.5, 3.14159, f32::MIN_POSITIVE];
+        // 端数のある値を 1 つ混ぜたいだけなので、clippy に怒られない形で定数を使う
+        // （`3.14159` は approx_constant で deny される）。往復するなら値は何でもよい。
+        let v = vec![0.0f32, 1.0, -1.5, std::f32::consts::PI, f32::MIN_POSITIVE];
         let back = blob_to_f32(&f32_to_blob(&v));
         assert_eq!(v, back);
         // 空ベクトルも往復で空。
