@@ -57,14 +57,19 @@ jobs:
       changed: ${{ steps.decide.outputs.changed }}
       version: ${{ steps.decide.outputs.version }}
       dry_run: ${{ steps.decide.outputs.dry_run }}
+      notes: ${{ steps.decide.outputs.notes }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2 # HEAD^ との version 比較に必要
+          # HEAD^ との version 比較に加え、リリースノート生成が merge commit の
+          # もう一方の親（develop 側）の履歴を辿るため全履歴が要る。
+          fetch-depth: 0
       - id: decide
         env:
           GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
           DRY: ${{ github.event.inputs.dry_run }}
+          # 自由入力は shell 本文に補間せず env 経由で受ける（public repo 前提）。
+          NOTES_INPUT: ${{ github.event.inputs.notes }}
         run: |
           set -euo pipefail
           VER=$(jq -r .version src-tauri/tauri.conf.json)
@@ -88,6 +93,25 @@ jobs:
           echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
           echo "decision: version=$VER changed=$CHANGED dry_run=${DRY:-false}"
 
+          # リリースノート本文。手動実行で notes が渡っていればそれを優先し、無ければ
+          # 「今回 main に入った分」をコミット件名から組む。HEAD が develop からの merge
+          # commit なら HEAD^ は main 側の親なので、HEAD^..HEAD がちょうど今回入った範囲。
+          #
+          # Release は別 repo（mojiroku-releases）に作るため `--generate-notes` は使えない
+          # （生成元がリリース用 repo の履歴になる）。ソース repo 側で組む必要がある。
+          #
+          # 生成に失敗してもリリース自体は止めない（ノートは体裁であって配布物ではない）。
+          if [ -n "${NOTES_INPUT:-}" ]; then
+            BODY="$NOTES_INPUT"
+          else
+            BODY=$(bash scripts/release-notes.sh "HEAD^..HEAD" || echo "（変更点の自動抽出に失敗しました）")
+          fi
+          {
+            echo "notes<<RELEASE_NOTES_EOF"
+            echo "$BODY"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
   build-publish:
     needs: gate
     if: needs.gate.outputs.changed == 'true'
@@ -96,9 +120,10 @@ jobs:
     timeout-minutes: 150 # notarytool は通常数分だが Apple 側の遅延日があるため余裕を持たせる
     env:
       VERSION: ${{ needs.gate.outputs.version }}
-      # workflow_dispatch の自由入力。shell 本文に直接補間せず env 経由で渡す
+      # gate が組んだリリースノート本文（手動入力 or コミット件名由来＝いずれも半信頼）。
+      # shell 本文に直接補間せず env 経由で渡す
       # （public repo では Actions を叩ける範囲が広がりやすいため）。
-      NOTES: ${{ github.event.inputs.notes }}
+      NOTES: ${{ needs.gate.outputs.notes }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }} # クロス repo 公開用 PAT
@@ -261,10 +286,14 @@ jobs:
         if: needs.gate.outputs.dry_run != 'true'
         run: |
           set -euo pipefail
+          # 本文は複数行なので --notes ではなくファイル経由で渡す（引用崩れを避ける）。
+          # 末尾にソース repo の commit を残す（配布物とソースの対応を後から辿れるように）。
+          printf '%s\n\n---\nソース: daichi8120/mojiroku@%s\n' \
+            "$NOTES" "$GITHUB_SHA" > "$RUNNER_TEMP/release-notes.md"
           gh release create "v$VERSION" -R daichi8120/mojiroku-releases \
             --draft --target main \
             --title "v$VERSION" \
-            --notes "$NOTES (src ${{ github.sha }})" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
             dist-rel/mojiroku-macos-aarch64.dmg \
             dist-rel/mojiroku-macos-aarch64.app.tar.gz \
             dist-rel/latest.json
