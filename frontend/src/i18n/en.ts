@@ -193,6 +193,13 @@ const en: Dict = {
 
   composite: {
     translated: "Translated",
+    /** 発言単位の話者訂正（Issue #19）。 */
+    speakerUnknown: "?",
+    clickToFixSpeaker: "Click to fix the speaker",
+    fixSpeakerHeading: "Speaker for this line",
+    fixSpeakerToUnknown: "Set to unknown",
+    speakerFixed: "Speaker corrected",
+    speakerUnchanged: "Already set to that speaker",
     valueProps: {
       local: {
         title: "Fully local",
@@ -620,6 +627,8 @@ const en: Dict = {
     "error.oauth.state_mismatch":
       "Couldn't verify the authorization response (stopped for safety — please try again)",
     "error.speaker.name_empty": "Name is empty",
+    "error.speaker.unknown_for_recording": "That speaker does not exist in this recording",
+    "error.segment.not_found": "Could not find that line (try reopening the recording)",
     "error.secret.unknown_key": "Unknown secret name",
     "error.job.no_audio": "The audio file for this recording was not found",
     "error.job.no_transcript": "Transcribe this recording first",

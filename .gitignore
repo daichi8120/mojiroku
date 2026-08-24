@@ -42,6 +42,10 @@ ggml-*.bin
 
 # --- Claude local overrides ---
 .claude/settings.local.json
+CLAUDE.local.md
+# hub 再編（2026-08-22）: 個人の記録層。public repo なので常に追跡しない（グローバル ignore とも二重に）
+.journal/
+_notes/
 
 # plan-exec の作業台帳（セッションローカル）
 .plan-exec/

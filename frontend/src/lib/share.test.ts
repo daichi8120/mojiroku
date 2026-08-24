@@ -19,9 +19,9 @@ function detail(): RecordingDetail {
     transcript: {
       language: "ja",
       segments: [
-        { start_ms: 0, end_ms: 1_000, text: "おはよう", speaker_id: "S1" },
-        { start_ms: 1_000, end_ms: 2_000, text: "やあ", speaker_id: "S2" },
-        { start_ms: 2_000, end_ms: 3_000, text: "（無名）", speaker_id: null },
+        { idx: 0, start_ms: 0, end_ms: 1_000, text: "おはよう", speaker_id: "S1" },
+        { idx: 1, start_ms: 1_000, end_ms: 2_000, text: "やあ", speaker_id: "S2" },
+        { idx: 2, start_ms: 2_000, end_ms: 3_000, text: "（無名）", speaker_id: null },
       ],
     },
     summaries: [{ template_id: "minutes", content: "  # 決定\n- A  ", action_items: [] }],
@@ -31,6 +31,41 @@ function detail(): RecordingDetail {
     ],
   };
 }
+
+describe("発言単位の話者訂正が書き出しに反映される（Issue #19）", () => {
+  it("訂正した speaker_id の表示名で本文が書き出される", () => {
+    const d = detail();
+    // 2 件目（idx=1）を S2 → S1 へ訂正した状態。
+    d.transcript.segments[1] = { ...d.transcript.segments[1], speaker_id: "S1" };
+    const md = transcriptMarkdown(d, "ja");
+    // S1 の display_name は「田中」。訂正した行もそちらで出る。
+    expect(md).toContain("**田中**: やあ");
+  });
+
+  it("話者不明に戻すと話者の接頭辞が消える", () => {
+    const d = detail();
+    d.transcript.segments[0] = { ...d.transcript.segments[0], speaker_id: null };
+    const md = transcriptMarkdown(d, "ja");
+    expect(md).not.toContain("**田中**: おはよう");
+    expect(md).toContain("おはよう");
+  });
+
+  // ⚠️ 下の 2 本は speakingSpeakerNames を通す。
+  // 当初は transcriptMarkdown の出力に "話者2" が無いことで代用していたが、
+  // それは S2 を参照する行が無いだけで**フィルタを丸ごと消しても通る**（実測で確認）。
+  // 発言ゼロの話者が残るのは frontmatter / 印刷ヘッダーなので、そこを直接見る。
+  it("frontmatter の話者一覧から、発言ゼロになった話者が消える", () => {
+    const d = detail();
+    // idx=1 を S2 → S1 へ。これで S2 は発言ゼロだが speakers[] には残る（訂正を戻せるように）。
+    d.transcript.segments[1] = { ...d.transcript.segments[1], speaker_id: "S1" };
+    expect(obsidianMarkdown(d, "ja")).toContain('speakers: ["田中"]');
+  });
+
+  it("訂正していなければ、発言している話者は落とさない", () => {
+    // 過剰フィルタの回帰。上のテストだけだと「常に空になる」実装でも通ってしまう。
+    expect(obsidianMarkdown(detail(), "ja")).toContain('speakers: ["田中", "話者2"]');
+  });
+});
 
 describe("summaryMarkdown", () => {
   it("content を trim する", () => {

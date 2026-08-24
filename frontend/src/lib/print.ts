@@ -15,7 +15,7 @@
 // ⚠️ 直接ファイル保存ではなく **OS の印刷パネル経由**（macOS は「PDF として保存」）。UI で開示する。
 import { dicts } from "@/i18n";
 import { exportBaseName } from "./share";
-import { speakerName, type Lang, type RecordingDetail } from "./types";
+import { speakerName, speakingSpeakerNames, type Lang, type RecordingDetail } from "./types";
 import { templateLabel } from "./templates";
 
 const PRINT_ROOT_ID = "mojiroku-print-root";
@@ -174,9 +174,7 @@ export function meetingPrintBody(detail: RecordingDetail, lang: Lang): string {
   const title = esc(r.title?.trim() || o.fallbackTitle);
   const date = r.created_at.slice(0, 10);
   const durMin = Math.round(r.duration_ms / 60000);
-  const speakers = (detail.speakers ?? [])
-    .map((s) => s.display_name ?? s.label)
-    .join(f.listSeparator);
+  const speakers = speakingSpeakerNames(detail).join(f.listSeparator);
   const meta = esc([date, f.durationMin(durMin), speakers].filter(Boolean).join(" · "));
 
   const summaries = detail.summaries

@@ -29,6 +29,31 @@ SRC="$HOME/Library/Application Support/com.daichi0812.mojiroku/recordings/f5a6cb
 ffmpeg -y -ss 180 -t 600 -i "$SRC" -ac 1 -ar 16000 jp_3to13.wav -loglevel error
 ```
 
+## 分かっていること: 未割当 8.0% の正体（2026-08-22）
+
+`unassigned_analysis.py` で分類した結果。**しきい値の調整では減らない種類の残り**だった。
+
+| | 値 |
+|---|---|
+| 未割当 | 30.2 s（母数 378.1 s の 8.0%） |
+| 連続区間 | **68 本**（`< 0.5s` が 37 本、`0.5–1s` が 29 本、`1–3s` が 2 本） |
+| 最長 | **1.0 秒** |
+| 話者交替の近傍（±0.3s） | **0 本** |
+| GT 区間の端に接する | **0 本** |
+| 話者別の未割当率 | A=4.2% / **B=10.6%** / C=2.7% |
+
+**発話の重なりでも、区間の境界でもない。** 話者の発話の**内部**に散らばる 1 秒未満の穴が 68 個ある。
+Silero VAD は発話と言うが pyannote segmentation はセグメントを出さない、息継ぎ・間の部分と考えられる。
+270 秒の連続発話を持つ B が最も高い（発話量で正規化しても A の 2.5 倍）。
+
+**consolidate は未割当を減らさない。** クラスタを anchor に付け替えるだけで、覆っていない場所を
+埋めないため、生セグメントと同値になる。
+
+**製品粒度ではほぼ吸収される。** `product_proxy.py` では話者無し発話が **1.3 秒**まで落ちる
+（30.2 → 1.3 秒、96% が吸収）。発話セグメント単位で見れば、1 秒未満の穴は多数決に飲まれる。
+
+→ **フレーム単位の未割当を追うのは、利用者に見える品質と対応しない可能性が高い。**
+
 ## 環境とモデル
 
 `sherpa-onnx` は **1.13.3 にピンする**。バージョンを指定しないと 1.13.6 が入る。
@@ -70,6 +95,7 @@ cd /tmp/purity-ab
 ./venv/bin/python vad_analysis.py    # 表②（母数 = GT∩VAD発話）+ recall/precision
 ./venv/bin/python detail.py          # 区間別の得失・誤り内訳（誤帰属 / 未割当）
 ./venv/bin/python product_proxy.py   # 表③（merge.rs 相当の発話粒度）
+./venv/bin/python unassigned_analysis.py  # 未割当フレームの原因分類（Issue #5）
 ```
 
 `gt_adr0009.py` は復元した GT の原本で、実行はしない。同じ配列が `metrics.py` の先頭に埋め込まれており、
@@ -85,6 +111,7 @@ cd /tmp/purity-ab
 | `vad_analysis.py` | 表②。実発話フレームだけを母数にした purity と、segmentation の recall / precision |
 | `detail.py` | GT 区間ごとの得失と、誤りの内訳（他話者へ誤帰属 / 未割当） |
 | `product_proxy.py` | 表③。発話セグメント単位に話者を付けてから測る製品粒度のプロキシ |
+| `unassigned_analysis.py` | 未割当フレームを長さ・話者交替との距離・話者別に分類する（Issue #5 の手順2） |
 
 ## 固定パラメータ
 

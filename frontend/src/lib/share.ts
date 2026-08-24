@@ -9,6 +9,7 @@ import {
   type Lang,
   type RecordingDetail,
   type Summary,
+  speakingSpeakerNames,
 } from "./types";
 import { templateLabel } from "./templates";
 
@@ -81,7 +82,7 @@ export function obsidianMarkdown(detail: RecordingDetail, lang: Lang): string {
   const title = r.title?.trim() || dicts[lang].output.fallbackTitle;
   const date = r.created_at.slice(0, 10); // RFC3339 → YYYY-MM-DD
   const durMin = Math.round(r.duration_ms / 60000);
-  const speakers = (detail.speakers ?? []).map((s) => s.display_name ?? s.label);
+  const speakers = speakingSpeakerNames(detail);
 
   const frontmatter = [
     "---",
