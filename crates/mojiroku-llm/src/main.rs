@@ -23,13 +23,117 @@ use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
 // Special は deprecated だが token_to_bytes（下記の据え置き理由参照）とセットで使う。
 #[allow(deprecated)]
-use llama_cpp_2::model::{AddBos, LlamaModel, Special};
+use llama_cpp_2::model::{AddBos, LlamaChatMessage, LlamaChatTemplate, LlamaModel, Special};
 use llama_cpp_2::sampling::LlamaSampler;
 
 // Qwen2.5-7B-Instruct のネイティブ context（旧 16_384 は半分で、90 分級の講義が
 // 切り詰められていた）。要約は LLM 単独プロセスなので KV キャッシュ増（~1.8GB f16）は
 // Apple Silicon で問題なし。実機メモリ逼迫時は 24_576 へ落とす。
 const N_CTX: u32 = 32_768;
+
+/// システムプロンプト。コンテンツ言語（アプリ言語）に追従する。
+fn system_prompt(lang: &str) -> &'static str {
+    if lang == "en" {
+        "You are a precise and concise meeting-minutes assistant."
+    } else {
+        "あなたは正確で簡潔な日本語の議事録アシスタントです。"
+    }
+}
+
+/// Qwen2.5 の ChatML を手で組む。**モデルが chat template を持たないときだけ使う**
+/// フォールバック。GGUF にテンプレートが入っていない古い変換への保険。
+fn chatml_fallback(lang: &str, body: &str, no_think: bool) -> String {
+    let think = if no_think { "<think>\n\n</think>\n\n" } else { "" };
+    format!(
+        "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n{}",
+        system_prompt(lang),
+        body,
+        think
+    )
+}
+
+/// プロンプト文字列を組む。**モデル自身の chat template を最優先で使う。**
+///
+/// なぜモデル任せにするか: 以前は Qwen2.5 の ChatML を固定で組んでいた。既定モデルが
+/// Qwen 系だったので気づかなかったが、他系統のモデルには native でないテンプレートを
+/// 食わせていたことになる。gemma / Llama / Phi は `<|im_end|>` を特殊トークンとして持たない
+/// ため、それを**ただの文字列として出力**し、`is_eog_token` に一度も引っかからず生成が
+/// 止まらなかった（2026-08-25 実測: 非 Qwen 系 5 本すべてで漏れ、Qwen 系 6 本は 0 件）。
+///
+/// llama.cpp の `llama_chat_apply_template` は GGUF に焼かれたテンプレートを使うので、
+/// モデルを差し替えても正しいマーカーが付く。トークナイズ側は `parse_special = true` なので、
+/// テンプレート由来の特殊トークンは文字列ではなく特殊トークンとして解釈される。
+fn render_prompt(
+    model: &LlamaModel,
+    tmpl: Option<&LlamaChatTemplate>,
+    lang: &str,
+    body: &str,
+    no_think: bool,
+) -> String {
+    let Some(t) = tmpl else {
+        return chatml_fallback(lang, body, no_think);
+    };
+    let sys = system_prompt(lang);
+
+    // system ロールを受け付けないモデルがある（gemma 系）。弾かれたら system を user の
+    // 冒頭に畳んで組み直す。捨てるのではなく畳むのは、指示の言語を保つため。
+    let attempts: [Vec<(&str, String)>; 2] = [
+        vec![("system", sys.to_string()), ("user", body.to_string())],
+        vec![("user", format!("{sys}\n\n{body}"))],
+    ];
+    for msgs in attempts {
+        let built: Result<Vec<_>, _> = msgs
+            .into_iter()
+            .map(|(role, content)| LlamaChatMessage::new(role.to_string(), content))
+            .collect();
+        let Ok(built) = built else { continue };
+        if let Ok(mut s) = model.apply_chat_template(t, &built, true) {
+            if no_think {
+                // Qwen3 系の思考を切る。テンプレートは add_ass=true で assistant の
+                // 開始まで出しているので、その直後に空の think ブロックを置けばよい。
+                s.push_str("<think>\n\n</think>\n\n");
+            }
+            return s;
+        }
+    }
+    eprintln!("[mojiroku-llm] chat template の適用に失敗 -> ChatML へフォールバック");
+    chatml_fallback(lang, body, no_think)
+}
+
+/// 組み上がったプロンプト文字列をトークン化する。
+///
+/// **BOS を付けるかはテンプレート次第**なので、決め打ちしない。llama.cpp のテンプレート
+/// エンジンは、BOS を文字列として出すもの（Qwen 系は そもそも BOS 不要）と、出さずに
+/// トークナイズ側で付ける前提のもの（gemma 系）が混在する。
+/// 先に BOS 無しで引いてみて、先頭が BOS でなければモデルの設定に従って付け直す。
+///
+/// 実測: これを `AddBos::Never` に固定していたとき、gemma は BOS 無しのプロンプトを受け取り
+/// 「---」しか返さなかった。テンプレート自体は正しく当たっていたので、原因が見えにくい。
+fn tokenize_prompt(model: &LlamaModel, prompt: &str) -> Vec<llama_cpp_2::token::LlamaToken> {
+    let plain = model
+        .str_to_token(prompt, AddBos::Never)
+        .expect("tokenize prompt");
+    if plain.first() == Some(&model.token_bos()) {
+        return plain;
+    }
+    // AddBos::Always は「モデルの add_bos_token 設定に従う」の意味。BOS を要らない
+    // モデル（Qwen 系）では何も足されないので、付け過ぎにはならない。
+    model
+        .str_to_token(prompt, AddBos::Always)
+        .unwrap_or(plain)
+}
+
+/// トークン列を文字列へ戻す（切り詰めた本文をテンプレートへ入れ直すため）。
+fn detokenize(model: &LlamaModel, tokens: &[llama_cpp_2::token::LlamaToken]) -> String {
+    let mut bytes = Vec::new();
+    for &t in tokens {
+        #[allow(deprecated)]
+        if let Ok(b) = model.token_to_bytes(t, Special::Tokenize) {
+            bytes.extend_from_slice(&b);
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
 
 fn main() {
     // `--lang <ja|en>` を先に抜き取り、残りを位置引数として解釈する（既定 ja）。
@@ -54,28 +158,6 @@ fn main() {
 
     let user = std::fs::read_to_string(&prompt_file).expect("read prompt file");
 
-    // Qwen2.5 ChatML を prefix / body(=文字起こし) / suffix に分けて扱う（既定モデルが Qwen 系）。
-    // suffix の assistant 開始マーカーを「常に」残すのが肝。旧実装は ChatML 全体をトークン化
-    // してから末尾を truncate していたため、長尺会議では suffix ごと欠落し、モデルが
-    // 「文字起こしの続きを書く」エコー/反復暴走に陥っていた（崩壊出力の主因）。
-    // システムプロンプトはコンテンツ言語（アプリ言語）に追従する。
-    let prefix = if lang == "en" {
-        "<|im_start|>system\nYou are a precise and concise meeting-minutes assistant.<|im_end|>\n<|im_start|>user\n"
-    } else {
-        "<|im_start|>system\nあなたは正確で簡潔な日本語の議事録アシスタントです。<|im_end|>\n<|im_start|>user\n"
-    };
-    // Qwen3 系（Swallow など）は既定で `<think>…</think>` の思考を吐き、要約やタイトルには
-    // 不要なうえ長い。**空の think ブロックを先に置くと思考を飛ばして本文から書き始める**
-    // （Qwen3 のチャットテンプレートが enable_thinking=false でやっているのと同じ形）。
-    // 実測: これが無いと Qwen3-Swallow-8B-SFT は 512 トークンでも思考が終わらず答えに届かない。
-    // なお `/no_think` をユーザープロンプトに入れる方式は、この構成では効かなかった。
-    // 既定 false なので、Qwen2.5 を使う現行の挙動は 1 トークンも変わらない。
-    let suffix = if no_think {
-        "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-    } else {
-        "<|im_end|>\n<|im_start|>assistant\n"
-    };
-
     let backend = LlamaBackend::init().expect("llama backend init");
     let model_params = LlamaModelParams::default().with_n_gpu_layers(1000); // Metal フルオフロード
     let model =
@@ -87,52 +169,78 @@ fn main() {
     // 1 回の decode が超えてはならない上限（context の n_batch 既定と一致）
     let n_batch: usize = 2048;
 
-    // prefix/body/suffix を別々にトークン化し、body だけ予算内に収める。
-    // Qwen2.5 は add_bos_token=false なので BOS は付けない（旧 AddBos::Always は実質 no-op）。
-    let prefix_toks = model
-        .str_to_token(prefix, AddBos::Never)
-        .expect("tokenize prefix");
-    let suffix_toks = model
-        .str_to_token(suffix, AddBos::Never)
-        .expect("tokenize suffix");
-    let mut body_toks = model
-        .str_to_token(user.trim(), AddBos::Never)
-        .expect("tokenize body");
-
-    // n_ctx を超えないよう、生成枠と ChatML エンベロープを残して body を切り詰める。
-    let max_prompt = (N_CTX as usize).saturating_sub(max_new as usize + 16);
-    let body_budget = max_prompt.saturating_sub(prefix_toks.len() + suffix_toks.len());
-    if body_toks.len() > body_budget {
-        // 講義/会議は結論・まとめ・Q&A が末尾に来るため、頭だけ残しは逆効果。
-        // 予算の前 60% + 後 40% を残し、間を省略マーカーでつなぐ（頭尾保持）。
-        eprintln!(
-            "[mojiroku-llm] body {} tokens > {} -> 頭尾保持で切り詰め",
-            body_toks.len(),
-            body_budget
-        );
-        let ellipsis_text = if lang == "en" {
-            "\n…(omitted)…\n"
-        } else {
-            "\n…（中略）…\n"
-        };
-        let ellipsis = model
-            .str_to_token(ellipsis_text, AddBos::Never)
-            .expect("tokenize ellipsis");
-        let keep = body_budget.saturating_sub(ellipsis.len());
-        let head_len = keep * 6 / 10;
-        let tail_len = keep - head_len;
-        let mut trimmed = Vec::with_capacity(body_budget);
-        trimmed.extend_from_slice(&body_toks[..head_len]);
-        trimmed.extend_from_slice(&ellipsis);
-        trimmed.extend_from_slice(&body_toks[body_toks.len() - tail_len..]);
-        body_toks = trimmed;
+    // モデル自身の chat template を取る。無ければ render_prompt が ChatML へ落ちる。
+    let tmpl = model.chat_template(None).ok();
+    if tmpl.is_none() {
+        eprintln!("[mojiroku-llm] chat template を持たないモデル -> ChatML で組む");
     }
 
-    let mut tokens = prefix_toks;
-    tokens.extend_from_slice(&body_toks);
-    tokens.extend_from_slice(&suffix_toks); // assistant 開始マーカーは常に末尾に残る
+    // テンプレートの長さはモデルごとに違うので、**空の本文で一度組んで実測**する
+    // （prefix/suffix を決め打ちしていた頃の前提はもう無い）。
+    let max_prompt = (N_CTX as usize).saturating_sub(max_new as usize + 16);
+    let overhead = tokenize_prompt(
+        &model,
+        &render_prompt(&model, tmpl.as_ref(), &lang, "", no_think),
+    )
+    .len();
+    let body_toks = model
+        .str_to_token(user.trim(), AddBos::Never)
+        .expect("tokenize body");
+    let mut body_budget = max_prompt.saturating_sub(overhead);
+
+    // 講義/会議は結論・まとめ・Q&A が末尾に来るため、頭だけ残しは逆効果。
+    // 予算の前 60% + 後 40% を残し、間を省略マーカーでつなぐ（頭尾保持）。
+    //
+    // 本文をトークン列で切ってから文字列へ戻し、テンプレートに入れ直す。戻して入れ直すと
+    // トークン数がわずかに変わり得るので、収まるまで予算を詰めて組み直す（最大 3 回）。
+    let ellipsis_text = if lang == "en" {
+        "\n…(omitted)…\n"
+    } else {
+        "\n…（中略）…\n"
+    };
+    let ellipsis_len = model
+        .str_to_token(ellipsis_text, AddBos::Never)
+        .map(|t| t.len())
+        .unwrap_or(8);
+
+    let mut tokens;
+    let mut attempt = 0;
+    loop {
+        let body = if body_toks.len() > body_budget {
+            let keep = body_budget.saturating_sub(ellipsis_len);
+            let head_len = keep * 6 / 10;
+            let tail_len = keep - head_len;
+            format!(
+                "{}{}{}",
+                detokenize(&model, &body_toks[..head_len]),
+                ellipsis_text,
+                detokenize(&model, &body_toks[body_toks.len() - tail_len..])
+            )
+        } else {
+            user.trim().to_string()
+        };
+        let prompt = render_prompt(&model, tmpl.as_ref(), &lang, &body, no_think);
+        tokens = tokenize_prompt(&model, &prompt);
+        attempt += 1;
+        if tokens.len() <= max_prompt || attempt >= 3 {
+            break;
+        }
+        eprintln!(
+            "[mojiroku-llm] prompt {} tokens > {} -> 予算を詰めて組み直す（{attempt} 回目）",
+            tokens.len(),
+            max_prompt
+        );
+        // 必ず切り詰めが効くよう、本文長より小さい値まで落としてから 1 割詰める。
+        body_budget = body_budget.min(body_toks.len()) * 9 / 10;
+    }
     let prompt_len = tokens.len();
-    eprintln!("[mojiroku-llm] prompt tokens = {prompt_len}");
+    eprintln!("[mojiroku-llm] prompt tokens = {prompt_len} (overhead {overhead})");
+    // モデルを差し替えたとき、テンプレートが期待どおり当たっているかを確かめる口。
+    // 出力がおかしいときは、まずここで実際に渡している文字列を見る。
+    if std::env::var("MOJIROKU_LLM_DEBUG").is_ok() {
+        let dump = render_prompt(&model, tmpl.as_ref(), &lang, "《本文》", no_think);
+        eprintln!("[mojiroku-llm] --- 組み上がったプロンプト（本文は伏字） ---\n{dump}\n--- ここまで ---");
+    }
 
     // プロンプトを n_batch ごとに分割して decode（GGML_ASSERT(n_tokens_all <= n_batch) 回避）
     let mut batch = LlamaBatch::new(n_batch, 1);
