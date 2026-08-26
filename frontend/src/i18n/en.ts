@@ -602,6 +602,9 @@ const en: Dict = {
     "error.summarize.api_key_missing": "Cloud summarization requires an API key (Settings → Summary engine)",
     "error.summarize.sidecar_failed": "Local summarization failed",
     "error.model.download": "Model download failed (check your network connection)",
+    // Certificate verification failure. Usually a traffic-inspecting middlebox, not the connection.
+    "error.model.download_tls":
+      "Could not verify the certificate of the model download server. This happens when a corporate or school network, or security software, inspects traffic. Try a different network.",
     "error.model.download_incomplete":
       "Model download was interrupted (check your network connection and try again)",
     "error.model.checksum_mismatch":
