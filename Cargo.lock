@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "mojiroku"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",
