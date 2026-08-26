@@ -6,8 +6,15 @@
 //   - DetailView: 「質問する」/ 横断ダイジェスト / チャプター / 翻訳（AskDrawer・DigestView の入口ごと消える）
 //   - IntegrationsView: 会議プラットフォーム欄（セクションごと消える）
 //   - PreviewTag（components/composite.tsx）: null を返す
-// 配布ビルド時はこの 1 行だけを false にすればよい（他に切替箇所は無い）。
-export const MOCK_PREVIEW = true;
+//
+// ⚠️ **手で false にする運用はやめた。** 以前は「配布ビルド時にこの 1 行を false にすればよい」
+// と書いてあったが、**一度も実行されないまま v0.5.2 まで配布された**（Issue #21）。
+// 利用者の手元に、押しても固定文しか返らない「質問する」「チャプター」「翻訳」等が
+// 出ていた。人が覚えていることを前提にした手順は、いずれ必ず抜ける。
+//
+// 開発サーバー（`just dev`）でだけ true になる。`vite build` を通る配布ビルドでは
+// 自動的に false。切り替えを覚えておく必要はない。
+export const MOCK_PREVIEW = import.meta.env.DEV;
 
 // ── 会議モード（08） ────────────────────────────────────────────────────
 export interface MockLiveLine {
