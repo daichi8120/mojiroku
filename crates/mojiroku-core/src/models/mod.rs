@@ -101,6 +101,24 @@ fn cached(dest: &Path) -> bool {
 /// 起きるため。表示文言はフロントの i18n 辞書が持つ）、IO は `CoreError::Io`。
 /// 呼び出し側は tmp の rename/展開を担う（本関数は返る前に file を close する）。
 /// ensure_model / ensure_diar_seg_model で逐語重複していた DL ループを集約。
+/// ダウンロード失敗のエラーキーを選ぶ。
+///
+/// 証明書の検証失敗を「ネットワーク接続を確認してください」と出すと、利用者は回線を疑う。
+/// 実際には TLS を検査する中間装置（社内・学内プロキシ / VPN / セキュリティソフト）が原因で、
+/// 回線は正常なことが多い。**原因の方向を指す文言に振り分ける**（Issue #31 の報告がこれ）。
+fn download_error_key(req_err_label: &str, err: &str) -> String {
+    let lower = err.to_ascii_lowercase();
+    let key = if lower.contains("certificate")
+        || lower.contains("unknownissuer")
+        || lower.contains("tls connection init failed")
+    {
+        "error.model.download_tls"
+    } else {
+        "error.model.download"
+    };
+    format!("{key}: {req_err_label}: {err}")
+}
+
 fn download_to_file(
     url: &str,
     tmp: &Path,
@@ -111,7 +129,7 @@ fn download_to_file(
     // ureq は既定でリダイレクトを追従（HF → CDN）。
     let resp = ureq::get(url)
         .call()
-        .map_err(|e| CoreError::Model(format!("error.model.download: {req_err_label}: {e}")))?;
+        .map_err(|e| CoreError::Model(download_error_key(req_err_label, &e.to_string())))?;
     let total: Option<u64> = resp.header("Content-Length").and_then(|s| s.parse().ok());
 
     let mut file = fs::File::create(tmp).map_err(|e| CoreError::Io(e.to_string()))?;
@@ -262,6 +280,41 @@ mod tests {
 
     /// "abc" の SHA-256（既知ベクタ）。
     const ABC_SHA256: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    /// 証明書の失敗を接続の失敗と区別する。**Issue #31 で実際に報告された文字列**を固定する。
+    /// 分けないと「ネットワーク接続を確認してください」と出て、利用者は正常な回線を疑う。
+    #[test]
+    fn certificate_failures_get_their_own_error_key() {
+        let reported = "Connection Failed: tls connection init failed: \
+                        invalid peer certificate: UnknownIssuer";
+        assert!(
+            download_error_key("download request", reported).starts_with("error.model.download_tls:"),
+            "報告された証明書エラーが download_tls に振り分けられていない"
+        );
+
+        // 大文字小文字や表現が違っても拾う。
+        for s in [
+            "invalid peer certificate: UnknownIssuer",
+            "TLS connection init failed",
+            "certificate verify failed",
+        ] {
+            assert!(
+                download_error_key("l", s).starts_with("error.model.download_tls:"),
+                "{s} が download_tls に振り分けられていない"
+            );
+        }
+
+        // 証明書と無関係な失敗は従来のキーのまま（過剰に振り分けない）。
+        for s in ["Connection Failed: dns error", "io: timed out", "status code 503"] {
+            assert!(
+                download_error_key("l", s).starts_with("error.model.download:"),
+                "{s} が誤って download_tls に振り分けられた"
+            );
+        }
+
+        // 元のメッセージは失われない（原因の特定に要る）。
+        assert!(download_error_key("download request", reported).contains("UnknownIssuer"));
+    }
 
     fn tmp_file(name: &str) -> PathBuf {
         let p = std::env::temp_dir().join(name);

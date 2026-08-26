@@ -606,6 +606,9 @@ const ja = {
     "error.summarize.api_key_missing": "クラウド要約には API キーが必要です（設定 → 要約エンジン）",
     "error.summarize.sidecar_failed": "ローカル要約の実行に失敗しました",
     "error.model.download": "モデルのダウンロードに失敗しました（ネットワーク接続を確認してください）",
+    // 証明書の検証失敗。回線ではなく、通信を検査する中間装置が原因のことが多い（Issue #31）。
+    "error.model.download_tls":
+      "モデルのダウンロード先の証明書を検証できませんでした。社内・学内ネットワークやセキュリティソフトが通信を検査していると起こります。別のネットワークでお試しください。",
     "error.model.download_incomplete":
       "モデルのダウンロードが途中で切断されました（ネットワーク接続を確認して再試行してください）",
     "error.model.checksum_mismatch":
