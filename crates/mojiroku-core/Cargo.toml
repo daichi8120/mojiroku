@@ -38,7 +38,12 @@ symphonia = { version = "0.5", default-features = false, features = [
 rubato = "0.16"
 
 # モデルDL + BYOK API + カレンダー iCal フィード取得（blocking + rustls、core は非 async）。
-ureq = { version = "2", features = ["json"] }
+# native-certs: **OS（macOS キーチェーン）のルート証明書を使う。**
+# 既定の `tls` feature は webpki-roots（Mozilla のルートをバイナリに焼き込んだもの）だけを
+# 見るため、TLS を検査する中間装置（社内・学内プロキシ / 一部の VPN / セキュリティソフト）が
+# ある環境では、その証明書が macOS に入っていても `UnknownIssuer` で全通信が落ちる（Issue #31）。
+# ureq を使う全経路（モデル DL / BYOK / カレンダー / Slack / Notion / OAuth）が同じ影響を受ける。
+ureq = { version = "2", features = ["json", "native-certs"] }
 # モデルDLの完全性検証（截断・改竄の検出。models/mod.rs の期待ハッシュと突き合わせ）。
 sha2 = "0.10"
 serde_json = "1"
