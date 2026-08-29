@@ -12,8 +12,10 @@ use crate::error::{CoreError, Result};
 /// 既定の文字起こしモデル（large-v3-turbo q5_0, 約 547MiB）。
 pub const DEFAULT_WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 
-/// 既定の要約モデル（**候補**。品質ゲートで最終決定。Apache-2.0・単一ファイル GGUF）。
-/// 小さく軽い候補は `Qwen2.5-1.5B-Instruct-Q4_K_M.gguf` 等。
+/// 既定の要約モデル。実会議での品質ゲートを PASS 済み（docs/roadmap.md）。
+///
+/// 段（[`SummaryTier`]）に採用済みモデルが無いときの落とし先でもあるため、
+/// **どの端末でも最低これが選ばれる**。差し替えは [`SUMMARY_MODELS`] の `adopted` で行う。
 pub const DEFAULT_SUMMARY_MODEL: &str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
 
 /// VAD モデル（Silero, ggml）。whisper の無音ハルシネーション対策（spec の VAD 段）。
@@ -47,14 +49,176 @@ pub fn diar_emb_url() -> &'static str {
     DIAR_EMB_URL
 }
 
+// ───────────────────────── 要約モデルの段（Issue #30） ─────────────────────────
+
+/// 要約モデルの段。端末の搭載メモリで決まる。
+///
+/// 要約 sidecar はモデル全体をメモリに載せる。16GB 機ではメモリ枯渇でクラッシュした
+/// 前例があり、重い ML ジョブをアプリ全体 1 本に直列化したのはその対策（ADR-0021）。
+/// 段はその手前で「そもそも載せるものを小さくする」ための仕組み。
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum SummaryTier {
+    /// 目安 8GB。
+    Small,
+    /// 目安 16GB。現行の既定（7B）が属する段。
+    Medium,
+    /// 目安 32GB 以上。
+    Large,
+}
+
+/// 要約モデル 1 件。DL 元・検証値・段をここに集約する。
+///
+/// **1 モデル 1 行にまとめている理由。** 以前は既定モデル名・base URL・期待ハッシュが
+/// 別々の定数に散っていた。段ごとに違うモデルを持つと、その 3 つがモデル数だけ増えて
+/// 対応が崩れる（URL は新しいのにハッシュは古い、など）。崩れても**ビルドは通る**ので、
+/// 気づくのは利用者の DL が checksum_mismatch で落ちたときになる。
+pub struct SummaryModel {
+    /// ローカルのファイル名（`models_dir` 直下）。
+    pub file: &'static str,
+    /// HF の DL 元。**リビジョン固定**（`resolve/main` にしない。上流の差し替えで
+    /// 下の `sha256` と食い違い、DL が恒久的に失敗するため）。
+    base_url: &'static str,
+    /// 期待 SHA-256。取得手順は HF の paths-info API（LFS の `oid`）。
+    sha256: &'static str,
+    /// ファイルサイズ（バイト）。設定 UI で「落とし直しに何 GB か」を見せるために持つ。
+    pub size_bytes: u64,
+    /// この段の候補であること。
+    pub tier: SummaryTier,
+    /// ライセンス。**利用者の商用利用を妨げないもの**だけを採用する（NOTICE と対応）。
+    pub license: &'static str,
+    /// 実際に配るか。**`false` の間は決して選ばれない。**
+    ///
+    /// 実会議での品質ゲートを取り直すまで、候補は候補のまま置く。
+    /// 採用済みが無い段は [`DEFAULT_SUMMARY_MODEL`] へ落ちる（[`model_for_tier`]）。
+    pub adopted: bool,
+}
+
+/// 要約モデルのカタログ。
+///
+/// 候補の質と速度は 11 モデル × 4 タスクの横断評価で測った（Issue #4 のコメント）。
+/// **段の境界（何 GB で何を選ぶか）は未測定**で、下の定数は Issue #30 のたたき台のまま。
+/// 測るべきは「載るか」ではなく「whisper・話者分離と同居して快適か」。
+pub const SUMMARY_MODELS: &[SummaryModel] = &[
+    // 小の段の候補。2.7GB・平均 10.7 秒で、内容は 9B に近い。
+    // ⚠️ 議事録の 4 見出しは 2/3 しか揃わなかった（9B は 3/3）。段を下げるとまず
+    //    形式の遵守が落ちる。採用の可否はここが焦点になる。
+    SummaryModel {
+        file: "Qwen3.5-4B-Q4_K_M.gguf",
+        base_url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/",
+        sha256: "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+        size_bytes: 2_740_937_888,
+        tier: SummaryTier::Small,
+        license: "apache-2.0",
+        adopted: false,
+    },
+    // 現行の既定。実会議での品質ゲート PASS 済み。
+    SummaryModel {
+        file: DEFAULT_SUMMARY_MODEL,
+        base_url: SUMMARY_BASE,
+        sha256: "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423",
+        size_bytes: 4_683_074_240,
+        tier: SummaryTier::Medium,
+        license: "apache-2.0",
+        adopted: true,
+    },
+    // 中の段の候補。現行より速く（17.5 秒 / 18.8 秒）、機械採点は同点、見出し 3/3。
+    // 置き換えるなら品質ゲートの取り直しと、プロンプトの詰め直しが要る
+    // （いまの英語 instruction は Qwen2.5 に合わせて実測で決めた文面）。
+    SummaryModel {
+        file: "Qwen3.5-9B-Q4_K_M.gguf",
+        base_url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/",
+        sha256: "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",
+        size_bytes: 5_680_522_464,
+        tier: SummaryTier::Medium,
+        license: "apache-2.0",
+        adopted: false,
+    },
+    // 大の段（12B 以上）は候補が無い。横断評価で 0/14 だったのは gemma-3-12b だけで、
+    // ライセンスに使用制限がつく。Apache-2.0 の 12B 級は 2026-08-25 時点で見つからなかった。
+];
+
+const GIB: u64 = 1024 * 1024 * 1024;
+
+/// 中の段の下限（**仮**。Issue #30 のたたき台で、実測で決め直す）。
+pub const TIER_MEDIUM_MIN_BYTES: u64 = 16 * GIB;
+/// 大の段の下限（**仮**。同上）。
+pub const TIER_LARGE_MIN_BYTES: u64 = 32 * GIB;
+
+// 境界の**値**は仮で、実測で動かす前提。順序だけは値が動いても成り立たなければならない
+// （逆転すると `tier_for_memory` の match が上から評価される都合で Medium に到達しない）。
+// 定数同士なのでコンパイル時に見る。
+const _: () = assert!(TIER_MEDIUM_MIN_BYTES < TIER_LARGE_MIN_BYTES);
+
+/// 搭載メモリから段を決める。
+///
+/// **分からないときは小さい方に倒す**（macOS 以外や取得失敗）。外した場合の損害が
+/// 非対称だから — 大きすぎるモデルはメモリ枯渇でクラッシュしうる（ADR-0021）のに対し、
+/// 小さすぎるモデルは要約の質が落ちるだけで、設定から上げ直せる。
+pub fn tier_for_memory(total_memory_bytes: Option<u64>) -> SummaryTier {
+    match total_memory_bytes {
+        Some(b) if b >= TIER_LARGE_MIN_BYTES => SummaryTier::Large,
+        Some(b) if b >= TIER_MEDIUM_MIN_BYTES => SummaryTier::Medium,
+        _ => SummaryTier::Small,
+    }
+}
+
+/// 既定モデルのカタログ項目。`SUMMARY_MODELS` に必ず 1 件ある（テストで保証）。
+fn default_summary_model() -> &'static SummaryModel {
+    SUMMARY_MODELS
+        .iter()
+        .find(|m| m.file == DEFAULT_SUMMARY_MODEL)
+        .expect("DEFAULT_SUMMARY_MODEL は SUMMARY_MODELS に載せる")
+}
+
+/// 段に対して配るモデル。
+///
+/// **採用済み（`adopted`）が無い段は既定へ落ちる。** 品質ゲートを取り直していない
+/// モデルを、段が決まったというだけで配らないため。いま採用済みは中の段の 1 件だけなので、
+/// この関数はどの段でも既定を返す = **現行の挙動と同じ**。
+pub fn model_for_tier(tier: SummaryTier) -> &'static SummaryModel {
+    SUMMARY_MODELS
+        .iter()
+        .find(|m| m.adopted && m.tier == tier)
+        .unwrap_or_else(default_summary_model)
+}
+
+/// 端末に合わせて要約モデルを選ぶ。**手元にあるものを優先する。**
+///
+/// 段の判定より先にキャッシュを見るのは、`models_dir` に既にあるモデルを黙って
+/// 別のものに置き換えないため（Issue #30 の終了条件）。数 GB の再ダウンロードは、
+/// 利用者にとって「勝手に始まった」以外の何物でもない。乗り換えは設定から明示的に行う。
+pub fn select_summary_model(
+    total_memory_bytes: Option<u64>,
+    models_dir: &Path,
+) -> &'static SummaryModel {
+    let want = model_for_tier(tier_for_memory(total_memory_bytes));
+    if cached(&models_dir.join(want.file)) {
+        return want;
+    }
+    // 段の候補は無いが、別の登録モデルが手元にある場合。**それを使う。**
+    // 複数あるなら小さい方（決定的に選ぶ、かつ載せて安全な方）。
+    SUMMARY_MODELS
+        .iter()
+        .filter(|m| cached(&models_dir.join(m.file)))
+        .min_by_key(|m| m.size_bytes)
+        .unwrap_or(want)
+}
+
 /// 文字起こしモデルの DL URL。
 pub fn whisper_model_url(file: &str) -> String {
     format!("{WHISPER_BASE}{file}")
 }
 
-/// 要約モデルの DL URL。
+/// 要約モデルの DL URL。カタログ（[`SUMMARY_MODELS`]）に載っていればその固定リビジョンを、
+/// 載っていなければ既定モデルの repo を基準に組み立てる（従来どおり）。
 pub fn summary_model_url(file: &str) -> String {
-    format!("{SUMMARY_BASE}{file}")
+    match SUMMARY_MODELS.iter().find(|m| m.file == file) {
+        Some(m) => format!("{}{}", m.base_url, m.file),
+        None => format!("{SUMMARY_BASE}{file}"),
+    }
 }
 
 /// VAD モデルの DL URL（whisper-vad リポジトリ）。
@@ -71,16 +235,17 @@ fn expected_sha256(model_file: &str) -> Option<&'static str> {
         DEFAULT_WHISPER_MODEL => {
             Some("394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2")
         }
-        DEFAULT_SUMMARY_MODEL => {
-            Some("65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423")
-        }
         DEFAULT_VAD_MODEL => {
             Some("29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf")
         }
         DEFAULT_DIAR_EMB_MODEL => {
             Some("d51abcf31717ef28162f26acb9d44dd4127c3d44c9b8624f699f3425daca8e77")
         }
-        _ => None,
+        // 要約モデルはカタログが持つ（段ごとに増えるため、ここに散らさない）。
+        f => SUMMARY_MODELS
+            .iter()
+            .find(|m| m.file == f)
+            .map(|m| m.sha256),
     }
 }
 
@@ -375,6 +540,179 @@ mod tests {
         for base in [WHISPER_BASE, SUMMARY_BASE, VAD_BASE] {
             assert!(!base.contains("/resolve/main/"), "{base} はリビジョン固定にする");
         }
+    }
+
+    // ───────── 要約モデルの段（Issue #30） ─────────
+
+    /// **挙動が変わっていないことの証明。** カタログ化は純粋な移動で、既定モデルの
+    /// DL URL と期待ハッシュは 1 バイトも変えていない。ここは refactor 前の値を
+    /// 直接書いて固定する（カタログから引いて比べると、両方ずれても通ってしまう）。
+    #[test]
+    fn summary_registry_preserves_the_current_download() {
+        assert_eq!(
+            summary_model_url(DEFAULT_SUMMARY_MODEL),
+            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/\
+             8911e8a47f92bac19d6f5c64a2e2095bd2f7d031/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+        );
+        assert_eq!(
+            expected_sha256(DEFAULT_SUMMARY_MODEL),
+            Some("65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423")
+        );
+        // カタログに無いファイルは従来どおり既定 repo を基準に組み立てる。
+        assert_eq!(
+            summary_model_url("whatever.gguf"),
+            format!("{SUMMARY_BASE}whatever.gguf")
+        );
+    }
+
+    /// カタログの各行が揃っていること。URL とハッシュの対応が崩れてもビルドは通るので、
+    /// ここで落とす（崩れたまま出荷すると、利用者の DL が checksum_mismatch で失敗する）。
+    #[test]
+    fn summary_registry_rows_are_wellformed() {
+        assert!(!SUMMARY_MODELS.is_empty());
+        for m in SUMMARY_MODELS {
+            assert_eq!(m.sha256.len(), 64, "{}: SHA-256 hex は 64 桁", m.file);
+            assert!(
+                m.sha256.chars().all(|c| c.is_ascii_hexdigit()),
+                "{}: SHA-256 が 16 進でない",
+                m.file
+            );
+            assert!(
+                !m.base_url.contains("/resolve/main/"),
+                "{}: DL 元はリビジョン固定にする（main だと上流差し替えで恒久的に失敗する）",
+                m.file
+            );
+            assert!(
+                m.base_url.ends_with('/'),
+                "{}: base_url は / で終える",
+                m.file
+            );
+            assert!(
+                m.file.ends_with(".gguf"),
+                "{}: 単一ファイル GGUF のみ",
+                m.file
+            );
+            assert!(m.size_bytes > 0, "{}: サイズは設定 UI が使う", m.file);
+            assert!(
+                matches!(m.license, "apache-2.0" | "mit"),
+                "{}: 利用者の商用利用を妨げないライセンスだけを載せる（{} は条文を読んでから）",
+                m.file,
+                m.license
+            );
+        }
+        // 既定モデルは必ずカタログに居て、採用済みであること（落とし先だから）。
+        let d = default_summary_model();
+        assert!(d.adopted, "既定モデルが adopted=false だと落とし先が消える");
+    }
+
+    /// 段の境界。値は**仮**だが、境界そのものの振る舞い（以上/未満）は固定する。
+    #[test]
+    fn tier_boundaries_are_inclusive_lower_bounds() {
+        let cases = [
+            (Some(8 * GIB), SummaryTier::Small),
+            (Some(TIER_MEDIUM_MIN_BYTES - 1), SummaryTier::Small),
+            (Some(TIER_MEDIUM_MIN_BYTES), SummaryTier::Medium),
+            (Some(TIER_LARGE_MIN_BYTES - 1), SummaryTier::Medium),
+            (Some(TIER_LARGE_MIN_BYTES), SummaryTier::Large),
+            (Some(128 * GIB), SummaryTier::Large),
+        ];
+        for (mem, want) in cases {
+            assert_eq!(tier_for_memory(mem), want, "メモリ {mem:?} の段が違う");
+        }
+    }
+
+    /// 取得できないときは小さい方へ倒す。外したときの損害が非対称だから
+    /// （重すぎ = クラッシュしうる / 軽すぎ = 質が落ちるだけ）。
+    #[test]
+    fn unknown_memory_falls_to_the_small_tier() {
+        assert_eq!(tier_for_memory(None), SummaryTier::Small);
+        assert_eq!(tier_for_memory(Some(0)), SummaryTier::Small);
+    }
+
+    /// **いま配られるものは変わらない。** 品質ゲートを取り直すまで候補は adopted=false で、
+    /// 採用済みが無い段は既定へ落ちる。この表明が落ちたら、それは利用者に届くモデルが
+    /// 変わったということ（意図した変更なら、このテストごと直す）。
+    #[test]
+    fn every_tier_still_resolves_to_the_current_default() {
+        for tier in [SummaryTier::Small, SummaryTier::Medium, SummaryTier::Large] {
+            assert_eq!(
+                model_for_tier(tier).file,
+                DEFAULT_SUMMARY_MODEL,
+                "{tier:?} の段が既定以外を返した"
+            );
+        }
+        // 候補は候補のまま。
+        let adopted: Vec<_> = SUMMARY_MODELS.iter().filter(|m| m.adopted).collect();
+        assert_eq!(adopted.len(), 1, "採用済みは既定の 1 件だけのはず");
+    }
+
+    fn models_dir_with(files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mojiroku-tier-{}-{:?}",
+            files.len(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            fs::write(dir.join(f), b"x").unwrap();
+        }
+        dir
+    }
+
+    /// **手元にあるものを黙って置き換えない**（Issue #30 の終了条件）。
+    /// 段が別のモデルを指していても、既に落としてあるものがあればそれを返す。
+    ///
+    /// ⚠️ このテストは名前に反して `select_summary_model` の**キャッシュ優先の分岐を
+    /// 踏んでいない**。手元が 1 件だけだと、その分岐を消しても後段の「手元の最小」が
+    /// 同じ答えを返すため。実際に変異を入れて素通りすることを確かめた。
+    /// 分岐を固定しているのは [`multiple_cached_models_resolve_deterministically`]。
+    #[test]
+    fn cached_model_wins_over_the_tier_choice() {
+        let candidate = SUMMARY_MODELS
+            .iter()
+            .find(|m| !m.adopted)
+            .expect("候補が 1 件も無い");
+        let dir = models_dir_with(&[candidate.file]);
+
+        // どの搭載メモリでも、手元の候補が選ばれる（数 GB の再 DL を起こさない）。
+        for mem in [None, Some(8 * GIB), Some(16 * GIB), Some(64 * GIB)] {
+            assert_eq!(
+                select_summary_model(mem, &dir).file,
+                candidate.file,
+                "メモリ {mem:?}: 手元のモデルを無視して別のものを選んだ"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 手元に何も無ければ段の選択どおり（＝いまは常に既定）。
+    #[test]
+    fn empty_models_dir_falls_back_to_the_tier_choice() {
+        let dir = models_dir_with(&[]);
+        for mem in [None, Some(8 * GIB), Some(64 * GIB)] {
+            assert_eq!(select_summary_model(mem, &dir).file, DEFAULT_SUMMARY_MODEL);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 複数あるときは決定的に選ぶ（小さい方＝載せて安全な方）。
+    #[test]
+    fn multiple_cached_models_resolve_deterministically() {
+        let files: Vec<&str> = SUMMARY_MODELS.iter().map(|m| m.file).collect();
+        let dir = models_dir_with(&files);
+        // 既定は手元にあるので、段の選択（＝既定）がそのまま通る。
+        assert_eq!(select_summary_model(None, &dir).file, DEFAULT_SUMMARY_MODEL);
+
+        // 既定だけ消すと、残りのうち最小が選ばれる。
+        fs::remove_file(dir.join(DEFAULT_SUMMARY_MODEL)).unwrap();
+        let smallest = SUMMARY_MODELS
+            .iter()
+            .filter(|m| m.file != DEFAULT_SUMMARY_MODEL)
+            .min_by_key(|m| m.size_bytes)
+            .unwrap();
+        assert_eq!(select_summary_model(None, &dir).file, smallest.file);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
