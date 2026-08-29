@@ -32,6 +32,9 @@ const NOTION_REDIRECT = "https://mojiroku.com/oauth/notion/callback";
 const NOTION_AUTHORIZE = "https://api.notion.com/v1/oauth/authorize";
 const NOTION_TOKEN = "https://api.notion.com/v1/oauth/token";
 
+/** Google Search Console の所有権確認ファイルのパス（Search Console が発行した名前）。 */
+const GSC_VERIFICATION_PATH = "/google6705194712d0362d.html";
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -43,6 +46,16 @@ export default {
     // mojiroku.com/updater/latest.json に焼き付いているため、ここを公開 Releases の
     // 最新マニフェストへ常時追従させる（CI が latest.json を Release アセットとして発行）。
     if (url.pathname === "/updater/latest.json") return updaterManifest();
+    // Google Search Console の所有権確認ファイル。
+    // Static Assets の既定（html_handling）は `.html` を落として拡張子なしの URL へ
+    // 307 で飛ばすが、Google は `.html` のパスをそのまま見に来る。サイト全体の URL 形は
+    // 変えたくないので、このパスだけ中身を直接返す（2026-08-30。実測で 307 を確認）。
+    // ⚠️ 確認後もこの応答を消さないこと（"don't remove the file, even after verification succeeds"）。
+    if (url.pathname === GSC_VERIFICATION_PATH) {
+      return new Response(`google-site-verification: ${GSC_VERIFICATION_PATH.slice(1)}\n`, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    }
     // それ以外は静的アセット（_redirects の /download 302 等もここで効く）。
     return env.ASSETS.fetch(request);
   },
