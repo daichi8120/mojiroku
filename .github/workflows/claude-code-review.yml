@@ -1,10 +1,11 @@
 # 自分が出した PR を Claude に自動レビューさせる。
 #
 # 出典: https://code.claude.com/docs/en/github-actions の "Run a skill"（Code Review）。
-# 公式例に対して、このリポジトリの事情から3点を追加している:
+# 公式例に対して、このリポジトリの事情から4点を追加している:
 #   1. fork PR を除外する job レベルの if:（後述）
 #   2. concurrency — 連続 push でレビューが積み上がるのを防ぐ（サブスク枠の節約）
 #   3. timeout-minutes — CLAUDE.md が大きいので暴走を止める
+#   4. --model — 既定（実測では claude-sonnet-5）ではなく Opus 5 を使う
 #
 # ⚠️ --max-turns は入れないこと。公式例には無く、2026-08-22 に 30 を入れたところ
 #    小さな PR（2ファイル）でも上限に到達してジョブが落ちた。暴走の歯止めは
@@ -77,4 +78,12 @@ jobs:
           # ⚠️ 2026-08-22 に Bash(gh …) を列挙する形へ広げたが、公式の想定と違う形だった。
           #    2026-08-29 の #46 の run は success かつ permission_denials_count: 1 で、
           #    5 ターンで終わりコメントを投稿しなかった。公式例へ戻す。
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"' 
+          # --model: 明示しないと Claude Code の既定（実測では claude-sonnet-5）になる。
+          #   2026-08-30 に Opus 5 へ引き上げた。docs のみの PR でも事実誤認を 2 件突いた
+          #   実績が Sonnet にもあるが、コード変更のレビューではより深く見てほしいため。
+          #   ⚠️ サブスク枠の消費は増える（Sonnet の実測で 1 run あたり $2.49 相当・20 ターン・約 8 分）。
+          #   重すぎると感じたら claude-sonnet-5 へ戻す。
+          # --allowedTools: 公式例どおり MCP ツール 1 つだけ（理由は上の 2 ブロック）。
+          claude_args: >-
+            --model claude-opus-5
+            --allowedTools "mcp__github_inline_comment__create_inline_comment" 
