@@ -8,6 +8,7 @@
 //!          `mojiroku-core::summarize::build_prompt` の出力を本体が temp に書いて渡す）
 //!   引数3(任意): 生成最大トークン数（既定 2048）
 //!   `--lang ja|en`(任意): システムプロンプト等の言語（既定 ja。位置引数のどこに置いてもよい）
+//!   `--no-think`(任意): 思考を出さずに本文から書かせる（Qwen3 系の推論モデル向け）
 //!   stdout: 生成された要約/議事録（プレーンテキスト）
 //!   stderr: 進捗・診断ログ
 //!
@@ -40,10 +41,14 @@ fn main() {
             lang = args.remove(i);
         }
     }
-    let model_path = args
-        .first()
-        .cloned()
-        .expect("usage: mojiroku-llm <model.gguf> <prompt_file> [max_tokens] [--lang ja|en]");
+    // `--no-think`: 思考を出させない（Qwen3 系の推論モデル向け）。既定 false＝従来挙動。
+    let no_think = args.iter().position(|a| a == "--no-think").map(|i| {
+        args.remove(i);
+        true
+    }) == Some(true);
+    let model_path = args.first().cloned().expect(
+        "usage: mojiroku-llm <model.gguf> <prompt_file> [max_tokens] [--lang ja|en] [--no-think]",
+    );
     let prompt_file = args.get(1).cloned().expect("prompt file path");
     let max_new: i32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(2048);
 
@@ -59,7 +64,17 @@ fn main() {
     } else {
         "<|im_start|>system\nあなたは正確で簡潔な日本語の議事録アシスタントです。<|im_end|>\n<|im_start|>user\n"
     };
-    let suffix = "<|im_end|>\n<|im_start|>assistant\n";
+    // Qwen3 系（Swallow など）は既定で `<think>…</think>` の思考を吐き、要約やタイトルには
+    // 不要なうえ長い。**空の think ブロックを先に置くと思考を飛ばして本文から書き始める**
+    // （Qwen3 のチャットテンプレートが enable_thinking=false でやっているのと同じ形）。
+    // 実測: これが無いと Qwen3-Swallow-8B-SFT は 512 トークンでも思考が終わらず答えに届かない。
+    // なお `/no_think` をユーザープロンプトに入れる方式は、この構成では効かなかった。
+    // 既定 false なので、Qwen2.5 を使う現行の挙動は 1 トークンも変わらない。
+    let suffix = if no_think {
+        "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+    } else {
+        "<|im_end|>\n<|im_start|>assistant\n"
+    };
 
     let backend = LlamaBackend::init().expect("llama backend init");
     let model_params = LlamaModelParams::default().with_n_gpu_layers(1000); // Metal フルオフロード
