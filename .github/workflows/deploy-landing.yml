@@ -54,7 +54,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Astro 7 は Node >=22.12 を要求する（20 だと build が
+          # "Node.js v20 is not supported by Astro!" で落ちる。2026-08-29 に実際に落ちた）。
+          node-version: "22"
           cache: npm
           cache-dependency-path: landing/package-lock.json
 
