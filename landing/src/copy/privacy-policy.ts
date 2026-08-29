@@ -189,7 +189,7 @@ export const ja: PrivacyPolicyCopy = {
       {
         host: "chatgpt.com / claude.ai",
         when: "「ChatGPT で開く」「Claude で開く」を押したとき",
-        what: "**文字起こしと要約を含むプロンプト**。1500 文字以内であれば URL のクエリとして渡され、それを超える場合はクリップボードへのコピーだけになります（どちらの場合もクリップボードにはコピーされます）。**URL として渡した内容は、ブラウザの履歴や拡張機能に残ることがあります**",
+        what: "**文字起こしと要約を含むプロンプト**。クリップボードへコピーし、あなたが貼り付けて渡します。**URL には載せません**",
         trigger: "操作するたび",
       },
       {
@@ -462,7 +462,7 @@ export const en: PrivacyPolicyCopy = {
       {
         host: "chatgpt.com / claude.ai",
         when: "When you press Open in ChatGPT / Open in Claude",
-        what: "**A prompt containing the transcript and summary.** If it is 1500 characters or shorter it is carried in the URL; longer prompts are only placed on your clipboard (the clipboard copy happens either way). **Content passed in a URL can persist in browser history and extensions**",
+        what: "**A prompt containing the transcript and summary.** It is copied to your clipboard for you to paste. **It is never placed in the URL**",
         trigger: "Every time you act",
       },
       {
