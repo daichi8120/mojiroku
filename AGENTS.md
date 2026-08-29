@@ -61,9 +61,13 @@ PR の自動レビュー（Codex のコードレビュー）が読む規則。**
   abort する**（v0.3.0 の実機クラッシュ 3 件の根本原因）。例外を `Err` に変えられるのは
   C++ 側の try/catch だけで、Rust の `catch_unwind` では捕まらない
   （[ADR-0021](./docs/decisions/ADR-0021_FFI例外シールドと重処理直列化.md)）。
-- 重い ML ジョブ（文字起こし・話者分離・ローカル要約）を新しく足すときは
-  `commands::acquire_heavy_job` でアプリ全体 1 本に直列化する。並走させると 16GB 機で
-  メモリが枯れ、クラッシュやスワップ固着になる。
+- 重い ML ジョブ（文字起こし・話者分離・ローカル要約）を新しく足すときは、`HEAVY_ML_JOB`
+  セマフォでアプリ全体 1 本に直列化する。並走させると 16GB 機でメモリが枯れ、
+  クラッシュやスワップ固着になる。**取り方は経路で 2 つに分かれる。**
+  Tauri コマンドから直接呼ぶなら `commands::acquire_heavy_job`（待ちを `stage="queued"` の
+  進捗イベントで UI に通知する）。バックグラウンドワーカー（`src-tauri/src/jobs.rs`）からなら
+  `commands::acquire_heavy_job_permit`（通知は呼び出し側が `job://update` で行うため、
+  ヘルパは permit を返すだけ）。**経路に合わない方を使うと、通知が二重になるか消える。**
 
 ### 文字起こしの時刻
 
@@ -77,9 +81,13 @@ PR の自動レビュー（Codex のコードレビュー）が読む規則。**
 
 - `pull_request_target` を使わない。fork のコードを base の secrets 付きで動かすことになり、
   「fork PR から secrets に到達する経路が無い」という前提が壊れる。
-- ジョブを条件付きで飛ばすときは、ワークフローレベルの `paths:` / `branches:` ではなく
-  **job レベルの `if:`** で書く。前者でスキップした check を required にすると、PR が
-  `Waiting for status to be reported` で永久にブロックされる。
+- **PR の required status check になりうるワークフロー**でジョブを条件付きに飛ばすときは、
+  ワークフローレベルの `paths:` / `branches:` ではなく **job レベルの `if:`** で書く。
+  前者でスキップされた check はそもそも報告されないため、PR が
+  `Waiting for status to be reported` で永久にブロックされる。job レベルの `if:` で
+  飛ばした job は success 扱いになる。
+  なお push トリガーのデプロイ用ワークフロー（`deploy-landing.yml` など）はこの制約の
+  対象外で、ワークフローレベルのフィルタを使ってよい。
 
 ## ライセンス
 
