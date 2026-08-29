@@ -11,6 +11,7 @@ import {
   getSettings,
   listJobs,
   listRecordings,
+  resolveMeetingTitle,
   setSettings,
   startMeetingRecording,
   startMicRecording,
@@ -201,8 +202,26 @@ function App() {
         toast(t.app.systemAudioDenied, "error");
         return "denied";
       }
+      // 呼び出し側が題名を指定しなければ、進行中のカレンダー予定から解決する。
+      // 「まだ進行中か」の判定は Rust（resolve_meeting_title）が持つ。ここで
+      // start / end を比べると scheduler.rs の窓と二重定義になるので、比べない。
+      // 解決に失敗しても録音は始める（題名は既定の「会議」に落ちるだけ）。
+      let resolved = title ?? null;
+      if (resolved === null) {
+        try {
+          resolved = await resolveMeetingTitle();
+        } catch {
+          /* 題名が無いだけなので録音は続ける */
+        }
+      }
       await startMeetingRecording();
-      setMeeting({ status: "capturing", startedAt: Date.now(), title: title ?? null });
+      setMeeting({ status: "capturing", startedAt: Date.now(), title: resolved });
+      if (resolved !== null) {
+        // 予定を消費したのでプロンプトを畳む（recordPendingMeeting と同じ扱い）。
+        // 残すと、この録音を止めた後に同じ予定のプロンプトがまた出る。
+        setPendingMeeting(null);
+        void clearPendingMeeting();
+      }
       setBarDismissed(false); // 新しい会議では常設バーを復帰
       return "started";
     } catch (e) {

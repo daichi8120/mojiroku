@@ -119,7 +119,8 @@ pub fn run() {
             commands::export::oauth_connect,
             commands::export::notion_accessible_pages,
             scheduler::get_pending_meeting,
-            scheduler::clear_pending_meeting
+            scheduler::clear_pending_meeting,
+            scheduler::resolve_meeting_title
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

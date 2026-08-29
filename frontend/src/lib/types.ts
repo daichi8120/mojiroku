@@ -219,6 +219,12 @@ export interface StartingMeeting {
   id: string;
   title: string;
   start: string;
+  /**
+   * 終了（`YYYY-MM-DDTHH:MM:SS` のローカル壁時計）。元データに DTEND が無ければ null。
+   * これを使った「まだ進行中か」の判定は Rust の resolve_meeting_title が行う。
+   * フロントで時刻計算をしないこと（scheduler.rs の窓と二重定義になってズレる）。
+   */
+  end: string | null;
 }
 
 // ── 話者の配色（ダーク） ───────────────────────────────────────────────

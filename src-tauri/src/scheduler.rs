@@ -26,6 +26,10 @@ const FETCH_EVERY_TICKS: u64 = 6;
 /// 開始からこの猶予内なら「今始まった」とみなして発火する。再起動時に遠い過去の予定へ
 /// 誤発火しないための窓でもある（開始が猶予より前なら無視）。
 const START_GRACE_MIN: i64 = 5;
+/// 予定に終了時刻が無いときに仮定する会議の長さ。[`still_running`] の判定に使う。
+/// 発火の猶予（5 分）より長いのは意図的で、「プロンプトを見てから録音を始めるまでの間」を
+/// 許すため。5 分にすると、通知に気づいて 6 分後に録音を始めた人がタイトルを貰えない。
+const ASSUMED_MEETING_MIN: i64 = 60;
 /// CalendarEvent.start / .end のフォーマット（ローカル壁時計・オフセットなし。ADR-0016）。
 const WALL_FMT: &str = "%Y-%m-%dT%H:%M:%S";
 
@@ -39,6 +43,9 @@ pub struct StartingMeeting {
     pub title: String,
     /// 開始（ローカル壁時計）。
     pub start: String,
+    /// 終了（同形式）。元データに DTEND が無ければ `None`。
+    /// [`still_running`] が「この予定はまだ進行中か」を判定するのに使う。
+    pub end: Option<String>,
 }
 
 /// スケジューラの共有状態。直近に発火した会議を保持し、通知クリックでウィンドウが開いた
@@ -68,6 +75,28 @@ pub(crate) fn get_pending_meeting(
 #[tauri::command]
 pub(crate) fn clear_pending_meeting(state: tauri::State<'_, SchedulerState>) {
     *state.pending.lock().unwrap() = None;
+}
+
+/// 会議モードの録音に付ける予定タイトルを解決する。まだ進行中の予定があればその題名、
+/// 無ければ `None`（呼び出し側は既定の「会議」にフォールバックする）。
+///
+/// **判定はここでしか行わない。**フロントに時刻計算を書くと、`started_within` の窓と
+/// 二重定義になっていずれズレる。保留状態の寿命を管理するのではなく、
+/// 「録音を始めるこの瞬間に使ってよいか」を 1 回だけ判定する。
+///
+/// 判定が要る理由: プロンプトはユーザーが操作するまで残り続けるので、放置された予定の
+/// 題名が、あとで始めた無関係な録音に付いてしまう（`8d5af87` が書き残した罠）。
+#[tauri::command]
+pub(crate) fn resolve_meeting_title(state: tauri::State<'_, SchedulerState>) -> Option<String> {
+    let pending = state.pending.lock().unwrap().clone()?;
+    let start = NaiveDateTime::parse_from_str(&pending.start, WALL_FMT).ok()?;
+    let end = pending
+        .end
+        .as_deref()
+        .and_then(|e| NaiveDateTime::parse_from_str(e, WALL_FMT).ok());
+    let now = Local::now().naive_local();
+    still_running(now, start, end, ChronoDuration::minutes(ASSUMED_MEETING_MIN))
+        .then_some(pending.title)
 }
 
 /// 常駐スケジューラを起動する（setup から一度だけ）。
@@ -138,12 +167,36 @@ fn started_within(now: NaiveDateTime, start: NaiveDateTime, grace: ChronoDuratio
     start <= now && now < start + grace
 }
 
+/// 予定がまだ進行中か＝**開始済み かつ 終了前**。終了時刻が無ければ `assumed` を長さとみなす。
+/// 純関数（テスト可能）。
+///
+/// `started_within` とは窓が違う。あちらは「通知を出すか」（開始直後の 5 分）、こちらは
+/// 「この録音にその題名を付けてよいか」（会議が続いている間ずっと）。役割が別なので
+/// 定数も別だが、どちらもこのファイルに置いて 1 箇所で管理する。
+fn still_running(
+    now: NaiveDateTime,
+    start: NaiveDateTime,
+    end: Option<NaiveDateTime>,
+    assumed: ChronoDuration,
+) -> bool {
+    if now < start {
+        return false;
+    }
+    // 終了が開始より前という壊れた予定は、長さ不明として扱う（無視ではなく仮定へ倒す）。
+    match end.filter(|e| *e > start) {
+        Some(e) => now < e,
+        None => now < start + assumed,
+    }
+}
+
 /// 通知を出し、保留状態を更新し、フロントへ `meeting://starting` を発行する。
 fn fire(app: &AppHandle, lang: &str, ev: &mojiroku_core::calendar::CalendarEvent) {
     let meeting = StartingMeeting {
         id: ev.id.clone(),
         title: ev.title.clone(),
         start: ev.start.clone(),
+        // 会議モードのタイトル解決（resolve_meeting_title）が「まだ進行中か」を見るのに使う。
+        end: ev.end.clone(),
     };
 
     let (title, body) = if lang == "en" {
@@ -189,5 +242,52 @@ mod tests {
         assert!(!started_within(now, dt("2026-07-18T09:57:00"), grace));
         // 猶予境界（ちょうど 5 分前）は排他 → 発火しない。
         assert!(!started_within(now, dt("2026-07-18T09:58:00"), grace));
+    }
+
+    #[test]
+    fn still_running_uses_end_when_present() {
+        let assumed = ChronoDuration::minutes(ASSUMED_MEETING_MIN);
+        let start = dt("2026-07-18T10:00:00");
+        let end = Some(dt("2026-07-18T10:30:00"));
+
+        // 開始直後・終了直前 → まだ進行中。
+        assert!(still_running(dt("2026-07-18T10:00:00"), start, end, assumed));
+        assert!(still_running(dt("2026-07-18T10:29:59"), start, end, assumed));
+        // 終了ちょうど・終了後 → 進行中でない（題名を流用しない）。
+        assert!(!still_running(dt("2026-07-18T10:30:00"), start, end, assumed));
+        assert!(!still_running(dt("2026-07-18T11:00:00"), start, end, assumed));
+        // 開始前 → 進行中でない。
+        assert!(!still_running(dt("2026-07-18T09:59:59"), start, end, assumed));
+    }
+
+    #[test]
+    fn still_running_falls_back_to_assumed_length_without_end() {
+        let assumed = ChronoDuration::minutes(ASSUMED_MEETING_MIN); // 60 分
+        let start = dt("2026-07-18T10:00:00");
+
+        // 終了時刻が無い予定は「開始から 60 分」を仮定する。
+        assert!(still_running(dt("2026-07-18T10:59:59"), start, None, assumed));
+        assert!(!still_running(dt("2026-07-18T11:00:00"), start, None, assumed));
+
+        // 発火の猶予（5 分）より長いことを固定する。通知に気づいて 6 分後に
+        // 録音を始めた人がタイトルを貰えない、という退行を防ぐ。
+        assert!(still_running(dt("2026-07-18T10:06:00"), start, None, assumed));
+        assert!(!started_within(
+            dt("2026-07-18T10:06:00"),
+            start,
+            ChronoDuration::minutes(START_GRACE_MIN)
+        ));
+    }
+
+    #[test]
+    fn still_running_treats_broken_end_as_unknown_length() {
+        let assumed = ChronoDuration::minutes(ASSUMED_MEETING_MIN);
+        let start = dt("2026-07-18T10:00:00");
+        // 終了が開始より前という壊れた予定。無視して即 false にすると、
+        // 壊れた 1 件のせいで題名が付かなくなる。長さ不明として仮定へ倒す。
+        let broken = Some(dt("2026-07-18T09:00:00"));
+
+        assert!(still_running(dt("2026-07-18T10:30:00"), start, broken, assumed));
+        assert!(!still_running(dt("2026-07-18T11:30:00"), start, broken, assumed));
     }
 }
