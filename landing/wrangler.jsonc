@@ -19,6 +19,17 @@
   "compatibility_date": "2025-05-28",
   "assets": {
     "directory": "./dist",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    // Worker を先に走らせるパス。既定は「静的アセットが一致すれば Worker を呼ばない」ため、
+    // Worker で動的に返したいパスはここに列挙する（パス単位で指定できる）。
+    // 2026-08-30: Search Console の所有権確認ファイルで必要になった。既定の html_handling は
+    // `/x.html` を `/x` へ 307 で飛ばすが、Google は `.html` のパスをそのまま見に来る。
+    // html_handling ごと変えるとサイト全体の URL 形（/privacy/ 等）が崩れるので、
+    // このパスだけ Worker 優先にする。
+    "run_worker_first": [
+      "/oauth/*",
+      "/updater/latest.json",
+      "/google6705194712d0362d.html"
+    ]
   }
 }
