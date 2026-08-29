@@ -8,6 +8,12 @@
   // - 一致アセットが無いパスは worker/index.ts が捌き、未処理は env.ASSETS で ./dist へ委譲する。
   // - npx wrangler deploy がこの設定を読み、Worker + dist をアップロードする。
   // Secret は `npx wrangler secret put SLACK_CLIENT_ID` / `… SLACK_CLIENT_SECRET` で設定（コード非同梱）。
+  // account_id を明記する理由（2026-08-29）:
+  //   CI の API トークンは account 一覧を読む権限を持たないため、wrangler が
+  //   「Failed to automatically retrieve account IDs for the logged in user」で落ちる。
+  //   account ID は秘密ではないので、secret を 1 つ増やすより設定に書くほうが
+  //   ローカルと CI で挙動が揃う。
+  "account_id": "7bf10493dc9115e2aec069dfcdd43f22",
   "name": "mojiroku",
   "main": "./worker/index.ts",
   "compatibility_date": "2025-05-28",
