@@ -1,0 +1,109 @@
+# ランディング（mojiroku.com）の自動デプロイ。
+#
+# なぜ要るか: アプリは version を上げて main にマージすれば自動で公開される（ADR-0020）が、
+# landing/ は手で `wrangler deploy` を打つまで反映されなかった。実際 2026-08-22 に main へ
+# 入った 2 件（sitemap の lastmod 自動化 / ソース公開への導線）が 08-24 まで本番に出ておらず、
+# 気づいたのも偶然だった。同じ期間 /download が旧ユーザー名を指したままだった（Issue #25）。
+#
+# ⚠️ wrangler は必ず landing/ を作業ディレクトリにして実行する。
+#    リポジトリのルートで打つと landing/wrangler.jsonc を読まず、設定を自動生成して
+#    `"assets": {"directory": "frontend"}`（＝Tauri アプリの UI バンドル）でデプロイしようとする。
+#    実際に踏んだ（既存 Worker の上書き拒否に助けられた）。あわせてルートに wrangler.jsonc を作り
+#    .gitignore と package.json も書き換える。
+#
+# 前提: secret `CLOUDFLARE_API_TOKEN`（Workers のデプロイ権限）。
+#       account が一意に定まらない環境向けに `CLOUDFLARE_ACCOUNT_ID` も渡せる（任意）。
+name: deploy-landing
+
+on:
+  push:
+    branches: [main]
+    # landing/ に触っていない push でデプロイを走らせない（不要なデプロイを避ける）。
+    # このワークフロー自身の変更も対象にする（壊れていないかを実地で確かめるため）。
+    paths:
+      - "landing/**"
+      - ".github/workflows/deploy-landing.yml"
+  workflow_dispatch:
+
+# 同時実行を直列化（古いビルドが新しいビルドを踏まないように）。
+concurrency:
+  group: deploy-landing
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # secret 不足のまま進むと、ビルドまで通ってからデプロイだけ失敗する。先に落とす。
+      - name: Cloudflare の secret を検証
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CF_TOKEN:-}" ]; then
+            echo "::error::secret CLOUDFLARE_API_TOKEN が未設定。Cloudflare の API トークン（Workers のデプロイ権限）を repo の secret に登録すること。" >&2
+            exit 1
+          fi
+          echo "CLOUDFLARE_API_TOKEN あり"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      - name: 依存を入れる
+        working-directory: landing
+        run: npm ci
+
+      # dist/ を作る。wrangler.jsonc の assets.directory が ./dist を指している。
+      - name: ビルド
+        working-directory: landing
+        run: npm run build
+
+      # working-directory を landing にすることで landing/wrangler.jsonc が読まれる（上の ⚠️）。
+      # wrangler は landing/package.json の devDependency として固定してあるので、npx は
+      # ローカルの実体を使う（毎回ダウンロードせず、バージョンも揺れない）。
+      - name: デプロイ
+        working-directory: landing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      # デプロイの成功を wrangler の終了コードだけで判断しない。実際に本番を引いて確かめる
+      # （Issue #25 の終了条件「成功を沈黙で判断しない」）。
+      - name: 本番を引いて確かめる
+        run: |
+          set -euo pipefail
+          # 反映に少し間があるので数回試す。
+          # `|| true` が要る: 接続自体が失敗すると curl は非ゼロで終わり、set -e が
+          # リトライに入る前にステップごと落としてしまう。
+          code=000
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://mojiroku.com/ || true)
+            if [ "$code" = "200" ]; then break; fi
+            echo "トップが $code。${i}/5 回目、10 秒待って再試行"
+            sleep 10
+          done
+          if [ "$code" != "200" ]; then
+            echo "::error::デプロイ後に https://mojiroku.com/ が $code を返した" >&2
+            exit 1
+          fi
+
+          # /download が現ユーザー名を指しているか（旧名のまま出た事故の再発防止）。
+          loc=$(curl -s -o /dev/null -w '%{redirect_url}' https://mojiroku.com/download)
+          case "$loc" in
+            https://github.com/daichi8120/mojiroku-releases/*) ;;
+            *)
+              echo "::error::/download の行き先が想定外: $loc" >&2
+              exit 1
+              ;;
+          esac
+          echo "トップ 200 / download の行き先 OK: $loc"
