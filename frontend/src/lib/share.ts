@@ -131,23 +131,25 @@ export async function copyText(text: string): Promise<void> {
 
 export type AiProvider = "chatgpt" | "claude";
 
+/** 生成 AI のチャット画面。**クエリに本文を載せない**（下記）。 */
+export const AI_CHAT_URL: Record<AiProvider, string> = {
+  chatgpt: "https://chatgpt.com/",
+  claude: "https://claude.ai/new",
+};
+
 /**
- * 生成 AI のチャットを開く。プロンプトはクリップボードにもコピーする
- * （長文は URL に載らないため、貼り付けで確実に渡せるように）。
- * 戻り値は「URL プレフィルが使えたか」。
+ * 生成 AI のチャットを開く。プロンプトはクリップボードへコピーし、貼り付けで渡す。
+ *
+ * 以前は 1500 字以内なら `?q=<文字起こし>` として URL に載せていた（2026-08-29 に廃止）。
+ * 送信先が ChatGPT / Claude であること自体は利用者の選択だが、**URL はブラウザの履歴・
+ * 同期・拡張機能・Referer に残る**ため、同じ内容が経路上の別の場所にも複製されていた。
+ * 短い会議ほど URL に載るという挙動も、機密性が長さと無関係である以上おかしい。
+ *
+ * 得られていたのは「貼り付けの一手間が省ける」ことだけで、割に合わない。コピーは
+ * 元々どちらの経路でも行っており、トーストも「プロンプトをコピーして開きました」と
+ * しか言っていないので、UI の文言は変えていない。
  */
-export async function openInAi(provider: AiProvider, prompt: string): Promise<boolean> {
+export async function openInAi(provider: AiProvider, prompt: string): Promise<void> {
   await copyText(prompt);
-  const short = prompt.length <= 1500;
-  const q = encodeURIComponent(prompt);
-  const url =
-    provider === "chatgpt"
-      ? short
-        ? `https://chatgpt.com/?q=${q}`
-        : "https://chatgpt.com/"
-      : short
-        ? `https://claude.ai/new?q=${q}`
-        : "https://claude.ai/new";
-  await openUrl(url);
-  return short;
+  await openUrl(AI_CHAT_URL[provider]);
 }
