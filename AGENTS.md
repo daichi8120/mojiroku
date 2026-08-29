@@ -38,6 +38,49 @@ repo は「全部の家」ではない。
 - **「ビルドが通る」は作業ツリーではなくコミット対象ツリーで確認する。**
   過去に `models/` の gitignore で同名ソースが漏れた前例がある（手順は CLAUDE.md）。
 
+## Code Review Rules
+
+PR の自動レビュー（Codex のコードレビュー）が読む規則。**見出し名は Codex 側の仕様で
+固定**なので英語のまま置く（→ [Review GitHub pull requests with Codex](https://learn.chatgpt.com/docs/third-party/github)）。
+
+ここに書くのは「**壊れ方が静かで、知らないと踏む**」制約だけにする。書式・lint のような
+機械的な検査は CI に任せる。内容は [`CLAUDE.md`](./CLAUDE.md) の「重要な制約・落とし穴」と
+重なるが、レビューで効かせたいものだけを再掲している。**正本は CLAUDE.md と ADR。**
+
+### ML ランタイムの分離
+
+- `crates/mojiroku-core`（whisper.cpp を含む）に **llama.cpp 系の依存を足さない**。
+  ggml のシンボルが衝突し、**リンクは通るのに実行時に whisper が壊れて 0 セグメントになる**。
+  安全な道は、要約 LLM を別バイナリ sidecar `crates/mojiroku-llm` の側で動かすこと
+  （[ADR-0007](./docs/decisions/ADR-0007_要約llamaを別バイナリsidecarに分離.md)）。
+
+### C++ FFI の呼び出し
+
+- whisper / sherpa-onnx を呼ぶ経路を新しく足すときは、必ず
+  `mojiroku_core::ffi_guard::guard` を通す。C++ 例外は Rust を素通りして**プロセスごと
+  abort する**（v0.3.0 の実機クラッシュ 3 件の根本原因）。例外を `Err` に変えられるのは
+  C++ 側の try/catch だけで、Rust の `catch_unwind` では捕まらない
+  （[ADR-0021](./docs/decisions/ADR-0021_FFI例外シールドと重処理直列化.md)）。
+- 重い ML ジョブ（文字起こし・話者分離・ローカル要約）を新しく足すときは
+  `commands::acquire_heavy_job` でアプリ全体 1 本に直列化する。並走させると 16GB 機で
+  メモリが枯れ、クラッシュやスワップ固着になる。
+
+### 文字起こしの時刻
+
+- whisper-rs の `state.full()` は whisper.cpp 内蔵の VAD を**バイパスする**。
+  VAD を効かせるには `WhisperVadContext` で speech 区間を抜き、無音を除いた PCM を
+  whisper に渡したうえで、**タイムスタンプを元の時刻へ再マッピングする**
+  （[ADR-0008](./docs/decisions/ADR-0008_VADはwhisper内蔵Sileroを独立適用.md)）。
+  再マッピングを省くと、除いた無音の長さぶん字幕がずれる。
+
+### GitHub Actions（このリポジトリは public）
+
+- `pull_request_target` を使わない。fork のコードを base の secrets 付きで動かすことになり、
+  「fork PR から secrets に到達する経路が無い」という前提が壊れる。
+- ジョブを条件付きで飛ばすときは、ワークフローレベルの `paths:` / `branches:` ではなく
+  **job レベルの `if:`** で書く。前者でスキップした check を required にすると、PR が
+  `Waiting for status to be reported` で永久にブロックされる。
+
 ## ライセンス
 
 本プロジェクトは **AGPL-3.0-or-later**。コードを提供する場合は
