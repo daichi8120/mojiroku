@@ -3,13 +3,18 @@ import { getCopy } from "../copy";
 import LanguageSwitcher from "./LanguageSwitcher.astro";
 
 const { nav } = getCopy(Astro.currentLocale);
+
+// ナビはトップの節へのアンカー。トップ以外のページ（/privacy 等）では `#features` が
+// 何も指さないので、その言語のトップを基準にした絶対パスへ直す（2026-08-29 のレビュー指摘）。
+const home = Astro.currentLocale === "en" ? "/en/" : "/";
+const toHome = (href: string) => (href.startsWith("#") ? `${home}${href}` : href);
 ---
 
 <header
   class="sticky top-0 z-50 border-b border-slate-800/60 bg-slate-950/70 backdrop-blur-md"
 >
   <div class="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-    <a href="#top" class="flex items-center gap-2.5">
+    <a href={home} class="flex items-center gap-2.5">
       <img
         src="/favicon.svg"
         alt=""
@@ -26,7 +31,7 @@ const { nav } = getCopy(Astro.currentLocale);
       {
         nav.links.map((l) => (
           <a
-            href={l.href}
+            href={toHome(l.href)}
             class="text-sm text-slate-400 transition hover:text-slate-100"
           >
             {l.label}

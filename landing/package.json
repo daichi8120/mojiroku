@@ -6,9 +6,12 @@
   "private": true,
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "npm run check:privacy && npm run check:markup && npm run check:locale && astro build",
     "preview": "astro preview",
-    "og": "node scripts/gen-og.mjs"
+    "og": "node scripts/gen-og.mjs",
+    "check:privacy": "node scripts/check-privacy-hosts.mjs",
+    "check:markup": "node scripts/test-inline-markup.mjs",
+    "check:locale": "node scripts/test-locale-path.mjs"
   },
   "dependencies": {
     "@fontsource/dm-mono": "^5.2.7",
@@ -18,6 +21,7 @@
     "tailwindcss": "^4.3.1"
   },
   "devDependencies": {
-    "sharp": "^0.35.2"
+    "sharp": "^0.35.2",
+    "wrangler": "4.125.0"
   }
 }
