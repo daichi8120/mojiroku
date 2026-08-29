@@ -13,6 +13,7 @@ pub mod calendar;
 pub mod diarization;
 pub mod export;
 pub mod ffi_guard;
+pub mod hardware;
 pub mod lang;
 pub mod merge;
 pub mod models;

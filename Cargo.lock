@@ -2602,6 +2602,7 @@ dependencies = [
  "bzip2",
  "cc",
  "chrono",
+ "libc",
  "rubato",
  "rusqlite",
  "serde",
