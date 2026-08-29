@@ -81,6 +81,11 @@ PR の自動レビュー（Codex のコードレビュー）が読む規則。**
 
 - `pull_request_target` を使わない。fork のコードを base の secrets 付きで動かすことになり、
   「fork PR から secrets に到達する経路が無い」という前提が壊れる。
+- レビュー用ワークフロー（`claude-code-review.yml`）を変更したら、**同じ内容をデフォルト
+  ブランチ（`main`）にも届ける**。`anthropics/claude-code-action` は、実行しようとした
+  ワークフローファイルが default branch 上の版と**内容まで一致**していないと、警告を出して
+  自ら終了する。`develop` 側だけ直すと、以後の全 PR が「job は success なのにレビュー 0 件」
+  という**静かな無効化**に入る（2026-08-30 に実際に起きた）。
 - **PR の required status check になりうるワークフロー**でジョブを条件付きに飛ばすときは、
   ワークフローレベルの `paths:` / `branches:` ではなく **job レベルの `if:`** で書く。
   前者でスキップされた check はそもそも報告されないため、PR が
