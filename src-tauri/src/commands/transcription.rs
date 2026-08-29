@@ -117,12 +117,27 @@ pub(crate) async fn summarize(
         .shell()
         .sidecar("mojiroku-llm")
         .map_err(|e| e.to_string())?
-        .args([
-            model_path.to_string_lossy().to_string(),
-            prompt_file.to_string_lossy().to_string(),
-            "--lang".to_string(),
-            lang.code().to_string(),
-        ])
+        .args({
+            let mut args = vec![
+                model_path.to_string_lossy().to_string(),
+                prompt_file.to_string_lossy().to_string(),
+                "--lang".to_string(),
+                lang.code().to_string(),
+            ];
+            // 思考モデル（Qwen3 系）には `--no-think` が要る。渡さないと**英語の
+            // `<think>` ブロックがそのまま stdout に出て**、利用者には議事録の代わりに
+            // 思考トレースが見える（2026-08-30 に実測）。
+            //
+            // 無条件に渡してはいけない。このフラグはプロンプトに `<think></think>` を
+            // 足すので、思考しないモデルでは出力が変わる（Qwen2.5 で文言が変化した）。
+            // 渡すかどうかはモデルの属性（`SummaryModel::thinking`）が決める。
+            if mojiroku_core::models::needs_no_think(
+                &model_path.file_name().unwrap_or_default().to_string_lossy(),
+            ) {
+                args.push("--no-think".to_string());
+            }
+            args
+        })
         .output()
         .await
         .map_err(|e| e.to_string());

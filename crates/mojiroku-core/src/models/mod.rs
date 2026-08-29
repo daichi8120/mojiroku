@@ -89,6 +89,16 @@ pub struct SummaryModel {
     pub tier: SummaryTier,
     /// ライセンス。**利用者の商用利用を妨げないもの**だけを採用する（NOTICE と対応）。
     pub license: &'static str,
+    /// 思考トレースを吐くモデルか（Qwen3 系など）。`true` なら sidecar に `--no-think` を渡す。
+    ///
+    /// **モデルの属性として持つ理由。** このフラグはプロンプトに `<think></think>` を足すので、
+    /// 思考しないモデルに渡すと**出力が変わる**（Qwen2.5 で実測: 文言が変化した）。
+    /// 「常に渡す」も「渡さない」も正しくない。渡すかどうかはモデルが決める。
+    ///
+    /// ⚠️ 渡し忘れると壊れ方が派手。アプリと同じ引数で Qwen3.5-9B を叩くと、
+    /// **英語の `<think>` ブロックがそのまま stdout に出る**（2026-08-30 実測）。
+    /// 利用者には議事録の代わりに思考トレースが見える。
+    pub thinking: bool,
     /// 実際に配るか。**`false` の間は決して選ばれない。**
     ///
     /// 実会議での品質ゲートを取り直すまで、候補は候補のまま置く。
@@ -112,6 +122,7 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         size_bytes: 2_740_937_888,
         tier: SummaryTier::Small,
         license: "apache-2.0",
+        thinking: true,
         adopted: false,
     },
     // 現行の既定。実会議での品質ゲート PASS 済み。
@@ -122,6 +133,7 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         size_bytes: 4_683_074_240,
         tier: SummaryTier::Medium,
         license: "apache-2.0",
+        thinking: false,
         adopted: true,
     },
     // 中の段の候補。現行より速く（17.5 秒 / 18.8 秒）、機械採点は同点、見出し 3/3。
@@ -134,6 +146,7 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         size_bytes: 5_680_522_464,
         tier: SummaryTier::Medium,
         license: "apache-2.0",
+        thinking: true,
         adopted: false,
     },
     // 大の段（12B 以上）は候補が無い。横断評価で 0/14 だったのは gemma-3-12b だけで、
@@ -163,6 +176,20 @@ pub fn tier_for_memory(total_memory_bytes: Option<u64>) -> SummaryTier {
         Some(b) if b >= TIER_MEDIUM_MIN_BYTES => SummaryTier::Medium,
         _ => SummaryTier::Small,
     }
+}
+
+/// ファイル名からカタログ項目を引く。載っていなければ `None`。
+pub fn summary_model(file: &str) -> Option<&'static SummaryModel> {
+    SUMMARY_MODELS.iter().find(|m| m.file == file)
+}
+
+/// このモデルに `--no-think` を渡すべきか。
+///
+/// **カタログに無いファイルは `false`**（＝従来どおり渡さない）。手で置いたモデルに
+/// 対して勝手にプロンプトを書き換えないため。壊れ方は「思考が出る」で、
+/// 出力が黙って変わるより気づきやすい。
+pub fn needs_no_think(file: &str) -> bool {
+    summary_model(file).is_some_and(|m| m.thinking)
 }
 
 /// 既定モデルのカタログ項目。`SUMMARY_MODELS` に必ず 1 件ある（テストで保証）。
@@ -644,6 +671,37 @@ mod tests {
         // 候補は候補のまま。
         let adopted: Vec<_> = SUMMARY_MODELS.iter().filter(|m| m.adopted).collect();
         assert_eq!(adopted.len(), 1, "採用済みは既定の 1 件だけのはず");
+    }
+
+    /// **いまの既定に `--no-think` は渡さない。** 渡すとプロンプトが変わり、
+    /// 出荷中のモデルの出力が変わる（Qwen2.5 で実測: 文言が変化した）。
+    #[test]
+    fn the_current_default_does_not_get_no_think() {
+        assert!(!needs_no_think(DEFAULT_SUMMARY_MODEL));
+        assert!(!default_summary_model().thinking);
+    }
+
+    /// **Qwen3 系には必ず渡す。** 渡さないと英語の `<think>` ブロックが
+    /// そのまま出力に出る（2026-08-30 に sidecar で実測）。
+    #[test]
+    fn qwen3_family_models_get_no_think() {
+        let q3: Vec<_> = SUMMARY_MODELS
+            .iter()
+            .filter(|m| m.file.starts_with("Qwen3"))
+            .collect();
+        assert!(!q3.is_empty(), "Qwen3 系がカタログに 1 件も無い");
+        for m in q3 {
+            assert!(m.thinking, "{}: Qwen3 系なのに thinking=false", m.file);
+            assert!(needs_no_think(m.file), "{}: --no-think が渡らない", m.file);
+        }
+    }
+
+    /// カタログに無いファイルは従来どおり（渡さない）。手で置いたモデルの
+    /// プロンプトを勝手に書き換えない。
+    #[test]
+    fn unknown_models_keep_the_previous_behaviour() {
+        assert!(summary_model("not-in-catalog.gguf").is_none());
+        assert!(!needs_no_think("not-in-catalog.gguf"));
     }
 
     fn models_dir_with(files: &[&str]) -> PathBuf {
