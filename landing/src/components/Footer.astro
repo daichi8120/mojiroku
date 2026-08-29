@@ -43,9 +43,12 @@ const { footer } = getCopy(Astro.currentLocale);
     </div>
 
     <div
-      class="mt-12 border-t border-slate-900 pt-6 text-center font-mono text-xs text-slate-500"
+      class="mt-12 flex flex-col items-center gap-2 border-t border-slate-900 pt-6 text-center font-mono text-xs text-slate-500"
     >
-      © {footer.year} {footer.copyright}
+      <p>© {footer.year} {footer.copyright}</p>
+      <a href={footer.privacy.href} class="transition hover:text-slate-300">
+        {footer.privacy.label}
+      </a>
     </div>
   </div>
 </footer>

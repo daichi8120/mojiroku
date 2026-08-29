@@ -12,6 +12,7 @@ import "@fontsource/dm-mono/latin-400.css";
 import "@fontsource/dm-mono/latin-500.css";
 import "../styles/global.css";
 import { getCopy } from "../copy";
+import { localePaths } from "../lib/locale-path.js";
 
 interface Props {
   title?: string;
@@ -29,6 +30,12 @@ const {
 } = Astro.props;
 
 const canonical = new URL(Astro.url.pathname, Astro.site);
+
+// hreflang は**このページの**言語別 URL を指す必要がある。以前は `/` と `/en/` の
+// 決め打ちで、/privacy でも LP を自分の別言語版として宣言していた（2026-08-29 に修正）。
+const altPaths = localePaths(Astro.url.pathname);
+const altJa = new URL(altPaths.ja, Astro.site).href;
+const altEn = new URL(altPaths.en, Astro.site).href;
 const ogImageUrl = new URL(ogImage, Astro.site);
 const ogLocale = locale === "en" ? "en_US" : "ja_JP";
 const ogLocaleAlternate = locale === "en" ? "ja_JP" : "en_US";
@@ -59,14 +66,18 @@ const cfAnalyticsToken = "d67065832e4544aca7b320b7d5158710";
 // ボットは除外 = `/` は日本語として索引され続け、言語版の案内は hreflang に任せる
 // （JS リダイレクトを Googlebot が踏むと ja ページが索引から落ちるリスクがあるため）。
 // ⚠️ Astro は <script> 内の {式} を処理しない（波括弧ごと素通しになる）ため set:html で注入する。
+// リダイレクト先は**このページの英語版**。以前は "/en/" 決め打ちで、
+// /privacy を英語ブラウザで開くと英語 LP へ飛ばされ、日本語ポリシーに到達できなかった
+// （2026-08-29 のレビュー指摘。Google の審査担当者がまさにこの条件で開く）。
 const langRedirectJs = `(function () {
+  var EN_URL = ${JSON.stringify(altPaths.en)};
   try {
     if (/bot|crawler|spider|lighthouse/i.test(navigator.userAgent)) return;
     var pref = localStorage.getItem("mojiroku_lang");
     if (pref === "ja") return;
     var first = (navigator.languages && navigator.languages[0]) || navigator.language || "";
     var isJa = first.toLowerCase().indexOf("ja") === 0;
-    if (pref === "en" || !isJa) location.replace("/en/" + location.hash);
+    if (pref === "en" || !isJa) location.replace(EN_URL + location.hash);
   } catch (e) {
     /* localStorage 不可などは日本語のまま表示 */
   }
@@ -83,10 +94,10 @@ const langRedirectJs = `(function () {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href={canonical} />
 
-    {/* hreflang: ja=/（x-default も ja）, en=/en/。検索エンジンに言語別 URL を対応づける */}
-    <link rel="alternate" hreflang="ja" href="https://mojiroku.com/" />
-    <link rel="alternate" hreflang="en" href="https://mojiroku.com/en/" />
-    <link rel="alternate" hreflang="x-default" href="https://mojiroku.com/" />
+    {/* hreflang: このページの ja / en を指す（x-default は ja）。sitemap.xml.ts と同じ対応 */}
+    <link rel="alternate" hreflang="ja" href={altJa} />
+    <link rel="alternate" hreflang="en" href={altEn} />
+    <link rel="alternate" hreflang="x-default" href={altJa} />
 
     <title>{title}</title>
     <meta name="description" content={description} />

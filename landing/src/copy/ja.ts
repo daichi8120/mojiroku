@@ -352,6 +352,9 @@ const ja = {
     year: 2026,
     // 「© {year} 」に続く一文（区切り記号ごと言語別に持つ）
     copyright: "mojiroku ・ ローカル完結・基本無料の議事録アプリ",
+    // フッター最下部の法務リンク（Google の OAuth 審査はホームページと同一ドメインの
+    // プライバシーポリシーを必須要件にしている。href は言語ごとに違う）
+    privacy: { label: "プライバシーポリシー", href: "/privacy/" },
   },
 
   screenshotFrame: {

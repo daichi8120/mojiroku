@@ -1,0 +1,127 @@
+---
+// プライバシーポリシー全体（Layout 込み）。ja=/privacy と en=/en/privacy が
+// この 1 コンポーネントを共有し、文言は Astro.currentLocale → getPrivacyCopy で解決する
+// （LandingPage.astro と同じ形）。
+import Layout from "../layouts/Layout.astro";
+import Header from "./Header.astro";
+import Footer from "./Footer.astro";
+import { getPrivacyCopy } from "../copy/privacy-policy";
+import { inlineMarkup } from "../lib/inline-markup.js";
+
+const c = getPrivacyCopy(Astro.currentLocale);
+
+// 見出し + 段落 + 箇条書きの繰り返しをまとめて描くための並び
+const sections = [
+  c.stored,
+  c.broker,
+  c.google,
+  c.notCollected,
+  c.deletion,
+  c.website,
+  c.changes,
+];
+---
+
+<Layout title={c.meta.title} description={c.meta.description}>
+  <Header />
+  <main class="mx-auto max-w-3xl px-6 py-16 sm:py-24">
+    <h1 class="text-3xl font-semibold tracking-tight text-slate-50 sm:text-4xl">
+      {c.title}
+    </h1>
+    <p class="mt-3 text-sm text-slate-500">{c.updated}</p>
+
+    <div class="mt-8 space-y-4">
+      {c.lead.map((p) => <p class="text-[15px] leading-relaxed text-slate-300" set:html={inlineMarkup(p)} />)}
+    </div>
+
+    {/* 先に要点 */}
+    <section class="mt-12 rounded-2xl border border-slate-800 bg-slate-900/40 p-6 sm:p-8">
+      <h2 class="text-lg font-semibold text-slate-100">{c.summary.heading}</h2>
+      <ul class="mt-4 space-y-2.5">
+        {
+          c.summary.bullets.map((b) => (
+            <li class="flex gap-3 text-[15px] leading-relaxed text-slate-300">
+              <span aria-hidden="true" class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-400" />
+              <span set:html={inlineMarkup(b)} />
+            </li>
+          ))
+        }
+      </ul>
+    </section>
+
+    {/* 通信先の表。横に長いので小さい画面ではスクロールさせる */}
+    <section class="mt-14">
+      <h2 class="text-xl font-semibold text-slate-100">{c.egress.heading}</h2>
+      {c.egress.body.map((p) => (
+        <p class="mt-3 text-[15px] leading-relaxed text-slate-300" set:html={inlineMarkup(p)} />
+      ))}
+
+      <div class="mt-5 overflow-x-auto rounded-xl border border-slate-800">
+        <table class="w-full min-w-[46rem] border-collapse text-left text-sm">
+          <thead class="bg-slate-900/60">
+            <tr>
+              <th scope="col" class="px-4 py-3 font-medium text-slate-200">{c.egress.columns.host}</th>
+              <th scope="col" class="px-4 py-3 font-medium text-slate-200">{c.egress.columns.when}</th>
+              <th scope="col" class="px-4 py-3 font-medium text-slate-200">{c.egress.columns.what}</th>
+              <th scope="col" class="px-4 py-3 font-medium text-slate-200">{c.egress.columns.trigger}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              c.egress.rows.map((r) => (
+                <tr class="border-t border-slate-800 align-top">
+                  <td class="px-4 py-3 font-mono text-[13px] text-slate-200">{r.host}</td>
+                  <td class="px-4 py-3 text-slate-400">{r.when}</td>
+                  <td class="px-4 py-3 text-slate-400" set:html={inlineMarkup(r.what)} />
+                  <td class="px-4 py-3 text-slate-400">{r.trigger}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-sm leading-relaxed text-slate-400" set:html={inlineMarkup(c.egress.note)} />
+    </section>
+
+    {
+      sections.map((s) => (
+        <section class="mt-14">
+          <h2 class="text-xl font-semibold text-slate-100">{s.heading}</h2>
+          {s.body.map((p) => (
+            <p class="mt-3 text-[15px] leading-relaxed text-slate-300" set:html={inlineMarkup(p)} />
+          ))}
+          {s.bullets.length > 0 && (
+            <ul class="mt-4 space-y-2.5">
+              {s.bullets.map((b) => (
+                <li class="flex gap-3 text-[15px] leading-relaxed text-slate-300">
+                  <span aria-hidden="true" class="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-600" />
+                  <span set:html={inlineMarkup(b)} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ))
+    }
+
+    <section class="mt-14">
+      <h2 class="text-xl font-semibold text-slate-100">{c.contact.heading}</h2>
+      {c.contact.body.map((p) => (
+        <p class="mt-3 text-[15px] leading-relaxed text-slate-300" set:html={inlineMarkup(p)} />
+      ))}
+      <a
+        href={c.contact.linkHref}
+        class="mt-4 inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-slate-500 hover:text-white"
+      >
+        {c.contact.linkLabel}
+      </a>
+    </section>
+
+    <p class="mt-16">
+      <a href={Astro.currentLocale === "en" ? "/en/" : "/"} class="text-sm text-indigo-300 hover:text-indigo-200">
+        ← {c.backLabel}
+      </a>
+    </p>
+  </main>
+  <Footer />
+</Layout>

@@ -3,14 +3,19 @@
 // クリックで選択を localStorage に保存し、Layout の初回振り分けより優先させる
 // （EN ブラウザで「日本語」を選んだ人が / に戻るたび /en/ へ跳ばされるのを防ぐ）。
 import { getCopy } from "../copy";
+import { counterpartPath } from "../lib/locale-path.js";
 
 const { nav } = getCopy(Astro.currentLocale);
 const { class: className = "" } = Astro.props;
 const targetLang = Astro.currentLocale === "en" ? "ja" : "en";
+
+// 「もう一方の言語の**同じページ**」へ飛ばす。copy の固定 href だとトップにしか行けず、
+// /privacy から押すと内容の違うページへ飛んでしまう（2026-08-29 のレビュー指摘）。
+const target = counterpartPath(Astro.url.pathname, targetLang);
 ---
 
 <a
-  href={nav.langSwitch.href}
+  href={target}
   onclick={`try{localStorage.setItem('mojiroku_lang','${targetLang}')}catch(e){}`}
   class={`inline-flex items-center gap-1.5 text-sm text-slate-400 transition hover:text-slate-100 ${className}`}
 >

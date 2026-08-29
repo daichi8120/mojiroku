@@ -348,6 +348,7 @@ const en: Copy = {
     ],
     year: 2026,
     copyright: "mojiroku — free, on-device meeting notes",
+    privacy: { label: "Privacy Policy", href: "/en/privacy/" },
   },
 
   screenshotFrame: {
