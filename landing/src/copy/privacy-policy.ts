@@ -57,7 +57,14 @@ export interface PrivacyPolicyCopy {
   retention: PolicySection;
   /** 安全管理措置の概要（法32条1項4号。詳細は求めに応じて回答する方式） */
   security: PolicySection;
-  /** 開示等の請求・苦情の申出先（法32条）と、GDPR 第13条が求める権利の説明 */
+  /**
+   * 開示等の請求と苦情の申出先（個人情報保護法 32条・33条）。
+   *
+   * GDPR の監督機関への苦情申立権は 2026-08-29 に**外部レビューを受けて削除した**。
+   * 一文だけ置くと GDPR 対応を自認したように読めるが、法的根拠・全権利の列挙・
+   * EU 域内代理人（27条）は用意していない。EU 向けに積極提供していないので、
+   * 日本法と Google の要件に絞るほうが整合する。将来 EU を狙うなら節ごと作り直す。
+   */
   rights: PolicySection;
   /** macOS の権限、未成年、準拠法など */
   misc: PolicySection;
@@ -310,7 +317,6 @@ export const ja: PrivacyPolicyCopy = {
     ],
     bullets: [
       "このポリシーやデータの取り扱いについての苦情も、下の連絡先で受け付けます。",
-      "EU・英国にお住まいの方は、お住まいの国の監督機関へ苦情を申し立てる権利があります。",
     ],
   },
   misc: {
@@ -584,7 +590,6 @@ export const en: PrivacyPolicyCopy = {
     ],
     bullets: [
       "Complaints about this policy or about how data is handled are welcome at the same address.",
-      "If you live in the EU or the UK, you also have the right to lodge a complaint with your national supervisory authority.",
     ],
   },
   misc: {
