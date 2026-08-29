@@ -2,8 +2,10 @@
 //! 任意で OpenAI / Anthropic（BYOK）。詳細は `docs/03_design/spec.md` §8。
 
 pub mod byok;
+pub mod title;
 
 pub use byok::{AnthropicSummarizer, OpenAiSummarizer};
+pub use title::{build_title_prompt, sanitize_title};
 
 use crate::error::Result;
 use crate::lang::{default_speaker_label, Lang};
