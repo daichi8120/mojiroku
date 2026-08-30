@@ -97,8 +97,16 @@ mojiroku は初回利用時にユーザーの端末へモデルを取得しま�
   文字起こし   ggml-large-v3-turbo-q5_0.bin  (約 547MiB)
                https://huggingface.co/ggerganov/whisper.cpp
 
-  要約         Qwen2.5-7B-Instruct-Q4_K_M.gguf
-               https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF
+  要約         端末の搭載メモリに合わせて 1 本を取得します（ADR-0030）。
+
+               16GB 以上   Qwen3.5-9B-Q4_K_M.gguf  (約 5.7GB)
+                           https://huggingface.co/unsloth/Qwen3.5-9B-GGUF
+
+               それ未満    Qwen2.5-7B-Instruct-Q4_K_M.gguf  (約 4.7GB)
+                           https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF
+
+               既に取得済みのモデルがある場合は、それをそのまま使います
+               （黙って別のモデルに置き換えることはしません）。
 
   VAD          ggml-silero-v5.1.2.bin
                https://huggingface.co/ggml-org/whisper-vad

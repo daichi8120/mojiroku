@@ -15,6 +15,8 @@ import {
   getSettings,
   hasSecret,
   setSecret,
+  summaryModelInfo,
+  type SummaryModelInfo,
 } from "@/lib/tauri";
 import { useSettingsPatch } from "@/lib/useSettingsPatch";
 import { Button, StatusBadge, Toggle } from "@/components/ui";
@@ -51,6 +53,13 @@ export function SettingsView() {
   const [appVersion, setAppVersion] = useState("");
   useEffect(() => {
     getVersion().then(setAppVersion).catch(() => {});
+  }, []);
+
+  // 要約モデルは端末のメモリで変わる（ADR-0030）。**固定文字列で書かない。**
+  // 取得に失敗したら行は出すが型名は空にする（嘘の型名を出すより無いほうがよい）。
+  const [summaryModel, setSummaryModel] = useState<SummaryModelInfo | null>(null);
+  useEffect(() => {
+    summaryModelInfo().then(setSummaryModel).catch(() => {});
   }, []);
 
   // ── サブナビのアクティブ表示 ──
@@ -198,8 +207,8 @@ export function SettingsView() {
                 icon={<LayersIcon size={17} />}
                 tint="bg-cyan/15 text-teal"
                 name={t.settings.models.summarize}
-                model="Qwen2.5-7B Q4_K_M"
-                size="4.4GB"
+                model={summaryModel?.label ?? ""}
+                size={summaryModel?.size ?? ""}
                 status="ondemand"
                 action={t.settings.models.manage}
                 onAction={notYet}

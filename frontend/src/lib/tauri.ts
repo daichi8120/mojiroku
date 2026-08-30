@@ -22,6 +22,16 @@ import type {
 
 export const health = () => invoke<string>("health");
 
+/** 設定画面に出す「この端末が使う要約モデル」。端末のメモリで変わる（ADR-0030）ので、
+ *  UI に固定文字列で書かず必ずここから引く。 */
+export type SummaryModelInfo = {
+  file: string;
+  label: string;
+  size: string;
+  downloaded: boolean;
+};
+export const summaryModelInfo = () => invoke<SummaryModelInfo>("summary_model_info");
+
 /**
  * 音声ファイル → 原本コピー確定 → 文字起こしジョブを投入して即返す（ADR-0024）。
  * diarize で話者分離。STT はワーカーが回し、進捗は `job://update` で届く。
