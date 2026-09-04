@@ -96,7 +96,7 @@ Claude Design で全画面のリデザイン（**ダークテーマ / indigo ブ
 | **Phase 4** | `mojiroku.com` ランディング + ダウンロード配布 | ✅ 公開（ADR-0011。当初は未署名 .dmg → 2026-07 に Developer ID 署名+公証へ移行・ADR-0022） |
 | **Phase 5** | **UI 刷新（ダーク Studio）**＋ AI に送る/コピー（フロント完結）＋ 処理可視化＋未実装機能のモック先行＋**アプリ内アップデート（Tauri v2 updater）/ 自動リリースCI（ADR-0020）** | 🚧 **進行中**（UI 刷新）。**アプリ内更新は完了**: 自動リリースパイプライン（main の version 上げ→ビルド/署名検証/公開 `mojiroku-releases`/Worker プロキシ動的配信）で **v0.3.0 を公開し 0.2.0→0.3.0 のアプリ内更新を実機 E2E 実証（2026-06-30）**。**v0.4.0（2026-07-03, Apple 署名+公証入り）で publish まで含む完全自動リリースを実証**（[ADR-0020](./decisions/ADR-0020_自動リリースパイプライン.md)/[ADR-0022](./decisions/ADR-0022_AppleDeveloperID署名とnotarization.md)）。 |
 | **i18n（前倒し）** | **サイト・アプリの日英2言語対応**（Cloudflare Analytics で米国・カナダからのアクセス増を受け、Phase 10「翻訳字幕」とは別に UI/コンテンツの言語対応を前倒し） | ✅ **2026-07-04 develop マージ済み**: ①landing `/en/`（Astro 組み込み i18n・hreflang・og.en.png。ja は `/` 不変＝焼き付き URL 維持）②アプリ UI = 型付き辞書（`frontend/src/i18n`、ja が形の正・en は tsc 検証）③コンテンツ言語 = settings.language が要約出力/話者ラベル/エクスポート見出しを、transcribe_language が whisper 言語（既定アプリ言語追従・auto 可）を決定。Qwen2.5-7B の英語要約品質はスパイクで PASS（sidecar `--lang`）④主要エラー 29 件を `error.*` キー化（未知キーは原文フォールバック）。**出荷済み**で、EN landing（`landing/src/pages/en`）も公開中。「アプリが日本語のみのうちに英語 LP を出さない」という順序制約は解消済み。 |
-| **Phase 6** | 連携 / 書き出し（Notion / Slack / Obsidian / Google カレンダー、外向き・操作時送信） | 🚧 **進行中**: ①設定永続化（settings.json）+ BYOK キーをキーチェーン保管 + 要約のローカル/クラウド分岐を実配線（ADR-0012）。②ローカル/Obsidian 実ファイル書き出し（frontmatter ノート / .md / .txt / .srt）完了。③Notion 書き出し（内部トークン BYOK・page 親・コア exporter、ADR-0013。実トークン疎通確認済み）完了。④Slack 送信（Incoming Webhook BYOK・要約のみ・mrkdwn 変換、ADR-0014。実 webhook 投稿を実機確認済み）完了。⑤PDF 書き出し（ブラウザ印刷＝トップレベル window.print + capability `core:webview:allow-print` + `@media print` content-only、CJK はシステムフォント・$0・選択可テキスト、ADR-0015。実 PDF を目視検証済み）完了。⑥カレンダー取り込み（限定公開 iCal URL = 秘密 URL を貼るだけ・読み取り専用・$0・OAuth 不要、RRULE は DAILY/WEEKLY を壁時計展開、予定タイトルで「記録を準備」、ADR-0016。fixture テスト緑・実フィードで品質確認は配布ゲート）完了。⑦**連携の OAuth ワンクリック化（Slack/Google/Notion、ADR-0019）**: トークン貼付の摩擦を解消し「◯◯と連携」ボタン化。共通 loopback+PKCE 基盤＋Slack/Notion は mojiroku.com Worker ブローカー・Google は Desktop PKCE 直接（iCal→Calendar API、iCal はフォールバック維持）。維持費 $0 のまま。**3連携とも実機 E2E 成功**。**Phase 6 完了** |
+| **Phase 6** | 連携 / 書き出し（Notion / Slack / Obsidian / Google カレンダー、外向き・操作時送信） | 🚧 **進行中**: ①設定永続化（settings.json）+ BYOK キーをキーチェーン保管 + 要約のローカル/クラウド分岐を実配線（ADR-0012）。②ローカル/Obsidian 実ファイル書き出し（frontmatter ノート / .md / .txt / .srt）完了。③Notion 書き出し（内部トークン BYOK・page 親・コア exporter、ADR-0013。実トークン疎通確認済み）完了。④Slack 送信（Incoming Webhook BYOK・要約のみ・mrkdwn 変換、ADR-0014。実 webhook 投稿を実機確認済み）完了。⑤PDF 書き出し（ブラウザ印刷＝トップレベル window.print + capability `core:webview:allow-print` + `@media print` content-only、CJK はシステムフォント・$0・選択可テキスト、ADR-0015。実 PDF を目視検証済み）完了。⑥カレンダー取り込み（限定公開 iCal URL = 秘密 URL を貼るだけ・読み取り専用・$0・OAuth 不要、RRULE は DAILY/WEEKLY を壁時計展開、予定タイトルで「記録を準備」、ADR-0016。fixture テスト緑・実フィードで品質確認は配布ゲート）完了。⑦**連携の OAuth ワンクリック化（Slack/Google/Notion、ADR-0019）**: トークン貼付の摩擦を解消し「◯◯と連携」ボタン化。共通 loopback+PKCE 基盤＋Slack/Notion は mojiroku.com Worker ブローカー・Google は Desktop PKCE 直接（iCal→Calendar API、iCal はフォールバック維持）。維持費 $0 のまま。**3連携とも実機 E2E 成功**。**Phase 6 完了**。⚠️ **Google だけ審査の状態が使い勝手に効く**（下記） |
 | **Phase 7** | 会議モード（システム音声ローカルキャプチャ + ライブノート） | 🚧 **スパイク完了→実装可（ADR-0017 採用）**: ScreenCaptureKit インプロセス Rust（`screencapturekit` v8）。実機 macOS 26.5 で**未署名(ad-hoc) .app でシステム音声キャプチャ成立**を実証（48kHz 連続・非無音）。更新(再ビルド=新cdhash)後は**サイレント拒否でなく `get()` 明示エラー＝検出可能な再プロンプト**（GUI で remove/re-add 要・中程度の摩擦）。→ **2026-07 に Developer ID 署名を導入（ADR-0022）**: 安定 DR により更新を跨いで TCC 許可が永続し、この摩擦は解消見込み。残: 実通話互換・mic+system デュアルトラックのクロックドリフト・Swift ランタイム同梱は実装時。スパイクは `spikes/meeting-audio/` |
 | **Phase 8** | 話者ライブラリ（端末内声紋識別） | ✅ **出荷済み（[ADR-0018](./decisions/ADR-0018_話者ライブラリの声紋照合.md)）**: ①声紋を `DiarizationResult` に露出（consolidation 既計算・再抽出なし）②store v4（speaker_embeddings/library/matches・cosine 1:N・leave-one-recording-out・最小エンロール尺ゲート）③Tauri コマンド＋3保存経路に声紋永続化④SpeakersView 実 CRUD＋詳細でサジェスト照合（τ 非自動確定＝サジェスト先行）。基盤=スパイク実証（TitaNet 0.926 vs 別人 ≤0.61・新規 DL 不要）。⚠️ **実機の UI クリック経路での確認は未実施**・τ/最小尺は実運用較正。 |
 | **話者訂正** | 発言単位で話者を付け直し、訂正を精度改善に還元する（Issue #19） | 🚧 **増分1 出荷（v0.5.2）**: 発言の話者チップを押して付け直せる。訂正は `segments.speaker_id` に入り、同値の選び直しは要約を stale にしない。再分離で訂正が消えるのを防ぐのは UI の `canDiarize`（[docs/spec.md](./spec.md) §9.1）。増分2（訂正の蓄積を精度へ還元）・増分3 は未着手。 |
@@ -105,13 +105,38 @@ Claude Design で全画面のリデザイン（**ダークテーマ / indigo ブ
 | **Phase 11** | メニューバー常駐 + グローバルショートカット録音 | ⬜（TCC 挙動を確認。署名は導入済み・ADR-0022） |
 | **継続** | フィードバック→反復、その先で Windows | ⬜ |
 
+> **Issue #66 correction (2026-09-04):** Transcription now defaults to Whisper language
+> auto-detection independently of the app/content language. Japanese or English can still be
+> forced explicitly. Legacy empty `transcribe_language` values are interpreted as auto-detection.
+
+### Google OAuth の審査状態（2026-08-30 時点・Issue #42）
+
+[ADR-0016](./decisions/ADR-0016_カレンダー取り込み.md) が OAuth Desktop を却下した理由の 1 つが
+「機微スコープの Google アプリ審査」だった。[ADR-0019](./decisions/ADR-0019_連携のOAuthワンクリック化.md)
+はこれを**認識したうえで**「未確認アプリ警告 + 100 ユーザー上限。ベータ <100 人で警告許容・将来 verify」
+と判断している。その「将来」が来つつある、というのがいまの状態。
+
+| 審査 | 状態 | 何が変わるか |
+|---|---|---|
+| **ブランディング審査** | ✅ **2026-08-30 完了** | 同意画面にアプリ名・ロゴ・ホームページが出る |
+| **機微スコープ審査** | ⬜ 未提出 | 「確認されていないアプリ」の警告が消え、**100 人の生涯上限**が解ける |
+
+**上限は「同時」ではなくプロジェクトの生涯累計で、リセットできない**（現在 1/100）。
+配布アプリなので、100 人が連携した時点で以後誰も連携できなくなる。**いずれ必須。**
+
+機微スコープ審査に残るのは**デモ動画**（YouTube 限定公開・英語・OAuth 同意画面と
+予定名の用途を映す）。英語 UI は v0.5.0 で出荷済みなので撮影自体は可能。
+
+要求スコープは `calendar.events.readonly` の 1 つだけで、ローカル完結でサーバーを
+持たないため、審査の説明としては有利な材料が揃っている。
+
 > **順序は確定でない**。Phase 6〜11 の優先度は、ベータのフィードバックと下記スパイクの結果で並べ替える。
 > 特に **会議モード（Phase 7）はもともと "v1.x 後回し" だったものをデザインが前倒し**しているため、
 > 「友人・研究室での実会議キャプチャ需要」と「実装リスク（macOS システム音声 + 未署名 TCC）」を天秤にかけて優先度を決める。
 
 ## 必須ゲート（飛ばさない）
 
-- **🎯 品質ゲート**: 実在の複数話者・日本語会議音声で要約品質を実機評価。→ **実施済み: PASS**（Qwen2.5-7B Q4_K_M）。
+- **🎯 品質ゲート**: 実在の複数話者・日本語会議音声で要約品質を実機評価。→ **実施済み: PASS**（Qwen2.5-7B Q4_K_M）。**2026-08-30 に取り直し**、16GB 以上の端末では Qwen3.5-9B へ差し替え（ADR-0030）。
 - **📦 配布ゲート**: `.dmg` をクリーンな Mac で隔離属性付きで開けるか。
   → 未署名時代の実機確認（macOS 26, 2026-06-27）: 初回「damaged」表示だが `xattr -dr com.apple.quarantine` で起動可
   （[ADR-0011](./decisions/ADR-0011_配布は未署名dmgでCloudflareとReleases.md)）。

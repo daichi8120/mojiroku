@@ -6,6 +6,10 @@
 //!
 //! 粗いミックスである点は従来と同じ（δ/ドリフト未補正・視聴用途。ADR-0017。
 //! 文字起こしは per-track の元 WAV を使うのでここの品質は影響しない）。
+//!
+//! Update (Issue #65): the start offset δ between the tracks is now applied as leading
+//! silence on the later-starting track, so playback stays aligned with the offset-corrected
+//! transcript (the detail view seeks by segment time). Clock drift is still uncorrected.
 
 use std::path::Path;
 
@@ -172,28 +176,57 @@ impl MonoTrackReader {
     }
 }
 
+/// Serve `lead` frames of silence before the track's own audio (start-offset alignment).
+/// The chunk is always filled up to `CHUNK_FRAMES` (silence, then audio): a short
+/// silence-only chunk would let the other track advance a full chunk and shift this
+/// track by the difference.
+fn next_chunk_with_lead(r: &mut MonoTrackReader, lead: &mut usize) -> Result<Vec<f32>, String> {
+    let n = (*lead).min(CHUNK_FRAMES);
+    *lead -= n;
+    let mut out = vec![0.0; n];
+    if n < CHUNK_FRAMES {
+        out.extend(r.next_chunk(CHUNK_FRAMES - n)?);
+    }
+    Ok(out)
+}
+
 /// per-track WAV（存在する側のみ）を読み、mono・`out_rate` で加算ミックスした WAV を書く。
 /// どちらも None はエラー。ピークメモリはチャンクサイズ相当（数 MB）。
+///
+/// `mic_offset_ms`: how much later the mic track started than the system track (Issue #65).
+/// The later-starting track is padded with that much leading silence; 0 = no padding.
 pub fn write_mixed_wav(
     mic: Option<&Path>,
     system: Option<&Path>,
     out: &Path,
     out_rate: u32,
+    mic_offset_ms: i64,
 ) -> Result<(), String> {
     let mut a = mic.map(|p| MonoTrackReader::open(p, out_rate)).transpose()?;
     let mut b = system.map(|p| MonoTrackReader::open(p, out_rate)).transpose()?;
     if a.is_none() && b.is_none() {
         return Err("mix: no input tracks".into());
     }
+    let frames = |ms: u64| (ms * out_rate as u64 / 1000) as usize;
+    let mut lead_a = if mic_offset_ms > 0 {
+        frames(mic_offset_ms as u64)
+    } else {
+        0
+    };
+    let mut lead_b = if mic_offset_ms < 0 {
+        frames(mic_offset_ms.unsigned_abs())
+    } else {
+        0
+    };
 
     let mut writer = WavSpoolWriter::create(out, out_rate, 1)?;
     loop {
         let ca = match a.as_mut() {
-            Some(r) => r.next_chunk(CHUNK_FRAMES)?,
+            Some(r) => next_chunk_with_lead(r, &mut lead_a)?,
             None => Vec::new(),
         };
         let cb = match b.as_mut() {
-            Some(r) => r.next_chunk(CHUNK_FRAMES)?,
+            Some(r) => next_chunk_with_lead(r, &mut lead_b)?,
             None => Vec::new(),
         };
         if ca.is_empty() && cb.is_empty() {
@@ -295,7 +328,7 @@ mod tests {
 
         // 新実装。
         let out_wav = tmp("streamed.wav");
-        write_mixed_wav(Some(&mic_wav), Some(&sys_wav), &out_wav, OUT_RATE).unwrap();
+        write_mixed_wav(Some(&mic_wav), Some(&sys_wav), &out_wav, OUT_RATE, 0).unwrap();
 
         assert_eq!(
             std::fs::read(&out_wav).unwrap(),
@@ -315,12 +348,51 @@ mod tests {
         crate::commands::write_wav(&sys_wav, &sys_f32, 48_000, 1).unwrap();
 
         let out_wav = tmp("single-out.wav");
-        write_mixed_wav(None, Some(&sys_wav), &out_wav, 48_000).unwrap();
+        write_mixed_wav(None, Some(&sys_wav), &out_wav, 48_000, 0).unwrap();
 
         let mut r = hound::WavReader::open(&out_wav).unwrap();
         assert_eq!(r.spec().channels, 1);
         assert_eq!(r.samples::<i16>().count(), 48_000);
         let _ = std::fs::remove_file(&sys_wav);
         let _ = std::fs::remove_file(&out_wav);
+    }
+
+    /// The later-starting track gets leading silence so playback lines up with the
+    /// offset-corrected transcript (Issue #65). mic = 100 ms of 0.5, system = 100 ms of 0.25,
+    /// mic started 50 ms later: system only, then both, then mic only.
+    #[test]
+    fn write_mixed_wav_applies_the_start_offset() {
+        const RATE: u32 = 8_000;
+        let mic_wav = tmp("off-mic.wav");
+        let sys_wav = tmp("off-sys.wav");
+        let out_wav = tmp("off-out.wav");
+        crate::commands::write_wav(&mic_wav, &vec![0.5; 800], RATE, 1).unwrap();
+        crate::commands::write_wav(&sys_wav, &vec![0.25; 800], RATE, 1).unwrap();
+        let read = |p: &PathBuf| -> Vec<f32> {
+            hound::WavReader::open(p)
+                .unwrap()
+                .samples::<i16>()
+                .map(|s| dequantize_i16(s.unwrap()))
+                .collect()
+        };
+        let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+
+        write_mixed_wav(Some(&mic_wav), Some(&sys_wav), &out_wav, RATE, 50).unwrap();
+        let out = read(&out_wav);
+        assert_eq!(out.len(), 1200);
+        assert!(near(out[10], 0.25), "system only: {}", out[10]);
+        assert!(near(out[600], 0.75), "both: {}", out[600]);
+        assert!(near(out[1000], 0.5), "mic only: {}", out[1000]);
+
+        // Negative offset (mic started first): the system track gets the lead instead.
+        write_mixed_wav(Some(&mic_wav), Some(&sys_wav), &out_wav, RATE, -50).unwrap();
+        let out = read(&out_wav);
+        assert_eq!(out.len(), 1200);
+        assert!(near(out[10], 0.5), "mic only: {}", out[10]);
+        assert!(near(out[1000], 0.25), "system only: {}", out[1000]);
+
+        for p in [mic_wav, sys_wav, out_wav] {
+            let _ = std::fs::remove_file(&p);
+        }
     }
 }

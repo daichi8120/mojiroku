@@ -150,10 +150,18 @@ export interface Settings {
   notion_parent_id: string;
   /** アプリ言語（UI・要約出力・話者ラベル・エクスポート見出し）。"" = 未設定（初回起動で解決）。 */
   language: "" | "ja" | "en";
-  /** 文字起こし言語。"" = アプリ言語に追従（既定）、"auto" = whisper 自動判定。 */
+  /**
+   * 文字起こし言語。"" = アプリ言語に追従（既定）、"auto" = whisper 自動判定。
+   * Issue #66 supersedes the rule above: "" is a legacy value that now behaves like "auto".
+   */
   transcribe_language: "" | "auto" | "ja" | "en";
   /** 会議開始時に録音を促す通知を出すか（既定 OFF＝オプトイン・ADR-0026）。カレンダー連携が前提。 */
   auto_record_prompt: boolean;
+  /**
+   * Explicit local summary model (catalog file name). "" = automatic, chosen from the
+   * Mac's memory and the models already on disk (ADR-0030). Distinct from the BYOK `model`.
+   */
+  local_summary_model: string;
 }
 
 /**

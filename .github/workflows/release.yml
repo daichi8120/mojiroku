@@ -258,6 +258,9 @@ jobs:
           spctl -a -vv -t exec "$APP" 2>&1 | grep -q "Notarized Developer ID"
           # sidecar が hardened runtime 付きで署名されているか
           codesign -d --verbose "$APP/Contents/MacOS/mojiroku-llm" 2>&1 | grep -Eq "flags=.*\(.*runtime.*\)"
+          # mojiroku-mcp も同梱バイナリ（externalBin）。Claude Desktop / Claude Code が直接
+          # spawn するので、hardened runtime で署名されていないと Gatekeeper に止められる。
+          codesign -d --verbose "$APP/Contents/MacOS/mojiroku-mcp" 2>&1 | grep -Eq "flags=.*\(.*runtime.*\)"
           # updater 配布物（自動更新でユーザーに届く実体）を展開して検証
           rm -rf "$RUNNER_TEMP/upd" && mkdir -p "$RUNNER_TEMP/upd"
           tar -xzf dist-rel/mojiroku-macos-aarch64.app.tar.gz -C "$RUNNER_TEMP/upd"

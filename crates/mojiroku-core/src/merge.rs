@@ -54,13 +54,25 @@ pub const SELF_SPEAKER_ID: &str = "self";
 /// 時刻注意: 各 Transcript の時刻は各トラックの録音開始基準。開始タイミングのズレ（δ）と
 /// クロックドリフトは未補正。per-track STT なのでソース帰属は不変で、影響は近接する異トラック
 /// 発話の並び順がわずかに乱れる cosmetic な範囲に留まる（δ 補正は将来の精緻化）。
+///
+/// Update (Issue #65): the start offset δ is now corrected. `mic_offset_ms` is how much
+/// later the mic track started than the system track (negative = earlier), measured at
+/// capture time and stored on the recording. The later-starting track is shifted forward
+/// before the sort so both share one clock. A reply with a gap shorter than δ used to sort
+/// before the utterance it answered. Clock drift is still uncorrected.
 pub fn merge_tracks(
     mic: Transcript,
     system: Transcript,
     system_speakers: Vec<Speaker>,
     lang: Lang,
+    mic_offset_ms: i64,
 ) -> (Transcript, Vec<Speaker>) {
     let mic_has_speech = !mic.segments.is_empty();
+    let (mic, system) = if mic_offset_ms >= 0 {
+        (shift_transcript(mic, mic_offset_ms as u64), system)
+    } else {
+        (mic, shift_transcript(system, mic_offset_ms.unsigned_abs()))
+    };
 
     let mut segments: Vec<Segment> =
         Vec::with_capacity(mic.segments.len() + system.segments.len());
@@ -102,6 +114,17 @@ pub fn merge_tracks(
     }
 
     (Transcript { language, segments }, speakers)
+}
+
+/// Move every segment of `t` later by `by_ms` (both tracks keep their own durations).
+fn shift_transcript(mut t: Transcript, by_ms: u64) -> Transcript {
+    if by_ms > 0 {
+        for s in &mut t.segments {
+            s.start_ms += by_ms;
+            s.end_ms += by_ms;
+        }
+    }
+    t
 }
 
 #[cfg(test)]
@@ -212,7 +235,7 @@ mod tests {
             language: Some("ja".into()),
             segments: vec![seg_t(0, 400, "sys-a"), seg_t(1500, 2000, "sys-b")],
         };
-        let (merged, speakers) = merge_tracks(mic, system, vec![spk("S1")], Lang::Ja);
+        let (merged, speakers) = merge_tracks(mic, system, vec![spk("S1")], Lang::Ja, 0);
         // 時系列順に並ぶ。
         let texts: Vec<&str> = merged.segments.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(texts, vec!["sys-a", "mic-a", "sys-b", "mic-b"]);
@@ -234,7 +257,7 @@ mod tests {
             segments: vec![seg_t(0, 500, "sys")],
         };
         let (merged, speakers) =
-            merge_tracks(Transcript::default(), system, vec![spk("S1")], Lang::Ja);
+            merge_tracks(Transcript::default(), system, vec![spk("S1")], Lang::Ja, 0);
         assert_eq!(merged.segments.len(), 1);
         // マイク無発話なら self 話者は足さない。システム話者は「相手N」に再ラベル。
         assert_eq!(speakers.len(), 1);
@@ -253,7 +276,7 @@ mod tests {
             language: Some("en".into()),
             segments: vec![seg_t(600, 900, "sys")],
         };
-        let (_, speakers) = merge_tracks(mic, system, vec![spk("S1"), spk("S2")], Lang::En);
+        let (_, speakers) = merge_tracks(mic, system, vec![spk("S1"), spk("S2")], Lang::En, 0);
         assert_eq!(speakers[0].label, "You");
         assert_eq!(speakers[1].label, "Guest 1");
         assert_eq!(speakers[2].label, "Guest 2");
@@ -270,8 +293,36 @@ mod tests {
             language: None,
             segments: vec![seg_t(1000, 1500, "sys")],
         };
-        let (merged, _) = merge_tracks(mic, system, vec![], Lang::Ja);
+        let (merged, _) = merge_tracks(mic, system, vec![], Lang::Ja, 0);
         assert_eq!(merged.segments[0].text, "mic");
         assert_eq!(merged.segments[1].text, "sys");
+    }
+
+    /// The mic starts δ after the system track, so a reply at mic-time 200 ms was really
+    /// spoken at 800 ms. Without the correction it sorts before the question it answers
+    /// (Issue #65). Mutation check: removing the shift makes this fail.
+    #[test]
+    fn merge_tracks_corrects_the_mic_start_offset() {
+        let system = Transcript {
+            language: None,
+            segments: vec![seg_t(0, 1000, "question"), seg_t(1500, 2000, "follow-up")],
+        };
+        let mic = Transcript {
+            language: None,
+            segments: vec![seg_t(200, 800, "reply")],
+        };
+        let (merged, _) = merge_tracks(mic.clone(), system.clone(), vec![], Lang::Ja, 600);
+        let texts: Vec<&str> = merged.segments.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(texts, vec!["question", "reply", "follow-up"]);
+        assert_eq!(
+            (merged.segments[1].start_ms, merged.segments[1].end_ms),
+            (800, 1400)
+        );
+
+        // A negative offset (mic started first) shifts the system track instead.
+        let (merged, _) = merge_tracks(mic, system, vec![], Lang::Ja, -300);
+        assert_eq!(merged.segments[0].text, "reply");
+        assert_eq!(merged.segments[1].text, "question");
+        assert_eq!(merged.segments[1].start_ms, 300);
     }
 }

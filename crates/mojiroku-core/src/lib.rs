@@ -13,6 +13,7 @@ pub mod calendar;
 pub mod diarization;
 pub mod export;
 pub mod ffi_guard;
+pub mod hardware;
 pub mod lang;
 pub mod merge;
 pub mod models;
@@ -203,12 +204,16 @@ pub fn transcribe_and_diarize_file(
 /// ソース帰属が構造上保証されるためクロックドリフトに免疫（近接する異トラック発話の並び順が
 /// わずかに乱れる cosmetic な影響のみ）。重い 2 STT＋1 diarization。空トラック（無音）は
 /// そのまま空 Transcript として合成される。
+///
+/// `mic_offset_ms`: how much later the mic track started than the system track (Issue #65),
+/// as stored on the recording; 0 when unknown. Applied in [`merge::merge_tracks`].
 pub fn transcribe_meeting_dual_track(
     mic_path: &Path,
     system_path: &Path,
     models_dir: &Path,
     language: Option<&str>,
     lang: lang::Lang,
+    mic_offset_ms: i64,
     on_progress: Option<&StageProgressFn<'_>>,
 ) -> Result<(
     schemas::Transcript,
@@ -224,7 +229,8 @@ pub fn transcribe_meeting_dual_track(
     let mic = transcribe_file_impl(mic_path, models_dir, language, on_progress, false)?;
     // ソース合成（マイク=self、システム=diarization 話者を保持、時系列マージ）。
     // system 話者 id は merge_tracks で不変＝声紋（system_embeddings）の id とも整合する。
-    let (transcript, speakers) = merge::merge_tracks(mic, system, system_speakers, lang);
+    let (transcript, speakers) =
+        merge::merge_tracks(mic, system, system_speakers, lang, mic_offset_ms);
     Ok((transcript, speakers, system_embeddings))
 }
 

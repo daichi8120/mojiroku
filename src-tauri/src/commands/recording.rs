@@ -103,7 +103,7 @@ pub(crate) async fn stop_mic_recording(
         sample_rate,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    insert_recording_and_maybe_enqueue(&app, &store, &queue, &recording, diarize, record_only)
+    insert_recording_and_maybe_enqueue(&app, &store, &queue, &recording, diarize, record_only, None)
 }
 
 /// システム音声収録（画面とシステムオーディオ収録 TCC）の許可状態。会議モードの起動時プリフライト・
@@ -263,11 +263,31 @@ pub(crate) async fn stop_meeting_recording(
     let duration_ms = mic_dur.max(sys_dur);
     let sample_rate = if sys_has { sys_rate } else { mic_rate };
 
+    // Start offset between the tracks (Issue #65). System capture starts first and blocks
+    // until it is ready, then the mic starts, so the mic's first sample lands δ later.
+    // Measured from the first audio callback of each track, so it carries about one buffer
+    // of delivery latency per side (tens of ms); good enough for turn order, not for
+    // sample alignment. Only meaningful when both tracks were kept.
+    let mic_offset_ms = match (
+        mic_has && sys_has,
+        mic_info.as_ref().and_then(|i| i.first_sample_at),
+        sys_info.as_ref().and_then(|i| i.first_sample_at),
+    ) {
+        (true, Some(m), Some(s)) if m >= s => Some((m - s).as_millis() as i64),
+        (true, Some(m), Some(s)) => Some(-((s - m).as_millis() as i64)),
+        _ => None,
+    };
+    if let Some(d) = mic_offset_ms {
+        eprintln!("meeting tracks: mic started {d} ms after system (stored as mic_offset_ms)");
+    }
+
     // 2.5) 再生用の結合 <id>.wav（mono・48k）を別スレッドで生成する。per-track WAV を
     //    チャンク読み → mono 化 → resample → 加算ミックスのストリーミング処理で、全量を
     //    RAM に乗せない（ADR-0023。従来は数 GB 級の一時バッファだった）。詳細ビューの再生は
     //    この 1 本に統一（File/Mic と同じ <id>.<ext> 規則）。粗いミックス（長尺はδ/ドリフトで
     //    徐々にズレる）だが視聴用途では許容（ADR-0017。文字起こしは per-track の元 WAV で正確）。
+    //    Update (Issue #65): the start offset δ is applied as leading silence on the later
+    //    track so seeking by transcript time lands on the right audio. Drift is still uncorrected.
     //    best-effort・非致命（失敗しても文字起こしは per-track で成立する）。
     //    **重い ML permit は取らない**（ミックスは resample/加算のみ）: 先行ジョブ実行中でも停止を
     //    塞がず、新しい会議をすぐ始められる（シナリオ⑤）。ただし長尺会議はミックス生成分だけ
@@ -276,6 +296,7 @@ pub(crate) async fn stop_meeting_recording(
         let combined = rec_dir.join(format!("{id}.wav"));
         let mic_p = mic_has.then(|| mic_wav.clone());
         let sys_p = sys_has.then(|| sys_wav.clone());
+        let mix_offset = mic_offset_ms.unwrap_or(0);
         let _ = tauri::async_runtime::spawn_blocking(move || {
             const PLAYBACK_RATE: u32 = 48_000;
             if let Err(e) = crate::audio::mix::write_mixed_wav(
@@ -283,6 +304,7 @@ pub(crate) async fn stop_meeting_recording(
                 sys_p.as_deref(),
                 &combined,
                 PLAYBACK_RATE,
+                mix_offset,
             ) {
                 eprintln!("結合 WAV 書き出し失敗（再生用・処理は続行）: {e}");
             }
@@ -311,5 +333,13 @@ pub(crate) async fn stop_meeting_recording(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
     // 会議は「音声だけ保存」トグルの対象外（常に文字起こしまで積む）ので record_only=false。
-    insert_recording_and_maybe_enqueue(&app, &store, &queue, &recording, false, false)
+    insert_recording_and_maybe_enqueue(
+        &app,
+        &store,
+        &queue,
+        &recording,
+        false,
+        false,
+        mic_offset_ms,
+    )
 }

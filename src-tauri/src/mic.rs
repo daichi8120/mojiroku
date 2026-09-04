@@ -54,6 +54,9 @@ pub struct MicStopInfo {
     pub channels: u16,
     /// flush 中の IO エラー（部分保存で継続した警告。None = 完全）。
     pub spool_error: Option<String>,
+    /// When the first audio callback delivered samples (Issue #65 start-offset measurement).
+    /// `None` if the stream never delivered anything.
+    pub first_sample_at: Option<std::time::Instant>,
 }
 
 fn normalize_i16(s: i16) -> f32 {
@@ -192,7 +195,7 @@ pub fn stop(state: &MicState) -> Result<MicStopInfo, String> {
     let session = state.0.lock().unwrap().take().ok_or("録音していません")?;
     let RecordingSession {
         stop_tx,
-        samples: _,
+        samples,
         result_rx,
         handle,
         sample_rate,
@@ -211,6 +214,7 @@ pub fn stop(state: &MicState) -> Result<MicStopInfo, String> {
         sample_rate,
         channels,
         spool_error,
+        first_sample_at: samples.first_push_at(),
     })
 }
 

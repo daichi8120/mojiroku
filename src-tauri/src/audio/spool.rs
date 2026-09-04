@@ -28,6 +28,11 @@ pub fn dequantize_i16(v: i16) -> f32 {
 /// flush で先頭を捨てても読者（live_stt）が位置を見失わない。
 pub struct SharedPcm {
     inner: Mutex<PcmInner>,
+    /// Wall-clock instant of the first non-empty push, i.e. the first audio callback that
+    /// delivered samples. Used to measure the start offset between the mic and system
+    /// tracks of a meeting recording (Issue #65). Not sample-exact: it carries about one
+    /// buffer of delivery latency.
+    first_push_at: std::sync::OnceLock<std::time::Instant>,
 }
 
 struct PcmInner {
@@ -43,14 +48,24 @@ impl SharedPcm {
                 base: 0,
                 data: Vec::new(),
             }),
+            first_push_at: std::sync::OnceLock::new(),
         }
     }
 
     /// 音声コールバック用 append（IO なし）。
     pub fn push(&self, samples: &[f32]) {
+        if samples.is_empty() {
+            return;
+        }
+        let _ = self.first_push_at.set(std::time::Instant::now());
         if let Ok(mut g) = self.inner.lock() {
             g.data.extend_from_slice(samples);
         }
+    }
+
+    /// When the first audio callback delivered samples; `None` if none ever did.
+    pub fn first_push_at(&self) -> Option<std::time::Instant> {
+        self.first_push_at.get().copied()
     }
 
     /// 末尾 `keep_tail` サンプルを残して先頭を取り出し、base を進める（flush 用）。

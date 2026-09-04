@@ -26,6 +26,9 @@ fn default_provider() -> String {
 fn default_true() -> bool {
     true
 }
+fn default_transcribe_language() -> String {
+    "auto".into()
+}
 
 /// 永続化するアプリ設定。フィールドが欠けた古い settings.json でも安全に既定へ倒れるよう
 /// per-field `serde(default)` を付ける。シークレットは含めない（キーチェーン管轄）。
@@ -57,12 +60,20 @@ pub struct Settings {
     pub language: String,
     /// 文字起こし（whisper）の言語 "auto" | "ja" | "en"。
     /// 空 = 既定（アプリ言語に追従）。"auto" は whisper の言語自動判定。
-    #[serde(default)]
+    /// Issue #66 supersedes the legacy rule above: new defaults use `"auto"`, while an existing
+    /// empty value is interpreted as auto-detection for a migration without rewriting the file.
+    #[serde(default = "default_transcribe_language")]
     pub transcribe_language: String,
     /// 会議開始時に録音を促す通知を出すか（ADR-0026・増分1）。既定 OFF＝明示オプトイン。
     /// カレンダー連携が前提（未接続時はスケジューラが何もしない）。
     #[serde(default)]
     pub auto_record_prompt: bool,
+    /// Explicit local summary model (catalog file name, e.g. `Qwen3.5-9B-Q4_K_M.gguf`).
+    /// Empty = automatic (chosen from the Mac's memory and the models already on disk,
+    /// ADR-0030). Distinct from the BYOK `model`. Values outside the adopted catalog fall
+    /// back to automatic in core ([`mojiroku_core::models::select_summary_model_with`]).
+    #[serde(default)]
+    pub local_summary_model: String,
 }
 
 impl Default for Settings {
@@ -75,8 +86,9 @@ impl Default for Settings {
             send_usage: false,
             notion_parent_id: String::new(),
             language: String::new(),
-            transcribe_language: String::new(),
+            transcribe_language: default_transcribe_language(),
             auto_record_prompt: false,
+            local_summary_model: String::new(),
         }
     }
 }
@@ -108,12 +120,20 @@ impl Settings {
 
     /// 文字起こし（whisper）へ渡す言語。`None` = whisper の自動判定。
     /// 空（既定）はアプリ言語に追従し、未設定の旧 settings.json では従来どおり "ja"。
+    /// Since Issue #66, both `""` (legacy persisted value) and `"auto"` enable detection;
+    /// UI/content language no longer constrains the language spoken in the recording.
     pub fn effective_transcribe_language(&self) -> Option<&str> {
         match self.transcribe_language.as_str() {
-            "auto" => None,
             "ja" | "en" => Some(self.transcribe_language.as_str()),
-            _ => Some(self.effective_language()),
+            _ => None,
         }
+    }
+
+    /// The local summary model chosen in Settings. Empty (the default) is `None` = automatic.
+    /// Whether it is adopted is checked in core, which owns the catalog, not here.
+    pub fn requested_local_summary_model(&self) -> Option<&str> {
+        let m = self.local_summary_model.trim();
+        (!m.is_empty()).then_some(m)
     }
 }
 
@@ -146,20 +166,28 @@ mod tests {
         let s: Settings =
             serde_json::from_str(r#"{"engine":"local","provider":"anthropic"}"#).unwrap();
         assert_eq!(s.language, "");
-        assert_eq!(s.transcribe_language, "");
+        assert_eq!(s.transcribe_language, "auto");
         assert_eq!(s.effective_language(), "ja");
-        assert_eq!(s.effective_transcribe_language(), Some("ja"));
+        assert_eq!(s.effective_transcribe_language(), None);
     }
 
     /// transcribe_language が空のときはアプリ言語に追従する。
+    /// This regression case now verifies that the legacy empty value migrates to auto-detection.
     #[test]
-    fn transcribe_language_follows_app_language() {
+    fn default_transcription_language_is_auto_regardless_of_app_language() {
         let s = Settings {
             language: "en".into(),
             ..Settings::default()
         };
         assert_eq!(s.effective_language(), "en");
-        assert_eq!(s.effective_transcribe_language(), Some("en"));
+        assert_eq!(s.effective_transcribe_language(), None);
+
+        let legacy = Settings {
+            language: "en".into(),
+            transcribe_language: String::new(),
+            ..Settings::default()
+        };
+        assert_eq!(legacy.effective_transcribe_language(), None);
     }
 
     /// "auto" は whisper の自動判定（None）。明示指定はアプリ言語より優先される。
@@ -173,6 +201,26 @@ mod tests {
         assert_eq!(s.effective_transcribe_language(), None);
         s.transcribe_language = "ja".into();
         assert_eq!(s.effective_transcribe_language(), Some("ja"));
+    }
+
+    /// An old settings.json without the field means automatic (None); whitespace-only too.
+    /// An explicit value is returned as-is (core decides whether it is adopted).
+    #[test]
+    fn local_summary_model_defaults_to_auto() {
+        let s: Settings = serde_json::from_str(r#"{"engine":"local"}"#).unwrap();
+        assert_eq!(s.local_summary_model, "");
+        assert_eq!(s.requested_local_summary_model(), None);
+
+        let mut s = Settings {
+            local_summary_model: "  ".into(),
+            ..Settings::default()
+        };
+        assert_eq!(s.requested_local_summary_model(), None);
+        s.local_summary_model = "Qwen3.5-9B-Q4_K_M.gguf".into();
+        assert_eq!(
+            s.requested_local_summary_model(),
+            Some("Qwen3.5-9B-Q4_K_M.gguf")
+        );
     }
 
     /// 未知の language 値は "ja" に倒す（設定ファイルの手編集耐性）。

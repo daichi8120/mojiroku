@@ -38,6 +38,62 @@ repo は「全部の家」ではない。
 - **「ビルドが通る」は作業ツリーではなくコミット対象ツリーで確認する。**
   過去に `models/` の gitignore で同名ソースが漏れた前例がある（手順は CLAUDE.md）。
 
+## Code Review Rules
+
+PR の自動レビュー（Codex のコードレビュー）が読む規則。**見出し名は Codex 側の仕様で
+固定**なので英語のまま置く（→ [Review GitHub pull requests with Codex](https://learn.chatgpt.com/docs/third-party/github)）。
+
+ここに書くのは「**壊れ方が静かで、知らないと踏む**」制約だけにする。書式・lint のような
+機械的な検査は CI に任せる。内容は [`CLAUDE.md`](./CLAUDE.md) の「重要な制約・落とし穴」と
+重なるが、レビューで効かせたいものだけを再掲している。**正本は CLAUDE.md と ADR。**
+
+### ML ランタイムの分離
+
+- `crates/mojiroku-core`（whisper.cpp を含む）に **llama.cpp 系の依存を足さない**。
+  ggml のシンボルが衝突し、**リンクは通るのに実行時に whisper が壊れて 0 セグメントになる**。
+  安全な道は、要約 LLM を別バイナリ sidecar `crates/mojiroku-llm` の側で動かすこと
+  （[ADR-0007](./docs/decisions/ADR-0007_要約llamaを別バイナリsidecarに分離.md)）。
+
+### C++ FFI の呼び出し
+
+- whisper / sherpa-onnx を呼ぶ経路を新しく足すときは、必ず
+  `mojiroku_core::ffi_guard::guard` を通す。C++ 例外は Rust を素通りして**プロセスごと
+  abort する**（v0.3.0 の実機クラッシュ 3 件の根本原因）。例外を `Err` に変えられるのは
+  C++ 側の try/catch だけで、Rust の `catch_unwind` では捕まらない
+  （[ADR-0021](./docs/decisions/ADR-0021_FFI例外シールドと重処理直列化.md)）。
+- 重い ML ジョブ（文字起こし・話者分離・ローカル要約）を新しく足すときは、`HEAVY_ML_JOB`
+  セマフォでアプリ全体 1 本に直列化する。並走させると 16GB 機でメモリが枯れ、
+  クラッシュやスワップ固着になる。**取り方は経路で 2 つに分かれる。**
+  Tauri コマンドから直接呼ぶなら `commands::acquire_heavy_job`（待ちを `stage="queued"` の
+  進捗イベントで UI に通知する）。バックグラウンドワーカー（`src-tauri/src/jobs.rs`）からなら
+  `commands::acquire_heavy_job_permit`（通知は呼び出し側が `job://update` で行うため、
+  ヘルパは permit を返すだけ）。**経路に合わない方を使うと、通知が二重になるか消える。**
+
+### 文字起こしの時刻
+
+- whisper-rs の `state.full()` は whisper.cpp 内蔵の VAD を**バイパスする**。
+  VAD を効かせるには `WhisperVadContext` で speech 区間を抜き、無音を除いた PCM を
+  whisper に渡したうえで、**タイムスタンプを元の時刻へ再マッピングする**
+  （[ADR-0008](./docs/decisions/ADR-0008_VADはwhisper内蔵Sileroを独立適用.md)）。
+  再マッピングを省くと、除いた無音の長さぶん字幕がずれる。
+
+### GitHub Actions（このリポジトリは public）
+
+- `pull_request_target` を使わない。fork のコードを base の secrets 付きで動かすことになり、
+  「fork PR から secrets に到達する経路が無い」という前提が壊れる。
+- レビュー用ワークフロー（`claude-code-review.yml`）を変更したら、**同じ内容をデフォルト
+  ブランチ（`main`）にも届ける**。`anthropics/claude-code-action` は、実行しようとした
+  ワークフローファイルが default branch 上の版と**内容まで一致**していないと、警告を出して
+  自ら終了する。`develop` 側だけ直すと、以後の全 PR が「job は success なのにレビュー 0 件」
+  という**静かな無効化**に入る（2026-08-30 に実際に起きた）。
+- **PR の required status check になりうるワークフロー**でジョブを条件付きに飛ばすときは、
+  ワークフローレベルの `paths:` / `branches:` ではなく **job レベルの `if:`** で書く。
+  前者でスキップされた check はそもそも報告されないため、PR が
+  `Waiting for status to be reported` で永久にブロックされる。job レベルの `if:` で
+  飛ばした job は success 扱いになる。
+  なお push トリガーのデプロイ用ワークフロー（`deploy-landing.yml` など）はこの制約の
+  対象外で、ワークフローレベルのフィルタを使ってよい。
+
 ## ライセンス
 
 本プロジェクトは **AGPL-3.0-or-later**。コードを提供する場合は
