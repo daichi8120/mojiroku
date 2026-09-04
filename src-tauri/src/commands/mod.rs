@@ -202,10 +202,18 @@ pub(crate) fn insert_recording_and_maybe_enqueue(
     recording: &mojiroku_core::Recording,
     diarize: bool,
     record_only: bool,
+    // Meeting recordings only (Issue #65): mic-vs-system start offset. Written before the
+    // job is enqueued because the worker may pick the job up immediately.
+    mic_offset_ms: Option<i64>,
 ) -> Result<StartJobResult, String> {
     store
         .insert_recording_only(recording)
         .map_err(|e| e.to_string())?;
+    if let Some(offset) = mic_offset_ms {
+        store
+            .set_mic_offset_ms(&recording.id, offset)
+            .map_err(|e| e.to_string())?;
+    }
     let job_id = if record_only {
         None
     } else {

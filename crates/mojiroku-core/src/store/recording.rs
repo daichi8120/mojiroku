@@ -333,6 +333,33 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Store the mic-vs-system start offset of a meeting recording (Issue #65). Positive
+    /// means the mic track started later. Kept on the row so re-processing produces the
+    /// same merge. A missing row is a no-op.
+    pub fn set_mic_offset_ms(&self, recording_id: &str, offset_ms: i64) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE recordings SET mic_offset_ms = ?1 WHERE id = ?2",
+            params![offset_ms, recording_id],
+        )?;
+        Ok(())
+    }
+
+    /// The stored start offset; `None` for single-track recordings, rows older than
+    /// schema v6, and unknown ids.
+    pub fn get_mic_offset_ms(&self, recording_id: &str) -> Result<Option<i64>> {
+        use rusqlite::OptionalExtension;
+        let conn = self.conn();
+        let v: Option<Option<i64>> = conn
+            .query_row(
+                "SELECT mic_offset_ms FROM recordings WHERE id = ?1",
+                params![recording_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(v.flatten())
+    }
+
     /// 履歴一覧（created_at 降順）。
     pub fn list_recordings(&self) -> Result<Vec<Recording>> {
         let conn = self.conn();

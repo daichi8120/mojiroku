@@ -215,6 +215,9 @@ pub struct SystemStopInfo {
     pub any_callback: bool,
     /// flush 中の IO エラー（部分保存で継続した警告。None = 完全）。
     pub spool_error: Option<String>,
+    /// When the first audio callback delivered samples (Issue #65 start-offset measurement).
+    /// `None` if the stream never delivered anything.
+    pub first_sample_at: Option<std::time::Instant>,
 }
 
 /// キャプチャセッションの managed state（同時に 1 つ）。
@@ -411,7 +414,7 @@ pub fn stop(state: &SystemAudioState) -> Result<SystemStopInfo, String> {
         .ok_or("システム音声をキャプチャしていません")?;
     let CaptureSession {
         stop_tx,
-        samples: _,
+        samples,
         result_rx,
         handle,
         sample_rate,
@@ -431,6 +434,7 @@ pub fn stop(state: &SystemAudioState) -> Result<SystemStopInfo, String> {
         peak_rms: silence.peak_rms(),
         any_callback: silence.any_callback(),
         spool_error,
+        first_sample_at: samples.first_push_at(),
     })
 }
 

@@ -169,14 +169,20 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
     let rec_dir = resolve_recordings_dir(app)?;
 
     // source_type だけ先に読む（軽い。State 借用は await をまたがない）。
-    let source_type = {
+    // Also the meeting start offset (Issue #65); 0 when not stored (single track, old rows).
+    let (source_type, mic_offset_ms) = {
         let store = app.state::<SqliteStore>();
-        store
+        let source_type = store
             .get_recording_detail(&id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "error.recording.not_found".to_string())?
             .recording
-            .source_type
+            .source_type;
+        let offset = store
+            .get_mic_offset_ms(&id)
+            .map_err(|e| e.to_string())?
+            .unwrap_or(0);
+        (source_type, offset)
     };
 
     let plan = resolve_transcribe_plan(&rec_dir, &id, source_type, job.params.diarize)?;
@@ -201,6 +207,7 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
                 &models_dir,
                 stt_lang.as_deref(),
                 lang,
+                mic_offset_ms,
                 Some(&cb),
             )
             .map_err(core_err),
