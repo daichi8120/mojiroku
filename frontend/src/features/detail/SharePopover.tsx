@@ -27,7 +27,6 @@ import {
   MessageIcon,
   SendIcon,
   ShieldIcon,
-  UsersIcon,
 } from "@/components/icons";
 
 function Sec({ children }: { children: ReactNode }) {
@@ -218,6 +217,7 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
 
   // 「要約（3行）」は要約テンプレの結果。無ければ作成を促す。
   const summaryRow = findSummary(detail.summaries, "summary");
+  const notesRow = minutesRow ?? summaryRow;
 
   return (
     <Popover
@@ -230,8 +230,8 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
           className="inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11.5px] font-semibold text-white transition-[filter] hover:brightness-110"
           style={{ background: "linear-gradient(180deg,#6366F1,#4F46E5)" }}
         >
-          <SendIcon size={13} />
-          {t.detail.share.trigger}
+          <CopyIcon size={13} />
+          {t.common.copy}
           <DropdownCaret />
         </button>
       )}
@@ -241,11 +241,11 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
           <Sec>{t.detail.share.secCopy}</Sec>
           <CopyRow
             accent
-            icon={<CopyIcon size={15} />}
-            title={t.detail.share.minutesMd}
-            sub={t.detail.share.minutesMdSub}
+            icon={<MessageIcon size={15} />}
+            title={summaryRow && !minutesRow ? t.detail.share.summaryRow : t.detail.share.minutesMd}
+            sub={minutesRow ? t.detail.share.minutesMdSub : undefined}
             onClick={() => {
-              if (minutesRow) doCopy(close, summaryMarkdown(minutesRow));
+              if (notesRow) doCopy(close, summaryMarkdown(notesRow));
               else {
                 toast(t.detail.share.needMinutes, "info");
                 close();
@@ -253,25 +253,8 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
             }}
           />
           <CopyRow
-            icon={<MessageIcon size={15} />}
-            title={t.detail.share.summaryRow}
-            onClick={() => {
-              if (summaryRow) {
-                doCopy(close, summaryMarkdown(summaryRow));
-              } else {
-                toast(t.detail.share.needSummary, "info");
-                close();
-              }
-            }}
-          />
-          <CopyRow
-            icon={<UsersIcon size={15} />}
-            title={t.detail.share.transcriptSpeakers}
-            onClick={() => doCopy(close, transcriptMarkdown(detail, lang, { withSpeakers: true }))}
-          />
-          <CopyRow
             icon={<ClockIcon size={15} />}
-            title={t.detail.share.transcriptTimestamps}
+            title={t.detail.share.transcript}
             onClick={() =>
               doCopy(
                 close,
@@ -296,12 +279,6 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
               {t.detail.share.openClaude}
             </button>
           </div>
-          <button
-            onClick={() => doCopy(close, aiPrompt(detail, lang))}
-            className="mx-2 mb-1.5 block h-[34px] w-[calc(100%-16px)] rounded-[9px] bg-[rgba(99,102,241,0.16)] text-[12px] font-semibold text-brand-lighter transition-[filter] hover:brightness-110"
-          >
-            {t.detail.share.copyWithPrompt}
-          </button>
 
           <div className="my-1.5 h-px bg-border-2" />
           <Sec>{t.detail.share.secExport}</Sec>
