@@ -1,6 +1,6 @@
 # 0010. ローカル MCP サーバーを stdio 別バイナリで提供（履歴 DB を読み取り専用公開）
 
-- ステータス: 採用
+- ステータス: 採用 (the "Tauri externalBin には登録しない" part alone was withdrawn on 2026-09-03; see the addendum under Consequences)
 - 日付: 2026-06-26
 
 ## Context
@@ -20,8 +20,10 @@ beta-1（録音→文字起こし→要約→履歴/検索）と Phase 2b（話�
 - **stdio・別バイナリ**: MCP クライアント（Claude Desktop / Claude Code）が stdio で spawn する。
   HTTP を持たない（案B「localhost HTTP は無い」を維持・$0）。アプリ非起動でも履歴 DB を読める。
   - ローカル要約 sidecar（[ADR-0007](./ADR-0007_要約llamaを別バイナリsidecarに分離.md)）と違い、**起動者は MCP クライアント**で
-    アプリではない。よって **Tauri externalBin には登録しない**（アプリが spawn・管理する対象ではない）。
-    `scripts/build-sidecar.sh` でビルドはするが配置は `target/release/mojiroku-mcp`。
+    アプリではない。The original rule here was "do not register it as a Tauri `externalBin`". **Withdrawn on
+    2026-09-03**: it is now registered as an `externalBin` purely for signing and notarization, while the app
+    still never spawns it (see the addendum under Consequences). `scripts/build-sidecar.sh` builds it and
+    places it at `src-tauri/binaries/mojiroku-mcp-<triple>`; the bundled copy is `Contents/MacOS/mojiroku-mcp`.
   - `rmcp` は純 Rust（onnxruntime/ggml 非依存）なので [ADR-0007](./ADR-0007_要約llamaを別バイナリsidecarに分離.md) の
     ggml シンボル衝突とは無関係。要約 sidecar とも別プロセスで干渉しない。
 
@@ -51,6 +53,13 @@ beta-1（録音→文字起こし→要約→履歴/検索）と Phase 2b（話�
 - 利用者は MCP クライアント設定にバイナリ絶対パスと DB パスを書く（[docs/mcp.md](../mcp.md)）。
   beta は**文書化のみ**（設定ジェネレータや UI トグルは将来）。
 - `.app` への同梱（bundle resources）と署名付き配布は将来。当面は dev/release バイナリを直接指定する。
+  - **2026-09-03 追記: 同梱した（Issue #63）。**ただし bundle resources ではなく **externalBin**。理由は署名——
+    externalBin は llm sidecar と同じ経路で hardened runtime 署名＋公証され、release.yml が
+    `Contents/MacOS/` の各バイナリの runtime フラグを検証する（v0.4.0 から実績あり）。
+    bundle resources に置いた Mach-O が同様に署名される保証は取れなかった。
+    「アプリは spawn しない」は変わらない: `capabilities/default.json` の `shell:allow-execute` は
+    `mojiroku-llm` だけを許可しており、externalBin に足しても許可は増えない。
+    利用者は `/Applications/mojiroku.app/Contents/MacOS/mojiroku-mcp` を指定する。
 - 書き込み系ツール・認証・複数 DB は対象外。読み取り専用に限定することで安全側に倒す。
 
 ## 検証

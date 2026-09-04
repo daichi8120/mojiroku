@@ -23,14 +23,14 @@ mojiroku の開発で Claude Code / 将来のセッションが参照するガ�
   - VAD: whisper.cpp 内蔵 Silero を `WhisperVadContext` で独立適用
   - 音声デコード: symphonia + rubato（→ 16kHz mono f32）
   - 永続化/検索: `SqliteStore`（rusqlite, WAL, FTS5 trigram。録音/文字起こし/要約/話者/**ジョブ**（v5・ADR-0024））
-- **MCP サーバー**: 別バイナリ `crates/mojiroku-mcp`（rmcp stdio）。履歴 DB を read-only で公開し Claude 等から議事録を検索・参照（ADR-0010）。**MCP クライアントが spawn するため Tauri externalBin には登録しない**（要約 sidecar と起動者が違う）。
+- **MCP サーバー**: 別バイナリ `crates/mojiroku-mcp`（rmcp stdio）。履歴 DB を read-only で公開し Claude 等から議事録を検索・参照（ADR-0010）。**Since 2026-09-03 it is registered as a Tauri `externalBin` and shipped inside the .app as `Contents/MacOS/mojiroku-mcp`** (Issue #63, PR #64), purely so it gets the same hardened-runtime signing and notarization as the LLM sidecar. The app itself never spawns it: the launcher is the MCP client (Claude Desktop / Claude Code), and `src-tauri/capabilities/default.json` allows `shell:allow-execute` for `mojiroku-llm` only. Do not remove the `binaries/mojiroku-mcp` entry from `tauri.conf.json`; `docs/mcp.md` points users at the bundled path.
 - **配布**: `mojiroku.com`（Astro → Cloudflare Workers 静的アセット, `landing/`）から **Developer ID 署名+notarization 済み .dmg**（公開 `mojiroku-releases` repo の Releases。ADR-0011/0022）。署名は CI のみ（env 駆動）でローカルビルドは無署名のまま。サーバー費 $0。
 
 ## ⚠️ 重要な制約・落とし穴（先に読む）
 
 - **whisper.cpp と llama.cpp は同一バイナリに同居できない**（ggml シンボル衝突。リンクは通るが実行時に whisper が壊れて 0 セグメントになる）。だから要約 llama は `crates/mojiroku-llm` の**別バイナリ sidecar**に分離している（[ADR-0007](./docs/decisions/ADR-0007_要約llamaを別バイナリsidecarに分離.md)）。`mojiroku-core`（whisper を含む）に llama-cpp-2 を**足さないこと**。
 - **whisper-rs の `state.full()` は whisper.cpp 内蔵 VAD をバイパスする**（VAD は `whisper_full` 側にあり `whisper_full_with_state` には無い）。よって VAD は `WhisperVadContext` で speech 区間を抽出 → 無音除去 PCM を whisper に渡し、タイムスタンプを元時刻へ再マッピングする（[ADR-0008](./docs/decisions/ADR-0008_VADはwhisper内蔵Sileroを独立適用.md)）。
-- **sidecar バイナリはビルド成果物**。`src-tauri/binaries/mojiroku-llm-<triple>` は gitignore。`scripts/build-sidecar.sh`（= `just dev`/`just build` が自動実行）で生成する。Tauri externalBin で `.app` に同梱。
+- **sidecar バイナリはビルド成果物**。`src-tauri/binaries/mojiroku-llm-<triple>` は gitignore。`scripts/build-sidecar.sh`（= `just dev`/`just build` が自動実行）で生成する。Tauri externalBin で `.app` に同梱。The same applies to `src-tauri/binaries/mojiroku-mcp-<triple>` since 2026-09-03: the script builds and places both binaries, and both must exist before `cargo build --workspace` or `tauri build`.
 - **モデルは実行時 DL**（`*.gguf`/`*.bin` は gitignore）。保存先は `~/Library/Application Support/com.daichi0812.mojiroku/models/`。whisper large-v3-turbo(547MB) / 要約 Qwen2.5-7B Q4_K_M(4.4GB) / Silero VAD(864KB)。
 - whisper の**無音ハルシネーション**（「ご視聴ありがとうございました」反復）は VAD で対処済み。
 - LLM プロンプトは **n_batch(2048) ごとに分割して decode** する（長尺会議で `GGML_ASSERT(n_tokens_all <= n_batch)` を踏まないため）。
@@ -45,10 +45,10 @@ frontend/                Vite+React UI（features/transcription, summary, histor
 src-tauri/               Tauri v2 シェル。commands（health/transcribe_file/summarize/録音/履歴）、capabilities/、binaries/(gitignore)
 crates/mojiroku-core/    ML コア。audio/ stt/ summarize/(byok) diarization/ vad/ store/(SQLite) models/ pipeline/ merge.rs schemas.rs
 crates/mojiroku-llm/     ローカル要約 sidecar（llama.cpp）。stdin=プロンプトファイル, stdout=要約
-crates/mojiroku-mcp/     ローカル MCP サーバ（rmcp stdio）。履歴 DB を read-only 公開。MCP クライアントが spawn
+crates/mojiroku-mcp/     ローカル MCP サーバ（rmcp stdio）。履歴 DB を read-only 公開。MCP クライアントが spawn; bundled as externalBin since 2026-09-03
 eval/diarization/        話者分離の品質ゲート用ハーネス（GT + 再現スクリプト。音声・モデルは含まない。ADR-0028）
 landing/                 配布ランディング（Astro→Cloudflare Workers 静的アセット）。public/_redirects で /download→Releases 302
-scripts/build-sidecar.sh mojiroku-llm（triple 名で配置）+ mojiroku-mcp をビルド
+scripts/build-sidecar.sh mojiroku-llm（triple 名で配置）+ mojiroku-mcp をビルド (both placed as src-tauri/binaries/<name>-<triple>)
 docs/                    フラット構成。roadmap/requirements/spec/architecture/CONTRIBUTING/install-macos/mcp/updater-plan + decisions/(ADR-0001〜0024)。索引は docs/README.md
 ```
 
@@ -80,6 +80,7 @@ cargo run --release -p mojiroku-core --example transcribe_cli -- <audio> <models
 `src-tauri/binaries/mojiroku-llm-<triple>` はビルド成果物で gitignore されているため、
 `resource path binaries/mojiroku-llm-aarch64-apple-darwin doesn't exist` になる。
 先に `bash scripts/build-sidecar.sh` を実行する（`just dev` / `just build` は自動実行）。
+The same check covers `binaries/mojiroku-mcp-<triple>` since 2026-09-03; the script produces both.
 
 「ビルドが通る」と言う前に、**作業ツリーではなくコミット対象ツリー**で確認する習慣（過去に `models/` gitignore でソースが漏れた）:
 `git add -A && git checkout-index -a -f --prefix=/tmp/clean/ && (cd /tmp/clean && cargo build --workspace)`

@@ -14,8 +14,20 @@ cp "target/release/mojiroku-llm" "src-tauri/binaries/mojiroku-llm-${TRIPLE}"
 chmod +x "src-tauri/binaries/mojiroku-llm-${TRIPLE}"
 echo "placed: src-tauri/binaries/mojiroku-llm-${TRIPLE}"
 
-# mojiroku-mcp は MCP クライアント（Claude Desktop/Code）が spawn するため、
-# Tauri externalBin には登録しない（アプリは spawn しない）。ビルドだけ行い、
-# 利用者は target/release/mojiroku-mcp を MCP 設定の command に指定する（docs/06_reference/mcp.md）。
+# mojiroku-mcp（ローカル MCP サーバ）も externalBin として .app に同梱する。
+#
+# アプリ自身は spawn しない（ADR-0010。spawn するのは Claude Desktop / Claude Code）。
+# それでも externalBin に置くのは、**署名と公証を llm sidecar と同じ経路に乗せるため**。
+# bundle resources に置く案もあるが、Mach-O が hardened runtime で署名される保証が
+# 無く、公証で落ちるかどうかを CI で試すまで分からない。externalBin は v0.4.0 から
+# 実績がある（release.yml が Contents/MacOS/ の各バイナリの runtime フラグを検証する）。
+#
+# アプリが spawn できないことは capabilities/default.json が保証する（shell:allow-execute の
+# allow に mojiroku-llm しか無い）。externalBin に足しても許可は増えない。
+#
+# 利用者は /Applications/mojiroku.app/Contents/MacOS/mojiroku-mcp を MCP 設定の
+# command に指定する（docs/mcp.md）。ビルド環境が無くても使える。
 cargo build --release -p mojiroku-mcp
-echo "built:  target/release/mojiroku-mcp  (MCP 設定の command に指定。docs/06_reference/mcp.md 参照)"
+cp "target/release/mojiroku-mcp" "src-tauri/binaries/mojiroku-mcp-${TRIPLE}"
+chmod +x "src-tauri/binaries/mojiroku-mcp-${TRIPLE}"
+echo "placed: src-tauri/binaries/mojiroku-mcp-${TRIPLE}"

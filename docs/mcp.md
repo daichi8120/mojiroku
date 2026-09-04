@@ -12,31 +12,44 @@
 | `list_recent_meetings` | `limit`（省略時 20） | 最近の会議メタ（`recording_id` / タイトル / 日時 / 長さ） |
 | `get_meeting` | `recording_id`, `include_transcript`（省略時 false） | 要約・メタ・話者。`include_transcript=true` で逐語全文も |
 
-## ビルド
+## 使うバイナリ
 
-```bash
-# just dev / just build でも自動ビルドされる（scripts/build-sidecar.sh）
-cargo build --release -p mojiroku-mcp
-# 生成物: ./target/release/mojiroku-mcp
+**`mojiroku-mcp` は `.app` に同梱されている。**別途ビルドは要らない。
+
+```
+/Applications/mojiroku.app/Contents/MacOS/mojiroku-mcp
 ```
 
-バイナリの絶対パスを控えておく（設定で使う）:
+署名・公証はアプリ本体と同じ経路で済んでいるので、Gatekeeper の `xattr` 回避も不要。
+アプリを更新すればこのバイナリも一緒に更新される。パスは固定なので設定を書き直す必要はない。
 
-```bash
-echo "$(pwd)/target/release/mojiroku-mcp"
-```
+⚠️ **v0.5.4 以前の `.app` には入っていない。**古い版を使っている場合はアプリを更新する。
 
 DB パスは既定で `~/Library/Application Support/com.daichi0812.mojiroku/mojiroku.db` を見るため、
 通常は指定不要。別パスを使う場合だけ `--db <path>` 引数か環境変数 `MOJIROKU_DB` で渡す。
+
+### 開発者向け: ソースからビルドする
+
+repo を clone して開発する場合は `scripts/build-sidecar.sh`（`just dev` / `just build` から自動で呼ばれる）が
+`target/release/mojiroku-mcp` を作る。同梱版の代わりにこちらを指定してもよい。
+
+```bash
+cargo build --release -p mojiroku-mcp
+echo "$(pwd)/target/release/mojiroku-mcp"
+```
+
+`mojiroku-mcp` は `mojiroku-core` に依存するため、ソースからのビルドには whisper.cpp の C++ ビルド環境
+（cmake / Xcode）と sherpa-onnx の prebuilt ライブラリ取得（初回は要ネット）が要る。
+**議事録を読むためだけに他のマシンでこれを揃えるのは重い**ので、同梱版を使うこと。
 
 ## Claude Code に登録
 
 ```bash
 # 既定 DB パスを使う場合（推奨）
-claude mcp add mojiroku /ABSOLUTE/PATH/TO/target/release/mojiroku-mcp
+claude mcp add mojiroku /Applications/mojiroku.app/Contents/MacOS/mojiroku-mcp
 
 # DB パスを明示する場合
-claude mcp add mojiroku -- /ABSOLUTE/PATH/TO/target/release/mojiroku-mcp \
+claude mcp add mojiroku -- /Applications/mojiroku.app/Contents/MacOS/mojiroku-mcp \
   --db "$HOME/Library/Application Support/com.daichi0812.mojiroku/mojiroku.db"
 ```
 
@@ -50,7 +63,7 @@ claude mcp add mojiroku -- /ABSOLUTE/PATH/TO/target/release/mojiroku-mcp \
 {
   "mcpServers": {
     "mojiroku": {
-      "command": "/ABSOLUTE/PATH/TO/target/release/mojiroku-mcp"
+      "command": "/Applications/mojiroku.app/Contents/MacOS/mojiroku-mcp"
     }
   }
 }
@@ -93,7 +106,7 @@ openssl rand -hex 32   # これを MOJIROKU_MCP_TOKEN として使う（32 文�
 （`RunAtLoad`・`MOJIROKU_MCP_TOKEN` は `EnvironmentVariables` で渡す）:
 
 ```
-/ABSOLUTE/PATH/TO/target/release/mojiroku-mcp --http 8970 \
+/Applications/mojiroku.app/Contents/MacOS/mojiroku-mcp --http 8970 \
   --allowed-host mcp-origin.mojiroku.com
 ```
 
