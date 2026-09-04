@@ -554,7 +554,6 @@ const en: Dict = {
       uiDesc: "Used for the interface, and also for summaries, speaker labels, and export headings",
       transcribeLabel: "Transcription language",
       transcribeDesc: "Speech-recognition language. If your meetings are in one language, picking it is the most accurate",
-      followApp: "Match app language (default)",
       auto: "Auto-detect",
       names: { ja: "日本語", en: "English" },
     },

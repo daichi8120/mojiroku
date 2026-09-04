@@ -26,6 +26,9 @@ fn default_provider() -> String {
 fn default_true() -> bool {
     true
 }
+fn default_transcribe_language() -> String {
+    "auto".into()
+}
 
 /// 永続化するアプリ設定。フィールドが欠けた古い settings.json でも安全に既定へ倒れるよう
 /// per-field `serde(default)` を付ける。シークレットは含めない（キーチェーン管轄）。
@@ -57,7 +60,9 @@ pub struct Settings {
     pub language: String,
     /// 文字起こし（whisper）の言語 "auto" | "ja" | "en"。
     /// 空 = 既定（アプリ言語に追従）。"auto" は whisper の言語自動判定。
-    #[serde(default)]
+    /// Issue #66 supersedes the legacy rule above: new defaults use `"auto"`, while an existing
+    /// empty value is interpreted as auto-detection for a migration without rewriting the file.
+    #[serde(default = "default_transcribe_language")]
     pub transcribe_language: String,
     /// 会議開始時に録音を促す通知を出すか（ADR-0026・増分1）。既定 OFF＝明示オプトイン。
     /// カレンダー連携が前提（未接続時はスケジューラが何もしない）。
@@ -81,7 +86,7 @@ impl Default for Settings {
             send_usage: false,
             notion_parent_id: String::new(),
             language: String::new(),
-            transcribe_language: String::new(),
+            transcribe_language: default_transcribe_language(),
             auto_record_prompt: false,
             local_summary_model: String::new(),
         }
@@ -115,11 +120,12 @@ impl Settings {
 
     /// 文字起こし（whisper）へ渡す言語。`None` = whisper の自動判定。
     /// 空（既定）はアプリ言語に追従し、未設定の旧 settings.json では従来どおり "ja"。
+    /// Since Issue #66, both `""` (legacy persisted value) and `"auto"` enable detection;
+    /// UI/content language no longer constrains the language spoken in the recording.
     pub fn effective_transcribe_language(&self) -> Option<&str> {
         match self.transcribe_language.as_str() {
-            "auto" => None,
             "ja" | "en" => Some(self.transcribe_language.as_str()),
-            _ => Some(self.effective_language()),
+            _ => None,
         }
     }
 
@@ -160,20 +166,28 @@ mod tests {
         let s: Settings =
             serde_json::from_str(r#"{"engine":"local","provider":"anthropic"}"#).unwrap();
         assert_eq!(s.language, "");
-        assert_eq!(s.transcribe_language, "");
+        assert_eq!(s.transcribe_language, "auto");
         assert_eq!(s.effective_language(), "ja");
-        assert_eq!(s.effective_transcribe_language(), Some("ja"));
+        assert_eq!(s.effective_transcribe_language(), None);
     }
 
     /// transcribe_language が空のときはアプリ言語に追従する。
+    /// This regression case now verifies that the legacy empty value migrates to auto-detection.
     #[test]
-    fn transcribe_language_follows_app_language() {
+    fn default_transcription_language_is_auto_regardless_of_app_language() {
         let s = Settings {
             language: "en".into(),
             ..Settings::default()
         };
         assert_eq!(s.effective_language(), "en");
-        assert_eq!(s.effective_transcribe_language(), Some("en"));
+        assert_eq!(s.effective_transcribe_language(), None);
+
+        let legacy = Settings {
+            language: "en".into(),
+            transcribe_language: String::new(),
+            ..Settings::default()
+        };
+        assert_eq!(legacy.effective_transcribe_language(), None);
     }
 
     /// "auto" は whisper の自動判定（None）。明示指定はアプリ言語より優先される。
