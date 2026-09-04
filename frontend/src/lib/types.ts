@@ -154,6 +154,11 @@ export interface Settings {
   transcribe_language: "" | "auto" | "ja" | "en";
   /** 会議開始時に録音を促す通知を出すか（既定 OFF＝オプトイン・ADR-0026）。カレンダー連携が前提。 */
   auto_record_prompt: boolean;
+  /**
+   * Explicit local summary model (catalog file name). "" = automatic, chosen from the
+   * Mac's memory and the models already on disk (ADR-0030). Distinct from the BYOK `model`.
+   */
+  local_summary_model: string;
 }
 
 /**

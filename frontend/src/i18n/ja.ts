@@ -471,6 +471,13 @@ const ja = {
       savedBadge: "保存済み",
       onDemandBadge: "必要時にDL",
       manageSoon: "モデル管理は近日",
+      // Summary model switch (ADR-0030). Auto = chosen from the Mac's memory and models on disk.
+      pickerLabel: "要約に使うモデル",
+      pickerDesc: "乗り換えると次の要約でそのモデルをダウンロードします。手元のモデルは消しません。",
+      auto: (label: string) => `この Mac に合わせる（${label}）`,
+      needsDownload: "要DL",
+      willDownload: (size: string) => `次の要約で ${size} をダウンロードします。`,
+      exceedsTier: "この Mac の搭載メモリには大きすぎ、メモリ不足で落ちることがあります。",
     },
     engine: {
       desc: "既定はローカル。品質を求めるときだけ自分の API キーでクラウドに切り替えられます。",

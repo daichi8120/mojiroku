@@ -25,10 +25,23 @@ export const health = () => invoke<string>("health");
 /** 設定画面に出す「この端末が使う要約モデル」。端末のメモリで変わる（ADR-0030）ので、
  *  UI に固定文字列で書かず必ずここから引く。 */
 export type SummaryModelInfo = {
+  /**
+   * What automatic picks (model already on disk first, then tier). Runs when
+   * `settings.local_summary_model` is "" and is shown the moment the user switches back
+   * to automatic. A full entry because auto may resolve to a model not in `choices`.
+   */
+  auto: SummaryModelChoice;
+  /** Switch targets: adopted models only, in ascending tier order. */
+  choices: SummaryModelChoice[];
+};
+export type SummaryModelChoice = {
   file: string;
   label: string;
   size: string;
   downloaded: boolean;
+  tier: "small" | "medium" | "large";
+  /** Above this Mac's tier. Still selectable, but the UI attaches a warning (Issue #30). */
+  exceeds_tier: boolean;
 };
 export const summaryModelInfo = () => invoke<SummaryModelInfo>("summary_model_info");
 

@@ -11,41 +11,83 @@ pub(crate) fn health() -> String {
     mojiroku_core::health()
 }
 
-/// 設定画面に出す「いまこの端末が使う要約モデル」。
+/// What the Settings screen shows: the summary model automatic picks for this Mac, plus
+/// the models it can switch to. The explicit choice itself lives in `Settings`
+/// (`local_summary_model`), which the UI already holds, so it is not repeated here.
 ///
-/// **UI に固定文字列で書かないための命綱。** 以前は `SettingsView.tsx` に
-/// `"Qwen2.5-7B Q4_K_M" / "4.4GB"` と直書きしていた。端末のメモリで配るモデルが
-/// 変わるようになった時点（ADR-0030）で、その表示は多くの利用者にとって**嘘になる**。
-/// 実際の選択結果をそのまま返して、二度とずれないようにする。
+/// This is the lifeline against hard-coded strings in the UI. `SettingsView.tsx` used to
+/// say `"Qwen2.5-7B Q4_K_M" / "4.4GB"` verbatim. Once the shipped model depends on the
+/// Mac's memory (ADR-0030) that text is a lie for many users. Returning the actual
+/// selection keeps the display from drifting again.
+///
+/// `choices` holds **adopted catalog entries only**. Unadopted models are not offered:
+/// core would fall back to auto anyway, so the row would look selectable but do nothing.
 #[derive(serde::Serialize)]
 pub(crate) struct SummaryModelInfo {
-    /// 例 `Qwen3.5-9B-Q4_K_M.gguf`。
+    /// What automatic picks (model already on disk first, then tier). This runs when the
+    /// explicit choice is empty, and it is what the UI must show the moment the user
+    /// switches back to automatic. Sent as a full entry rather than a file name because
+    /// auto may resolve to a model on disk that is not in `choices` (a hand-placed,
+    /// unadopted file).
+    auto: SummaryModelChoice,
+    /// Switch targets: adopted models only, in ascending tier order.
+    choices: Vec<SummaryModelChoice>,
+}
+
+/// One summary model as the Settings screen sees it.
+#[derive(serde::Serialize)]
+pub(crate) struct SummaryModelChoice {
+    /// e.g. `Qwen3.5-9B-Q4_K_M.gguf`.
     file: String,
-    /// 例 `Qwen3.5-9B Q4_K_M`（拡張子と量子化の区切りを UI 向けに整えたもの）。
+    /// e.g. `Qwen3.5-9B Q4_K_M` (extension dropped, quantization split off for display).
     label: String,
-    /// 表示用のサイズ（例 `5.7GB`）。
+    /// Display size, e.g. `5.7GB`.
     size: String,
-    /// 既に端末にあるか。無ければ初回要約時に落ちる。
+    /// Already on this Mac. If not, the next summary downloads it.
     downloaded: bool,
+    tier: mojiroku_core::models::SummaryTier,
+    /// Above this Mac's tier. **Still selectable**: Issue #30 asks that the user can go
+    /// up "after being shown the re-download size". The UI attaches a warning.
+    exceeds_tier: bool,
+}
+
+/// `Qwen3.5-9B-Q4_K_M.gguf` → `Qwen3.5-9B Q4_K_M` (only the last `-Q…` becomes a space).
+fn summary_model_label(file: &str) -> String {
+    let stem = file.trim_end_matches(".gguf");
+    match stem.rfind("-Q") {
+        Some(i) => format!("{} {}", &stem[..i], &stem[i + 1..]),
+        None => stem.to_string(),
+    }
+}
+
+/// Display size in decimal GB (`5.7GB`), matching the download progress display.
+fn summary_model_size(bytes: u64) -> String {
+    format!("{:.1}GB", bytes as f64 / 1_000_000_000.0)
 }
 
 #[tauri::command]
 pub(crate) fn summary_model_info(app: AppHandle) -> Result<SummaryModelInfo, String> {
+    use mojiroku_core::models::{
+        select_summary_model, tier_for_memory, SummaryModel, SUMMARY_MODELS,
+    };
     let models_dir = resolve_models_dir(&app)?;
-    let m = mojiroku_core::models::select_summary_model(
-        mojiroku_core::hardware::total_memory_bytes(),
-        &models_dir,
-    );
-    let stem = m.file.trim_end_matches(".gguf");
+    let mem = mojiroku_core::hardware::total_memory_bytes();
+    let tier = tier_for_memory(mem);
+    let entry = |c: &SummaryModel| SummaryModelChoice {
+        file: c.file.to_string(),
+        label: summary_model_label(c.file),
+        size: summary_model_size(c.size_bytes),
+        downloaded: models_dir.join(c.file).exists(),
+        tier: c.tier,
+        exceeds_tier: c.tier > tier,
+    };
     Ok(SummaryModelInfo {
-        file: m.file.to_string(),
-        // `Qwen3.5-9B-Q4_K_M` → `Qwen3.5-9B Q4_K_M`（最後の `-Q…` だけを空白にする）。
-        label: match stem.rfind("-Q") {
-            Some(i) => format!("{} {}", &stem[..i], &stem[i + 1..]),
-            None => stem.to_string(),
-        },
-        size: format!("{:.1}GB", m.size_bytes as f64 / 1_000_000_000.0),
-        downloaded: models_dir.join(m.file).exists(),
+        auto: entry(select_summary_model(mem, &models_dir)),
+        choices: SUMMARY_MODELS
+            .iter()
+            .filter(|c| c.adopted)
+            .map(&entry)
+            .collect(),
     })
 }
 
@@ -122,6 +164,8 @@ pub(crate) async fn summarize(
     let _heavy_permit = acquire_heavy_job(&app, "summarize://progress").await;
 
     // 1) LLM モデル確保（必要なら DL, blocking）+ プロンプト構築
+    // The explicit switch from Settings; empty = automatic. Owned because the closure moves.
+    let requested = cfg.requested_local_summary_model().map(str::to_owned);
     let app_dl = app.clone();
     let template_id2 = template_id.clone();
     let (model_path, prompt) = tauri::async_runtime::spawn_blocking(
@@ -129,12 +173,16 @@ pub(crate) async fn summarize(
             let dl_cb = |done: u64, total: Option<u64>| {
                 emit_progress(&app_dl, "summarize://progress", "download_llm", done, total)
             };
-            // 端末のメモリに合わせて要約モデルを選ぶ（ADR-0030）。
+            // Pick the summary model for this Mac (ADR-0030).
             //
-            // **手元にあるモデルが優先される。**`select_summary_model` は段の判定より先に
-            // キャッシュを見るので、既に 7B を持っている利用者に数 GB の再 DL は起きない
-            // （乗り換えは設定から明示的に行う）。段が効くのは新規インストールのとき。
-            let model = mojiroku_core::models::select_summary_model(
+            // Precedence: explicit choice in Settings → model already on disk → tier.
+            // The cached model wins over the tier: `select_summary_model` checks the
+            // cache first, so a user who already has 7B never gets a multi-GB re-download.
+            // The tier only matters on a fresh install. Switching is an explicit action in
+            // Settings, and only then does the setting beat the cache
+            // (`select_summary_model_with`).
+            let model = mojiroku_core::models::select_summary_model_with(
+                requested.as_deref(),
                 mojiroku_core::hardware::total_memory_bytes(),
                 &models_dir,
             );

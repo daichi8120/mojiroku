@@ -63,6 +63,12 @@ pub struct Settings {
     /// カレンダー連携が前提（未接続時はスケジューラが何もしない）。
     #[serde(default)]
     pub auto_record_prompt: bool,
+    /// Explicit local summary model (catalog file name, e.g. `Qwen3.5-9B-Q4_K_M.gguf`).
+    /// Empty = automatic (chosen from the Mac's memory and the models already on disk,
+    /// ADR-0030). Distinct from the BYOK `model`. Values outside the adopted catalog fall
+    /// back to automatic in core ([`mojiroku_core::models::select_summary_model_with`]).
+    #[serde(default)]
+    pub local_summary_model: String,
 }
 
 impl Default for Settings {
@@ -77,6 +83,7 @@ impl Default for Settings {
             language: String::new(),
             transcribe_language: String::new(),
             auto_record_prompt: false,
+            local_summary_model: String::new(),
         }
     }
 }
@@ -114,6 +121,13 @@ impl Settings {
             "ja" | "en" => Some(self.transcribe_language.as_str()),
             _ => Some(self.effective_language()),
         }
+    }
+
+    /// The local summary model chosen in Settings. Empty (the default) is `None` = automatic.
+    /// Whether it is adopted is checked in core, which owns the catalog, not here.
+    pub fn requested_local_summary_model(&self) -> Option<&str> {
+        let m = self.local_summary_model.trim();
+        (!m.is_empty()).then_some(m)
     }
 }
 
@@ -173,6 +187,26 @@ mod tests {
         assert_eq!(s.effective_transcribe_language(), None);
         s.transcribe_language = "ja".into();
         assert_eq!(s.effective_transcribe_language(), Some("ja"));
+    }
+
+    /// An old settings.json without the field means automatic (None); whitespace-only too.
+    /// An explicit value is returned as-is (core decides whether it is adopted).
+    #[test]
+    fn local_summary_model_defaults_to_auto() {
+        let s: Settings = serde_json::from_str(r#"{"engine":"local"}"#).unwrap();
+        assert_eq!(s.local_summary_model, "");
+        assert_eq!(s.requested_local_summary_model(), None);
+
+        let mut s = Settings {
+            local_summary_model: "  ".into(),
+            ..Settings::default()
+        };
+        assert_eq!(s.requested_local_summary_model(), None);
+        s.local_summary_model = "Qwen3.5-9B-Q4_K_M.gguf".into();
+        assert_eq!(
+            s.requested_local_summary_model(),
+            Some("Qwen3.5-9B-Q4_K_M.gguf")
+        );
     }
 
     /// 未知の language 値は "ja" に倒す（設定ファイルの手編集耐性）。
