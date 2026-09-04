@@ -553,7 +553,6 @@ const ja = {
       uiDesc: "画面表示のほか、要約・話者ラベル・書き出しの見出しにも使われます",
       transcribeLabel: "文字起こしの言語",
       transcribeDesc: "音声認識に使う言語。会議の言語が決まっているなら指定が最も正確です",
-      followApp: "アプリの言語に合わせる（既定）",
       auto: "自動判定",
       names: { ja: "日本語", en: "English" } as Record<"ja" | "en", string>,
     },

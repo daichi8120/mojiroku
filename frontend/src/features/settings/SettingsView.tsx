@@ -447,10 +447,13 @@ export function SettingsView() {
               <SelectRow
                 title={t.settings.language.transcribeLabel}
                 desc={t.settings.language.transcribeDesc}
-                value={cfg?.transcribe_language ?? ""}
+                value={
+                  cfg?.transcribe_language === "ja" || cfg?.transcribe_language === "en"
+                    ? cfg.transcribe_language
+                    : "auto"
+                }
                 onChange={(v) => patch({ transcribe_language: v as Settings["transcribe_language"] })}
                 options={[
-                  { value: "", label: t.settings.language.followApp },
                   { value: "auto", label: t.settings.language.auto },
                   { value: "ja", label: t.settings.language.names.ja },
                   { value: "en", label: t.settings.language.names.en },

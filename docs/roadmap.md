@@ -105,6 +105,10 @@ Claude Design で全画面のリデザイン（**ダークテーマ / indigo ブ
 | **Phase 11** | メニューバー常駐 + グローバルショートカット録音 | ⬜（TCC 挙動を確認。署名は導入済み・ADR-0022） |
 | **継続** | フィードバック→反復、その先で Windows | ⬜ |
 
+> **Issue #66 correction (2026-09-04):** Transcription now defaults to Whisper language
+> auto-detection independently of the app/content language. Japanese or English can still be
+> forced explicitly. Legacy empty `transcribe_language` values are interpreted as auto-detection.
+
 ### Google OAuth の審査状態（2026-08-30 時点・Issue #42）
 
 [ADR-0016](./decisions/ADR-0016_カレンダー取り込み.md) が OAuth Desktop を却下した理由の 1 つが

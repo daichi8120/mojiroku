@@ -14,6 +14,10 @@ use crate::schemas::{Segment, Transcript};
 
 const SAMPLE_RATE_F: f32 = 16_000.0;
 
+fn set_decoder_language<'a, 'b>(params: &mut FullParams<'a, 'b>, language: Option<&'a str>) {
+    params.set_language(language);
+}
+
 /// 文字起こしエンジンの抽象。
 pub trait SttEngine {
     /// 16kHz mono f32 PCM を文字起こしする。`language=None` で自動判定。
@@ -139,9 +143,9 @@ impl WhisperStt {
         };
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        if let Some(lang) = language {
-            params.set_language(Some(lang));
-        }
+        // FullParams defaults to English. Calling set_language(None) is therefore required for
+        // Whisper's language auto-detection; merely omitting this call silently forces English.
+        set_decoder_language(&mut params, language);
         params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);
@@ -308,6 +312,24 @@ fn filtered_ms_to_original(map: &[TimeSpan], t_ms: u64, at_end: bool) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_language_clears_whisper_english_default() {
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        set_decoder_language(&mut params, None);
+
+        let debug = format!("{params:?}");
+        assert!(debug.contains("language: 0x0"), "{debug}");
+    }
+
+    #[test]
+    fn explicit_language_keeps_a_non_null_language_pointer() {
+        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        set_decoder_language(&mut params, Some("ja"));
+
+        let debug = format!("{params:?}");
+        assert!(!debug.contains("language: 0x0"), "{debug}");
+    }
 
     /// filtered 0-2000ms→orig 1000-3000ms、filtered 2000-3500ms→orig 8000-9500ms。
     /// 元 time の無音 3000-8000ms を VAD が除去した想定（filtered 上では連続）。
