@@ -126,7 +126,7 @@ pub(crate) async fn transcribe_file(
         sample_rate: mojiroku_core::audio::WHISPER_SAMPLE_RATE,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
-    insert_recording_and_maybe_enqueue(&app, &store, &queue, &recording, diarize, record_only)
+    insert_recording_and_maybe_enqueue(&app, &store, &queue, &recording, diarize, record_only, None)
 }
 
 /// 文字起こし結果 → 要約/議事録（Phase 1b・ローカル既定）。

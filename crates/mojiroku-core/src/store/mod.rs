@@ -112,7 +112,7 @@ pub struct SqliteStore {
     conn: Mutex<Connection>,
 }
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// 最小エンロール尺（ms）。これ未満の話者は声紋が不安定で照合/登録の対象外（ADR-0018, 暫定）。
 /// スパイクで「短い音声では同一人物でも一致が崩れる」ことを観測したため尺でゲートする。
@@ -336,6 +336,13 @@ fn migrate(conn: &Connection) -> Result<()> {
             tx.execute_batch("ALTER TABLE summaries ADD COLUMN stale INTEGER NOT NULL DEFAULT 0")?;
         }
         tx.commit()?;
+    }
+
+    // v6: recordings.mic_offset_ms (Issue #65): start offset between the mic and system
+    // tracks of a meeting recording, in ms (positive = mic started later). NULL for older
+    // rows and single-track recordings. ADD COLUMN is not idempotent, so check first (as v5).
+    if version < 6 && !column_exists(conn, "recordings", "mic_offset_ms")? {
+        conn.execute_batch("ALTER TABLE recordings ADD COLUMN mic_offset_ms INTEGER")?;
     }
 
     // 全段階の後ろで一括 bump。途中失敗時は version<2 のまま再実行され、
@@ -866,6 +873,24 @@ mod tests {
         assert!(d.speakers.is_empty(), "v2 録音は話者行ゼロ → 空 Vec（フロントは既定ラベルへ）");
         assert_eq!(d.transcript.segments.len(), 1);
         assert_eq!(d.transcript.segments[0].speaker_id, None);
+        // v6 adds recordings.mic_offset_ms; old rows read back as None.
+        assert!(column_exists(&s.conn(), "recordings", "mic_offset_ms").unwrap());
+        assert_eq!(s.get_mic_offset_ms("old").unwrap(), None);
+    }
+
+    /// The meeting start offset round-trips, is None until set, and setting it for a
+    /// missing recording is a no-op (Issue #65).
+    #[test]
+    fn mic_offset_round_trips() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        s.insert_recording_only(&rec("m")).unwrap();
+        assert_eq!(s.get_mic_offset_ms("m").unwrap(), None);
+        s.set_mic_offset_ms("m", 640).unwrap();
+        assert_eq!(s.get_mic_offset_ms("m").unwrap(), Some(640));
+        s.set_mic_offset_ms("m", -25).unwrap();
+        assert_eq!(s.get_mic_offset_ms("m").unwrap(), Some(-25));
+        s.set_mic_offset_ms("missing", 1).unwrap();
+        assert_eq!(s.get_mic_offset_ms("missing").unwrap(), None);
     }
 
     // ---- 録音のみ挿入 + 再処理（ADR-0024） ----
