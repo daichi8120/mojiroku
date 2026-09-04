@@ -473,6 +473,12 @@ const en: Dict = {
       savedBadge: "Downloaded",
       onDemandBadge: "On demand",
       manageSoon: "Model management is coming soon",
+      pickerLabel: "Model for summaries",
+      pickerDesc: "Switching downloads that model at the next summary. Models already on this Mac are kept.",
+      auto: (label: string) => `Match this Mac (${label})`,
+      needsDownload: "download needed",
+      willDownload: (size: string) => `The next summary will download ${size}.`,
+      exceedsTier: "Too large for this Mac's memory; it may run out of memory and fail.",
     },
     engine: {
       desc: "Local by default. Switch to the cloud with your own API key only when you want higher quality.",

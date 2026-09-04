@@ -248,6 +248,28 @@ pub fn select_summary_model(
         .unwrap_or(want)
 }
 
+/// Pick the summary model, honouring an explicit switch made in Settings.
+///
+/// `requested` is the Settings choice (`local_summary_model` in `settings.json`).
+/// **Only adopted catalog entries are accepted.** Empty, unknown, or `adopted: false`
+/// values fall through to the automatic choice ([`select_summary_model`]). This keeps a
+/// hand-edited settings.json from shipping a model that has not passed the quality gate,
+/// and keeps an old settings file with a since-removed model name from breaking anything.
+///
+/// An explicit choice **beats the cache**. With 7B on disk and 9B selected, 9B is
+/// downloaded. That is what "switching is an explicit action in Settings" (ADR-0030)
+/// means in practice; the UI shows the re-download size before the user picks.
+pub fn select_summary_model_with(
+    requested: Option<&str>,
+    total_memory_bytes: Option<u64>,
+    models_dir: &Path,
+) -> &'static SummaryModel {
+    if let Some(m) = requested.and_then(summary_model).filter(|m| m.adopted) {
+        return m;
+    }
+    select_summary_model(total_memory_bytes, models_dir)
+}
+
 /// 文字起こしモデルの DL URL。
 pub fn whisper_model_url(file: &str) -> String {
     format!("{WHISPER_BASE}{file}")
@@ -839,6 +861,60 @@ mod tests {
             .min_by_key(|m| m.size_bytes)
             .unwrap();
         assert_eq!(select_summary_model(None, &dir).file, smallest.file);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An adopted model other than the default (currently 9B): the representative switch target.
+    fn an_adopted_non_default() -> &'static SummaryModel {
+        SUMMARY_MODELS
+            .iter()
+            .find(|m| m.adopted && m.file != DEFAULT_SUMMARY_MODEL)
+            .expect("the default is the only adopted model")
+    }
+
+    /// **An explicit switch beats the cache.** With 7B on disk and 9B chosen in Settings,
+    /// 9B is returned (so the next summary downloads it). Without this the Settings picker
+    /// would do nothing. Mutation check: removing the explicit branch returns the cached 7B.
+    #[test]
+    fn explicit_choice_beats_the_cached_model() {
+        let dir = models_dir_with(&[DEFAULT_SUMMARY_MODEL]);
+        let target = an_adopted_non_default();
+        for mem in [None, Some(8 * GIB), Some(16 * GIB), Some(64 * GIB)] {
+            assert_eq!(
+                select_summary_model_with(Some(target.file), mem, &dir).file,
+                target.file,
+                "memory {mem:?}: ignored the model chosen in Settings"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Unadopted, unknown, or empty requests give the same answer as auto. A hand-edited
+    /// settings.json cannot ship a model that has not passed the quality gate, and a stale
+    /// model name does not break anything. Mutation check: dropping the `adopted` filter
+    /// returns the unadopted candidate.
+    #[test]
+    fn unadopted_or_unknown_choice_falls_back_to_auto() {
+        let dir = models_dir_with(&[]);
+        let candidate = SUMMARY_MODELS
+            .iter()
+            .find(|m| !m.adopted)
+            .expect("no unadopted candidate in the catalog");
+        for mem in [None, Some(16 * GIB), Some(64 * GIB)] {
+            let auto = select_summary_model(mem, &dir).file;
+            for requested in [
+                Some(candidate.file),
+                Some("no-such-model.gguf"),
+                Some(""),
+                None,
+            ] {
+                assert_eq!(
+                    select_summary_model_with(requested, mem, &dir).file,
+                    auto,
+                    "memory {mem:?} / requested {requested:?}: diverged from auto"
+                );
+            }
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -79,6 +79,16 @@ export function SettingsView() {
 
   // ── 永続設定（settings.json）。マウント時に load、変更で即 save ──
   const [cfg, setCfg] = useState<Settings | null>(null);
+
+  // The summarize row shows the model that will actually run. With an explicit choice the
+  // row is derived from `choices` on the client, so it updates the moment the user picks
+  // without re-fetching (the patch saves asynchronously, so a re-fetch could read the old
+  // settings). Without a choice, automatic (model on disk first, then tier) is shown; this
+  // also covers switching back to automatic after a persisted explicit choice.
+  // A stale file name that is no longer offered counts as automatic, matching core.
+  const summaryChoice = summaryModel?.choices.find((c) => c.file === cfg?.local_summary_model);
+  const shownSummaryModel = summaryChoice ?? summaryModel?.auto;
+
   // 入力中の API キー（平文。保存後は state に残さない）と、キーチェーン保存済みフラグ。
   const [apiKey, setApiKey] = useState("");
   const [keySaved, setKeySaved] = useState(false);
@@ -207,9 +217,9 @@ export function SettingsView() {
                 icon={<LayersIcon size={17} />}
                 tint="bg-cyan/15 text-teal"
                 name={t.settings.models.summarize}
-                model={summaryModel?.label ?? ""}
-                size={summaryModel?.size ?? ""}
-                status="ondemand"
+                model={shownSummaryModel?.label ?? ""}
+                size={shownSummaryModel?.size ?? ""}
+                status={shownSummaryModel?.downloaded ? "saved" : "ondemand"}
                 action={t.settings.models.manage}
                 onAction={notYet}
               />
@@ -222,8 +232,42 @@ export function SettingsView() {
                 status="ondemand"
                 action={t.settings.models.fetch}
                 onAction={notYet}
-                last
+                last={!summaryModel}
               />
+              {/* Explicit summary-model switch (ADR-0030). "" = automatic. Only adopted models
+                  are offered; a choice above this Mac's tier stays selectable but is warned
+                  about (Issue #30). The download happens at the next summary, through the
+                  existing progress flow, never here. */}
+              {summaryModel && (
+                <>
+                  <SelectRow
+                    title={t.settings.models.pickerLabel}
+                    desc={t.settings.models.pickerDesc}
+                    value={summaryChoice?.file ?? ""}
+                    onChange={(v) => patch({ local_summary_model: v })}
+                    options={[
+                      { value: "", label: t.settings.models.auto(summaryModel.auto.label) },
+                      ...summaryModel.choices.map((c) => ({
+                        value: c.file,
+                        label: c.downloaded
+                          ? `${c.label} · ${c.size}`
+                          : `${c.label} · ${c.size} · ${t.settings.models.needsDownload}`,
+                      })),
+                    ]}
+                    last
+                  />
+                  {summaryChoice && (!summaryChoice.downloaded || summaryChoice.exceeds_tier) && (
+                    <div className="border-t border-line px-4 py-2.5 text-[11.5px]">
+                      {!summaryChoice.downloaded && (
+                        <p className="text-muted">{t.settings.models.willDownload(summaryChoice.size)}</p>
+                      )}
+                      {summaryChoice.exceeds_tier && (
+                        <p className="text-amber">{t.settings.models.exceedsTier}</p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </section>
 
