@@ -109,7 +109,7 @@ export const DIGEST = {
   ] as DigestSession[],
   decisions: [
     "配布は未署名 .dmg + xattr 手順を主とする",
-    "要約は Qwen2.5-7B をローカル既定、品質パスは BYOK",
+    "要約は端末に合わせたローカルモデル、品質パスは BYOK",
     "UI はダーク Studio デザインへ全面刷新",
   ],
   openActions: [

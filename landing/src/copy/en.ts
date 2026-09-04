@@ -93,7 +93,7 @@ const en: Copy = {
       body: "Import an audio file or record on the spot — mojiroku takes it from there: transcript, summary, meeting notes, action items. By default, both transcription and summarization run on-device, and your voice never leaves the Mac. For summaries you can optionally bring your own key (Anthropic Claude / OpenAI), and only then is the transcript sent to the provider you chose. The app and local AI are free to use, and the whole thing runs on $0 of infrastructure.",
       bullets: [
         "One pipeline from import to minutes. mp3, wav, m4a and other audio files — or mic recordings — transcribed locally with whisper.cpp on Apple Metal, in English and Japanese. Voice-activity detection keeps silent stretches from turning into hallucinated text.",
-        "Three templates to match the moment: AI meeting notes, summary, or action items — generated on-device with Qwen2.5-7B by default. Cloud summaries happen only if you opt in, with your own API key.",
+        "Three templates to match the moment: AI meeting notes, summary, or action items — generated on-device by default with a local model (Qwen3.5-9B or another, picked to fit your Mac). Cloud summaries happen only if you opt in, with your own API key.",
         "Speaker diarization sorts out who said what, powered by sherpa-onnx (pyannote seg-3.0, no torch required).",
         "Built-in MCP server: search and reference your meeting notes from Claude Desktop or Claude Code. FTS5 full-text search spans titles and transcripts across every meeting.",
       ],
@@ -275,7 +275,7 @@ const en: Copy = {
       },
       {
         q: "How long does the first-run model download take?",
-        a: "On first launch, mojiroku downloads whisper for transcription (~547 MB), Qwen2.5-7B for local summaries (~4.4 GB), and Silero VAD for silence detection (~864 KB) — a few GB in total. Depending on your connection it takes a little while, but only once. The models are stored on-device and work offline from then on.",
+        a: "On first launch, mojiroku downloads whisper for transcription (~547 MB), a local summary model (~4.7-5.7 GB, chosen to fit your Mac's memory), and Silero VAD for silence detection (~864 KB) — a few GB in total. Depending on your connection it takes a little while, but only once. The models are stored on-device and work offline from then on.",
       },
       {
         q: "Does it work without internet?",
@@ -287,7 +287,7 @@ const en: Copy = {
       },
       {
         q: "Do cloud summaries cost money?",
-        a: "The app and local summaries (on-device Qwen2.5-7B) are free. If you opt into cloud summaries from Claude or OpenAI for higher quality, you use your own API key and pay the provider directly. Only in that case is the transcript sent to the provider you chose. Skip the cloud, and there's no cost and no data transfer.",
+        a: "The app and local summaries (on-device) are free. If you opt into cloud summaries from Claude or OpenAI for higher quality, you use your own API key and pay the provider directly. Only in that case is the transcript sent to the provider you chose. Skip the cloud, and there's no cost and no data transfer.",
       },
       {
         q: "Is a Windows version planned?",

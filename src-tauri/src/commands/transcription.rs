@@ -11,6 +11,44 @@ pub(crate) fn health() -> String {
     mojiroku_core::health()
 }
 
+/// 設定画面に出す「いまこの端末が使う要約モデル」。
+///
+/// **UI に固定文字列で書かないための命綱。** 以前は `SettingsView.tsx` に
+/// `"Qwen2.5-7B Q4_K_M" / "4.4GB"` と直書きしていた。端末のメモリで配るモデルが
+/// 変わるようになった時点（ADR-0030）で、その表示は多くの利用者にとって**嘘になる**。
+/// 実際の選択結果をそのまま返して、二度とずれないようにする。
+#[derive(serde::Serialize)]
+pub(crate) struct SummaryModelInfo {
+    /// 例 `Qwen3.5-9B-Q4_K_M.gguf`。
+    file: String,
+    /// 例 `Qwen3.5-9B Q4_K_M`（拡張子と量子化の区切りを UI 向けに整えたもの）。
+    label: String,
+    /// 表示用のサイズ（例 `5.7GB`）。
+    size: String,
+    /// 既に端末にあるか。無ければ初回要約時に落ちる。
+    downloaded: bool,
+}
+
+#[tauri::command]
+pub(crate) fn summary_model_info(app: AppHandle) -> Result<SummaryModelInfo, String> {
+    let models_dir = resolve_models_dir(&app)?;
+    let m = mojiroku_core::models::select_summary_model(
+        mojiroku_core::hardware::total_memory_bytes(),
+        &models_dir,
+    );
+    let stem = m.file.trim_end_matches(".gguf");
+    Ok(SummaryModelInfo {
+        file: m.file.to_string(),
+        // `Qwen3.5-9B-Q4_K_M` → `Qwen3.5-9B Q4_K_M`（最後の `-Q…` だけを空白にする）。
+        label: match stem.rfind("-Q") {
+            Some(i) => format!("{} {}", &stem[..i], &stem[i + 1..]),
+            None => stem.to_string(),
+        },
+        size: format!("{:.1}GB", m.size_bytes as f64 / 1_000_000_000.0),
+        downloaded: models_dir.join(m.file).exists(),
+    })
+}
+
 /// 音声ファイル → 文字起こしジョブを投入（ADR-0024 非同期フリップ）。
 /// 原本を `recordings/<id>.<ext>` へ確定コピー（**ワーカーの STT 入力になる正本**）してから
 /// 録音行（transcript 無し）を作りジョブを積み、**即座に返す**。STT/話者分離はワーカーが 1 本ずつ回す。
@@ -91,9 +129,18 @@ pub(crate) async fn summarize(
             let dl_cb = |done: u64, total: Option<u64>| {
                 emit_progress(&app_dl, "summarize://progress", "download_llm", done, total)
             };
+            // 端末のメモリに合わせて要約モデルを選ぶ（ADR-0030）。
+            //
+            // **手元にあるモデルが優先される。**`select_summary_model` は段の判定より先に
+            // キャッシュを見るので、既に 7B を持っている利用者に数 GB の再 DL は起きない
+            // （乗り換えは設定から明示的に行う）。段が効くのは新規インストールのとき。
+            let model = mojiroku_core::models::select_summary_model(
+                mojiroku_core::hardware::total_memory_bytes(),
+                &models_dir,
+            );
             let model_path = mojiroku_core::models::ensure_model(
-                mojiroku_core::models::DEFAULT_SUMMARY_MODEL,
-                &mojiroku_core::models::summary_model_url(mojiroku_core::models::DEFAULT_SUMMARY_MODEL),
+                model.file,
+                &mojiroku_core::models::summary_model_url(model.file),
                 &models_dir,
                 Some(&dl_cb),
             )

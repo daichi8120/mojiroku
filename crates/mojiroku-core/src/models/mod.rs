@@ -14,8 +14,9 @@ pub const DEFAULT_WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 
 /// 既定の要約モデル。実会議での品質ゲートを PASS 済み（docs/roadmap.md）。
 ///
-/// 段（[`SummaryTier`]）に採用済みモデルが無いときの落とし先でもあるため、
-/// **どの端末でも最低これが選ばれる**。差し替えは [`SUMMARY_MODELS`] の `adopted` で行う。
+/// **「既定」の意味は 2 つ。**小の段が配るモデルであり、かつどの段にも採用済みが
+/// 無いときの落とし先（[`model_for_tier`]）。中・大の段は 2026-08-30 に
+/// Qwen3.5-9B へ移った（ADR-0030）ので、**これはもう全員に配られるものではない**。
 pub const DEFAULT_SUMMARY_MODEL: &str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
 
 /// VAD モデル（Silero, ggml）。whisper の無音ハルシネーション対策（spec の VAD 段）。
@@ -61,9 +62,9 @@ pub fn diar_emb_url() -> &'static str {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum SummaryTier {
-    /// 目安 8GB。
+    /// 目安 8GB。いまは現行の 7B がここを受け持つ（軽い候補が未採用のため）。
     Small,
-    /// 目安 16GB。現行の既定（7B）が属する段。
+    /// 目安 16GB。
     Medium,
     /// 目安 32GB 以上。
     Large,
@@ -112,9 +113,10 @@ pub struct SummaryModel {
 /// **段の境界（何 GB で何を選ぶか）は未測定**で、下の定数は Issue #30 のたたき台のまま。
 /// 測るべきは「載るか」ではなく「whisper・話者分離と同居して快適か」。
 pub const SUMMARY_MODELS: &[SummaryModel] = &[
-    // 小の段の候補。2.7GB・平均 10.7 秒で、内容は 9B に近い。
-    // ⚠️ 議事録の 4 見出しは 2/3 しか揃わなかった（9B は 3/3）。段を下げるとまず
-    //    形式の遵守が落ちる。採用の可否はここが焦点になる。
+    // 小の段の候補。**未採用。**ピーク RSS 3.75GB は 7B より 2.5GB 軽く、速度も約 2 倍で、
+    // 議事録の分量も 7B を上回る。それでも採らないのは、実会議のゲートで欠陥が 2 件残ったため
+    // ——議事録の見出しを 1 つ落とし、タイトルに簡体字（报汇）が出た。どちらも利用者に見える。
+    // 軽さは魅力だが、非力な端末に「軽くて雑」を配る理由にはならない。
     SummaryModel {
         file: "Qwen3.5-4B-Q4_K_M.gguf",
         base_url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/",
@@ -125,20 +127,27 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         thinking: true,
         adopted: false,
     },
-    // 現行の既定。実会議での品質ゲート PASS 済み。
+    // 既定であり、いまは**小の段の担当**。実会議での品質ゲート PASS 済み。
+    // ⚠️ 小の段にふさわしく軽いからここに居るのではない。ピーク RSS は 6.26GB で、
+    //    中の段の 9B（6.53GB）とほとんど変わらない。**軽い候補（4B・3.75GB）が
+    //    まだ品質ゲートを通っていない**ので、非力な端末には従来どおりこれを配る
+    //    ——「良くはならないが、悪くもならない」状態を保つための配置。
     SummaryModel {
         file: DEFAULT_SUMMARY_MODEL,
         base_url: SUMMARY_BASE,
         sha256: "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423",
         size_bytes: 4_683_074_240,
-        tier: SummaryTier::Medium,
+        tier: SummaryTier::Small,
         license: "apache-2.0",
         thinking: false,
         adopted: true,
     },
-    // 中の段の候補。現行より速く（17.5 秒 / 18.8 秒）、機械採点は同点、見出し 3/3。
-    // 置き換えるなら品質ゲートの取り直しと、プロンプトの詰め直しが要る
-    // （いまの英語 instruction は Qwen2.5 に合わせて実測で決めた文面）。
+    // 中・大の段。**2026-08-30 に実会議で品質ゲートを取り直して採用した**（ADR-0030）。
+    // 決め手は機械採点ではなく議事録の中身。現行は入力の長さに追従せず、27,947 字の会議でも
+    // 410 字・8 行しか出さない。本モデルは同じ会議で 1,351 字・23 行を出す。
+    // ピーク RSS は現行 +0.27GB（6.53 / 6.26）で、ファイルが 1.0GB 大きいわりに実行時は変わらない。
+    // ⚠️ 思考モデルなので `--no-think` が要る（thinking: true）。渡さないと英語の
+    //    `<think>` ブロックがそのまま出力に出る。
     SummaryModel {
         file: "Qwen3.5-9B-Q4_K_M.gguf",
         base_url: "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/",
@@ -147,7 +156,7 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         tier: SummaryTier::Medium,
         license: "apache-2.0",
         thinking: true,
-        adopted: false,
+        adopted: true,
     },
     // 大の段（12B 以上）は候補が無い。横断評価で 0/14 だったのは gemma-3-12b だけで、
     // ライセンスに使用制限がつく。Apache-2.0 の 12B 級は 2026-08-25 時点で見つからなかった。
@@ -202,14 +211,19 @@ fn default_summary_model() -> &'static SummaryModel {
 
 /// 段に対して配るモデル。
 ///
-/// **採用済み（`adopted`）が無い段は既定へ落ちる。** 品質ゲートを取り直していない
-/// モデルを、段が決まったというだけで配らないため。いま採用済みは中の段の 1 件だけなので、
-/// この関数はどの段でも既定を返す = **現行の挙動と同じ**。
+/// **その段以下で、採用済みのうち一番上のものを選ぶ。**「ちょうどその段」だけを探すと、
+/// 上の段に候補が無いときに既定へ落ちてしまい、**余裕のある端末ほど貧しいモデルを掴む**
+/// という逆転が起きる（32GB 機が 16GB 機より悪いものを引く）。段は「これ以上は載せない」
+/// という上限であって、ちょうど一致させる対象ではない。
+///
+/// どの段にも採用済みが無ければ [`DEFAULT_SUMMARY_MODEL`] へ落ちる。品質ゲートを
+/// 取り直していないモデルを、段が決まったというだけで配らないため。
 pub fn model_for_tier(tier: SummaryTier) -> &'static SummaryModel {
     SUMMARY_MODELS
         .iter()
-        .find(|m| m.adopted && m.tier == tier)
-        .unwrap_or_else(default_summary_model)
+        .filter(|m| m.adopted && m.tier <= tier)
+        .max_by_key(|m| m.tier)
+        .unwrap_or_else(|| default_summary_model())
 }
 
 /// 端末に合わせて要約モデルを選ぶ。**手元にあるものを優先する。**
@@ -656,21 +670,53 @@ mod tests {
         assert_eq!(tier_for_memory(Some(0)), SummaryTier::Small);
     }
 
-    /// **いま配られるものは変わらない。** 品質ゲートを取り直すまで候補は adopted=false で、
-    /// 採用済みが無い段は既定へ落ちる。この表明が落ちたら、それは利用者に届くモデルが
-    /// 変わったということ（意図した変更なら、このテストごと直す）。
+    /// 段ごとに、いま実際に配られるモデル。**利用者に届くものが変わったら落ちる。**
+    /// 差し替えは意図してこのテストを直すときだけ起きる。
     #[test]
-    fn every_tier_still_resolves_to_the_current_default() {
-        for tier in [SummaryTier::Small, SummaryTier::Medium, SummaryTier::Large] {
+    fn each_tier_resolves_to_the_intended_model() {
+        assert_eq!(
+            model_for_tier(SummaryTier::Small).file,
+            DEFAULT_SUMMARY_MODEL,
+            "小の段に採用済みが無いので既定へ落ちるはず"
+        );
+        for tier in [SummaryTier::Medium, SummaryTier::Large] {
             assert_eq!(
                 model_for_tier(tier).file,
-                DEFAULT_SUMMARY_MODEL,
-                "{tier:?} の段が既定以外を返した"
+                "Qwen3.5-9B-Q4_K_M.gguf",
+                "{tier:?} の段は 9B を配る"
             );
         }
-        // 候補は候補のまま。
-        let adopted: Vec<_> = SUMMARY_MODELS.iter().filter(|m| m.adopted).collect();
-        assert_eq!(adopted.len(), 1, "採用済みは既定の 1 件だけのはず");
+    }
+
+    /// **余裕のある端末が、貧しい端末より悪いモデルを掴まないこと。**
+    /// 「ちょうどその段」だけを探す実装だと、上の段に候補が無いときに既定へ落ちて
+    /// 逆転が起きる（32GB 機が 16GB 機より下のものを引く）。
+    #[test]
+    fn a_bigger_tier_never_gets_a_worse_model() {
+        let tiers = [SummaryTier::Small, SummaryTier::Medium, SummaryTier::Large];
+        for pair in tiers.windows(2) {
+            let (lo, hi) = (model_for_tier(pair[0]), model_for_tier(pair[1]));
+            assert!(
+                hi.size_bytes >= lo.size_bytes,
+                "{:?}({}) が {:?}({}) より小さいモデルを配っている",
+                pair[1],
+                hi.file,
+                pair[0],
+                lo.file
+            );
+        }
+    }
+
+    /// 1 つの段に採用済みが 2 つあると `model_for_tier` の選択が曖昧になる。
+    #[test]
+    fn at_most_one_adopted_model_per_tier() {
+        for tier in [SummaryTier::Small, SummaryTier::Medium, SummaryTier::Large] {
+            let n = SUMMARY_MODELS
+                .iter()
+                .filter(|m| m.adopted && m.tier == tier)
+                .count();
+            assert!(n <= 1, "{tier:?} の段に採用済みが {n} 件ある");
+        }
     }
 
     /// **いまの既定に `--no-think` は渡さない。** 渡すとプロンプトが変わり、
@@ -744,12 +790,35 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// 手元に何も無ければ段の選択どおり（＝いまは常に既定）。
+    /// 手元に何も無ければ段の選択どおり。**新規インストールがここを通る。**
     #[test]
     fn empty_models_dir_falls_back_to_the_tier_choice() {
         let dir = models_dir_with(&[]);
-        for mem in [None, Some(8 * GIB), Some(64 * GIB)] {
-            assert_eq!(select_summary_model(mem, &dir).file, DEFAULT_SUMMARY_MODEL);
+        let cases = [
+            // 搭載メモリが取れない・非力な端末は従来どおり既定。
+            (None, DEFAULT_SUMMARY_MODEL),
+            (Some(8 * GIB), DEFAULT_SUMMARY_MODEL),
+            // 16GB 以上は 9B。ここが「既定を良くする」の実体。
+            (Some(16 * GIB), "Qwen3.5-9B-Q4_K_M.gguf"),
+            (Some(64 * GIB), "Qwen3.5-9B-Q4_K_M.gguf"),
+        ];
+        for (mem, want) in cases {
+            assert_eq!(select_summary_model(mem, &dir).file, want, "メモリ {mem:?}");
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// **既存利用者に数 GB の再ダウンロードを起こさない。**
+    /// 手元に 7B があるなら、段が 9B を指していてもそのまま使う（Issue #30 の終了条件）。
+    #[test]
+    fn an_existing_install_is_not_upgraded_behind_the_users_back() {
+        let dir = models_dir_with(&[DEFAULT_SUMMARY_MODEL]);
+        for mem in [Some(16 * GIB), Some(64 * GIB), Some(128 * GIB)] {
+            assert_eq!(
+                select_summary_model(mem, &dir).file,
+                DEFAULT_SUMMARY_MODEL,
+                "メモリ {mem:?}: 手元の既定を無視して 9B を落としにいった"
+            );
         }
         let _ = fs::remove_dir_all(&dir);
     }
