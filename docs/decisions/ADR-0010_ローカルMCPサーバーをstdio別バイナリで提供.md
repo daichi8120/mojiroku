@@ -1,6 +1,6 @@
 # 0010. ローカル MCP サーバーを stdio 別バイナリで提供（履歴 DB を読み取り専用公開）
 
-- ステータス: 採用
+- ステータス: 採用 (the "Tauri externalBin には登録しない" part alone was withdrawn on 2026-09-03; see the addendum under Consequences)
 - 日付: 2026-06-26
 
 ## Context
@@ -20,8 +20,10 @@ beta-1（録音→文字起こし→要約→履歴/検索）と Phase 2b（話�
 - **stdio・別バイナリ**: MCP クライアント（Claude Desktop / Claude Code）が stdio で spawn する。
   HTTP を持たない（案B「localhost HTTP は無い」を維持・$0）。アプリ非起動でも履歴 DB を読める。
   - ローカル要約 sidecar（[ADR-0007](./ADR-0007_要約llamaを別バイナリsidecarに分離.md)）と違い、**起動者は MCP クライアント**で
-    アプリではない。よって **Tauri externalBin には登録しない**（アプリが spawn・管理する対象ではない）。
-    `scripts/build-sidecar.sh` でビルドはするが配置は `target/release/mojiroku-mcp`。
+    アプリではない。The original rule here was "do not register it as a Tauri `externalBin`". **Withdrawn on
+    2026-09-03**: it is now registered as an `externalBin` purely for signing and notarization, while the app
+    still never spawns it (see the addendum under Consequences). `scripts/build-sidecar.sh` builds it and
+    places it at `src-tauri/binaries/mojiroku-mcp-<triple>`; the bundled copy is `Contents/MacOS/mojiroku-mcp`.
   - `rmcp` は純 Rust（onnxruntime/ggml 非依存）なので [ADR-0007](./ADR-0007_要約llamaを別バイナリsidecarに分離.md) の
     ggml シンボル衝突とは無関係。要約 sidecar とも別プロセスで干渉しない。
 
