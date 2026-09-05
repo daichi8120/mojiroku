@@ -64,6 +64,7 @@ fn transcribe_pcm(
     models_dir: &Path,
     pcm: &[f32],
     language: Option<&str>,
+    decoding: stt::DecodingStrategy,
     on_pct: Option<&dyn Fn(i32)>,
 ) -> Result<schemas::Transcript> {
     // VAD モデル（無音ハルシネーション対策）。取得失敗時は VAD 無しで続行（best-effort）。
@@ -75,7 +76,7 @@ fn transcribe_pcm(
     )
     .ok();
     let engine = stt::WhisperStt::load(model_path, vad_path)?;
-    engine.transcribe_with_progress(pcm, language, on_pct)
+    engine.transcribe_with_decoding(pcm, language, decoding, on_pct)
 }
 
 /// 話者分離モデル（segmentation + embedding）を同順で確保する共通処理。
@@ -104,7 +105,31 @@ pub fn transcribe_file(
     language: Option<&str>,
     on_progress: Option<&StageProgressFn<'_>>,
 ) -> Result<schemas::Transcript> {
-    transcribe_file_impl(audio_path, models_dir, language, on_progress, true)
+    transcribe_file_with_decoding(
+        audio_path,
+        models_dir,
+        language,
+        stt::FILE_DECODING,
+        on_progress,
+    )
+}
+
+/// The product file pipeline with an explicit decoder for reproducible A/B evaluation.
+pub fn transcribe_file_with_decoding(
+    audio_path: &Path,
+    models_dir: &Path,
+    language: Option<&str>,
+    decoding: stt::DecodingStrategy,
+    on_progress: Option<&StageProgressFn<'_>>,
+) -> Result<schemas::Transcript> {
+    transcribe_file_impl(
+        audio_path,
+        models_dir,
+        language,
+        decoding,
+        on_progress,
+        true,
+    )
 }
 
 /// `transcribe_file` の実体。`emit_pct` で whisper 0-100% の転送を制御する。
@@ -116,6 +141,7 @@ fn transcribe_file_impl(
     audio_path: &Path,
     models_dir: &Path,
     language: Option<&str>,
+    decoding: stt::DecodingStrategy,
     on_progress: Option<&StageProgressFn<'_>>,
     emit_pct: bool,
 ) -> Result<schemas::Transcript> {
@@ -143,7 +169,7 @@ fn transcribe_file_impl(
         }
         _ => None,
     };
-    transcribe_pcm(&model_path, models_dir, &pcm, language, on_pct)
+    transcribe_pcm(&model_path, models_dir, &pcm, language, decoding, on_pct)
 }
 
 /// 高レベル: 音声ファイル → 文字起こし＋話者分離（話者付き Transcript）。
@@ -181,7 +207,14 @@ pub fn transcribe_and_diarize_file(
     // 2) STT（VAD 経由）。話者分離込みの経路では %を出さない（後段 diarization/merge が続き、
     //    %が transcribe だけ 0→100 して見えるのは誤解を招く。経過時間で示す・on_pct=None）。
     report_stage(on_progress, "transcribe");
-    let mut transcript = transcribe_pcm(&model_path, models_dir, &pcm, language, None)?;
+    let mut transcript = transcribe_pcm(
+        &model_path,
+        models_dir,
+        &pcm,
+        language,
+        stt::FILE_DECODING,
+        None,
+    )?;
 
     // 3) diarization（同じ原音声 PCM。VAD を通さない）
     report_stage(on_progress, "diarization");
@@ -226,7 +259,14 @@ pub fn transcribe_meeting_dual_track(
     // 自分（マイク）: STT のみ。
     // mic 側は %を抑止（会議は system STT/diarization/mic STT/merge と多段。mic の 0→100 だけ
     //    出すと全体進捗と誤読される。会議は経過時間で示す・emit_pct=false）。
-    let mic = transcribe_file_impl(mic_path, models_dir, language, on_progress, false)?;
+    let mic = transcribe_file_impl(
+        mic_path,
+        models_dir,
+        language,
+        stt::FILE_DECODING,
+        on_progress,
+        false,
+    )?;
     // ソース合成（マイク=self、システム=diarization 話者を保持、時系列マージ）。
     // system 話者 id は merge_tracks で不変＝声紋（system_embeddings）の id とも整合する。
     let (transcript, speakers) =

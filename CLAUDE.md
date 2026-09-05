@@ -47,6 +47,7 @@ crates/mojiroku-core/    ML コア。audio/ stt/ summarize/(byok) diarization/ v
 crates/mojiroku-llm/     ローカル要約 sidecar（llama.cpp）。stdin=プロンプトファイル, stdout=要約
 crates/mojiroku-mcp/     ローカル MCP サーバ（rmcp stdio）。履歴 DB を read-only 公開。MCP クライアントが spawn; bundled as externalBin since 2026-09-03
 eval/diarization/        話者分離の品質ゲート用ハーネス（GT + 再現スクリプト。音声・モデルは含まない。ADR-0028）
+eval/stt/                Public FLEURS CER/WER harness and greedy/beam-5 comparison (ADR-0033; audio and raw results are ignored)
 landing/                 配布ランディング（Astro→Cloudflare Workers 静的アセット）。public/_redirects で /download→Releases 302
 scripts/build-sidecar.sh mojiroku-llm（triple 名で配置）+ mojiroku-mcp をビルド (both placed as src-tauri/binaries/<name>-<triple>)
 docs/                    フラット構成。roadmap/requirements/spec/architecture/CONTRIBUTING/install-macos/mcp/updater-plan + decisions/(ADR-0001〜0024)。索引は docs/README.md
