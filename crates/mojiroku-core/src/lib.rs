@@ -27,6 +27,24 @@ use std::path::{Path, PathBuf};
 pub use error::{CoreError, Result};
 pub use schemas::*;
 
+/// Offline transcription choices, captured before a job starts.
+#[derive(Clone, Copy)]
+pub struct TranscriptionOptions<'a> {
+    pub language: Option<&'a str>,
+    pub model: &'static models::WhisperModel,
+    pub decoding: stt::DecodingStrategy,
+}
+
+impl Default for TranscriptionOptions<'_> {
+    fn default() -> Self {
+        Self {
+            language: None,
+            model: models::select_whisper_model(None),
+            decoding: stt::FILE_DECODING,
+        }
+    }
+}
+
 /// クロスクレート経路の実証用。
 /// frontend の `invoke('health')` → `#[tauri::command] health` → ここ、で土台の連結を確認する。
 pub fn health() -> String {
@@ -122,14 +140,26 @@ pub fn transcribe_file_with_decoding(
     decoding: stt::DecodingStrategy,
     on_progress: Option<&StageProgressFn<'_>>,
 ) -> Result<schemas::Transcript> {
-    transcribe_file_impl(
+    transcribe_file_with_options(
         audio_path,
         models_dir,
-        language,
-        decoding,
+        TranscriptionOptions {
+            language,
+            decoding,
+            ..Default::default()
+        },
         on_progress,
-        true,
     )
+}
+
+/// The product file pipeline with explicit offline model and decoding choices.
+pub fn transcribe_file_with_options(
+    audio_path: &Path,
+    models_dir: &Path,
+    options: TranscriptionOptions<'_>,
+    on_progress: Option<&StageProgressFn<'_>>,
+) -> Result<schemas::Transcript> {
+    transcribe_file_impl(audio_path, models_dir, options, on_progress, true)
 }
 
 /// `transcribe_file` の実体。`emit_pct` で whisper 0-100% の転送を制御する。
@@ -140,16 +170,15 @@ pub fn transcribe_file_with_decoding(
 fn transcribe_file_impl(
     audio_path: &Path,
     models_dir: &Path,
-    language: Option<&str>,
-    decoding: stt::DecodingStrategy,
+    options: TranscriptionOptions<'_>,
     on_progress: Option<&StageProgressFn<'_>>,
     emit_pct: bool,
 ) -> Result<schemas::Transcript> {
     // 1) モデル確保
     let dl_cb = download_progress(on_progress);
     let model_path = models::ensure_model(
-        models::DEFAULT_WHISPER_MODEL,
-        &models::whisper_model_url(models::DEFAULT_WHISPER_MODEL),
+        options.model.file,
+        &models::whisper_model_url(options.model.file),
         models_dir,
         Some(&dl_cb),
     )?;
@@ -169,7 +198,14 @@ fn transcribe_file_impl(
         }
         _ => None,
     };
-    transcribe_pcm(&model_path, models_dir, &pcm, language, decoding, on_pct)
+    transcribe_pcm(
+        &model_path,
+        models_dir,
+        &pcm,
+        options.language,
+        options.decoding,
+        on_pct,
+    )
 }
 
 /// 高レベル: 音声ファイル → 文字起こし＋話者分離（話者付き Transcript）。
@@ -192,12 +228,36 @@ pub fn transcribe_and_diarize_file(
     Vec<schemas::Speaker>,
     Vec<diarization::SpeakerEmbedding>,
 )> {
+    transcribe_and_diarize_file_with_options(
+        audio_path,
+        models_dir,
+        TranscriptionOptions {
+            language,
+            ..Default::default()
+        },
+        lang,
+        on_progress,
+    )
+}
+
+/// Offline model selection also applies when speaker separation is requested.
+pub fn transcribe_and_diarize_file_with_options(
+    audio_path: &Path,
+    models_dir: &Path,
+    options: TranscriptionOptions<'_>,
+    lang: lang::Lang,
+    on_progress: Option<&StageProgressFn<'_>>,
+) -> Result<(
+    schemas::Transcript,
+    Vec<schemas::Speaker>,
+    Vec<diarization::SpeakerEmbedding>,
+)> {
     let dl_cb = download_progress(on_progress);
 
     // 1) whisper モデル確保 + 原音声を 16k mono へデコード（1 回だけ。STT/diar で共有）
     let model_path = models::ensure_model(
-        models::DEFAULT_WHISPER_MODEL,
-        &models::whisper_model_url(models::DEFAULT_WHISPER_MODEL),
+        options.model.file,
+        &models::whisper_model_url(options.model.file),
         models_dir,
         Some(&dl_cb),
     )?;
@@ -211,8 +271,8 @@ pub fn transcribe_and_diarize_file(
         &model_path,
         models_dir,
         &pcm,
-        language,
-        stt::FILE_DECODING,
+        options.language,
+        options.decoding,
         None,
     )?;
 
@@ -253,20 +313,46 @@ pub fn transcribe_meeting_dual_track(
     Vec<schemas::Speaker>,
     Vec<diarization::SpeakerEmbedding>,
 )> {
+    transcribe_meeting_dual_track_with_options(
+        mic_path,
+        system_path,
+        models_dir,
+        TranscriptionOptions {
+            language,
+            ..Default::default()
+        },
+        lang,
+        mic_offset_ms,
+        on_progress,
+    )
+}
+
+/// Use the same captured model for both tracks of a recorded meeting.
+pub fn transcribe_meeting_dual_track_with_options(
+    mic_path: &Path,
+    system_path: &Path,
+    models_dir: &Path,
+    options: TranscriptionOptions<'_>,
+    lang: lang::Lang,
+    mic_offset_ms: i64,
+    on_progress: Option<&StageProgressFn<'_>>,
+) -> Result<(
+    schemas::Transcript,
+    Vec<schemas::Speaker>,
+    Vec<diarization::SpeakerEmbedding>,
+)> {
     // 相手（システム音声）: STT＋話者分離（声紋も取得）。
-    let (system, system_speakers, system_embeddings) =
-        transcribe_and_diarize_file(system_path, models_dir, language, lang, on_progress)?;
+    let (system, system_speakers, system_embeddings) = transcribe_and_diarize_file_with_options(
+        system_path,
+        models_dir,
+        options,
+        lang,
+        on_progress,
+    )?;
     // 自分（マイク）: STT のみ。
     // mic 側は %を抑止（会議は system STT/diarization/mic STT/merge と多段。mic の 0→100 だけ
     //    出すと全体進捗と誤読される。会議は経過時間で示す・emit_pct=false）。
-    let mic = transcribe_file_impl(
-        mic_path,
-        models_dir,
-        language,
-        stt::FILE_DECODING,
-        on_progress,
-        false,
-    )?;
+    let mic = transcribe_file_impl(mic_path, models_dir, options, on_progress, false)?;
     // ソース合成（マイク=self、システム=diarization 話者を保持、時系列マージ）。
     // system 話者 id は merge_tracks で不変＝声紋（system_embeddings）の id とも整合する。
     let (transcript, speakers) =

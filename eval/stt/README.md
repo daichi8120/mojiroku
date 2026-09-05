@@ -64,6 +64,9 @@ Optional arguments:
 - `run.py --output /path/to/new-directory`: choose an output directory; existing
   directories are rejected so previous results cannot be mixed into a new run.
 - `run.py --timeout 600`: seconds per recording; errors abort the run.
+- `run.py --comparison models`: compare turbo with full large-v3 q5_0, both using
+  greedy decoding. The default `--comparison decoders` still compares greedy and
+  beam 5 on turbo. Both model files must already be cached for the model comparison.
 
 To inspect one file:
 
@@ -75,6 +78,18 @@ target/release/examples/transcribe_cli audio.wav /path/to/models auto beam5 --js
 The existing positional CLI and human-readable output still work. The added fourth
 positional argument selects `default`, `greedy`, or `beam5`; an optional `--json`
 follows it. JSON includes segments, selected decoder/model names, and pipeline time.
+Use `--model ggml-large-v3-q5_0.bin` after the decoder to select full large-v3.
+`--model` and `--json` may appear in either order. Omission keeps turbo. Unknown
+model names fail rather than silently benchmarking a different model.
+
+To download full large-v3 through the product's checksum-verified path, run one
+sample first (the initial download time is excluded from later benchmark runs):
+
+```bash
+target/release/examples/transcribe_cli audio.wav /path/to/models auto greedy \
+  --model ggml-large-v3-q5_0.bin --json
+python3 eval/stt/run.py --comparison models --models /path/to/models
+```
 
 ## Scoring and timing
 
@@ -146,3 +161,28 @@ The decoder configuration retains whisper.cpp's existing temperature/fallback
 defaults. Model checksums are in `run.py`; corpus checksums are in `download.py`.
 The full default decision is in
 [ADR-0033](../../docs/decisions/ADR-0033_Evaluate_beam_search_before_changing_the_default.md).
+
+## Full large-v3 comparison
+
+Measured 2026-09-05 on the same fixed 20-recording subsets and hardware above, using
+greedy decoding and automatic language detection for both models. The initial
+1,081,140,203-byte full-model download passed the product checksum check; all measured
+calls reused cached models. Full-model SHA-256:
+`d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1`.
+
+| Language | Model | Errors / reference units | CER / WER | Pipeline seconds | Process wall seconds |
+|---|---|---:|---:|---:|---:|
+| Japanese | Turbo | 29 / 1,058 characters | 2.74% | 17.96 | 20.95 |
+| Japanese | Full large-v3 | 29 / 1,058 characters | 2.74% | 28.61 | 32.54 |
+| English | Turbo | 32 / 467 words | 6.85% | 20.73 | 24.95 |
+| English | Full large-v3 | 27 / 467 words | 5.78% | 30.70 | 36.02 |
+
+Full large-v3 made five fewer English word errors and the same aggregate number of
+Japanese character errors. It used 1.59× Japanese and 1.48× English pipeline time.
+Keep it **opt-in**, with turbo as the default; this small read-speech sample does
+not establish a general accuracy advantage or meeting quality. The default/tier
+decision still depends on real-use feedback. See
+[ADR-0034](../../docs/decisions/ADR-0034_Offer_full_Whisper_large_v3_for_offline_transcription.md).
+
+Model-comparison provenance: base commit `cf0452d` plus this change; measured
+executable SHA-256 `5c5058146c7b4cff36c5b056c12112aee637313c5854226c14c14aaa3a06661a`.

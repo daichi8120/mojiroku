@@ -47,6 +47,7 @@ export interface Summary {
 export interface JobParams {
   diarize: boolean;
   stt_lang: string | null;
+  transcription_model: string;
   lang: string;
 }
 
@@ -162,6 +163,8 @@ export interface Settings {
    * Mac's memory and the models already on disk (ADR-0030). Distinct from the BYOK `model`.
    */
   local_summary_model: string;
+  /** Offline Whisper model. Empty/unknown = turbo; live always uses turbo. */
+  transcription_model: string;
 }
 
 /**

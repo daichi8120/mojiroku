@@ -50,6 +50,16 @@ class MetricTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             select_rows("\n".join(lines), 4)
 
+    def test_model_comparison_does_not_merge_two_greedy_models(self):
+        rows = [dict(language=language, variant=variant, decoding="greedy", errors=errors,
+                     reference_units=10, duration_seconds=10, pipeline_seconds=seconds,
+                     process_seconds=seconds + 1)
+                for language in ("ja", "en")
+                for variant, errors, seconds in (("turbo", 2, 1), ("large-v3", 1, 3))]
+        summary = aggregate(rows, ("turbo", "large-v3"))
+        self.assertEqual([row["rate"] for row in summary], [0.2, 0.1, 0.2, 0.1])
+        self.assertEqual([row["pipeline_seconds"] for row in summary], [1, 3, 1, 3])
+
 
 if __name__ == "__main__":
     unittest.main()

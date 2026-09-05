@@ -9,14 +9,18 @@ import { useApp } from "@/lib/app";
 import { translateError, useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { openFeedbackForm } from "@/lib/feedback";
-import { byokKeyName, type Settings } from "@/lib/types";
+import { byokKeyName, type Progress, type Settings } from "@/lib/types";
 import {
   deleteSecret,
   getSettings,
   hasSecret,
   setSecret,
   summaryModelInfo,
+  transcriptionModelInfo,
+  downloadLiveTranscriptionModels,
   type SummaryModelInfo,
+  type TranscriptionModelInfo,
+  useTauriEvent,
 } from "@/lib/tauri";
 import { useSettingsPatch } from "@/lib/useSettingsPatch";
 import { Button, StatusBadge, Toggle } from "@/components/ui";
@@ -58,6 +62,15 @@ export function SettingsView() {
   // 要約モデルは端末のメモリで変わる（ADR-0030）。**固定文字列で書かない。**
   // 取得に失敗したら行は出すが型名は空にする（嘘の型名を出すより無いほうがよい）。
   const [summaryModel, setSummaryModel] = useState<SummaryModelInfo | null>(null);
+  const [transcriptionModel, setTranscriptionModel] = useState<TranscriptionModelInfo | null>(null);
+  const [liveModelBusy, setLiveModelBusy] = useState(false);
+  const [liveModelProgress, setLiveModelProgress] = useState<Progress | null>(null);
+  useTauriEvent<Progress>("model://progress", (progress) => {
+    if (liveModelBusy) setLiveModelProgress(progress);
+  });
+  useEffect(() => {
+    transcriptionModelInfo().then(setTranscriptionModel).catch(() => {});
+  }, []);
   useEffect(() => {
     summaryModelInfo().then(setSummaryModel).catch(() => {});
   }, []);
@@ -88,6 +101,23 @@ export function SettingsView() {
   // A stale file name that is no longer offered counts as automatic, matching core.
   const summaryChoice = summaryModel?.choices.find((c) => c.file === cfg?.local_summary_model);
   const shownSummaryModel = summaryChoice ?? summaryModel?.auto;
+  const shownTranscriptionModel = transcriptionModel?.choices.find(
+    (model) => model.file === cfg?.transcription_model.trim(),
+  ) ?? transcriptionModel?.choices.find((model) => model.file === transcriptionModel.default_file);
+
+  const downloadLiveModels = async () => {
+    if (liveModelBusy) return;
+    setLiveModelBusy(true);
+    setLiveModelProgress(null);
+    try {
+      await downloadLiveTranscriptionModels();
+      setTranscriptionModel(await transcriptionModelInfo());
+    } catch (error) {
+      toast(translateError(error, t), "error");
+    } finally {
+      setLiveModelBusy(false);
+    }
+  };
 
   // 入力中の API キー（平文。保存後は state に残さない）と、キーチェーン保存済みフラグ。
   const [apiKey, setApiKey] = useState("");
@@ -207,12 +237,44 @@ export function SettingsView() {
                 icon={<MicIcon size={17} />}
                 tint="bg-brand/15 text-brand-light"
                 name={t.settings.models.stt}
-                model="whisper large-v3-turbo"
-                size="547MB"
-                status="ondemand"
+                model={shownTranscriptionModel?.label ?? ""}
+                size={shownTranscriptionModel?.size ?? ""}
+                status={shownTranscriptionModel?.downloaded ? "saved" : "ondemand"}
                 action={t.settings.models.manage}
                 onAction={notYet}
               />
+              {transcriptionModel && shownTranscriptionModel && (
+                <>
+                  <SelectRow
+                    stacked
+                    title={t.settings.models.transcriptionPickerLabel}
+                    desc={t.settings.models.transcriptionPickerDesc}
+                    value={shownTranscriptionModel.file}
+                    onChange={(value) => patch({ transcription_model: value })}
+                    options={transcriptionModel.choices.map((model) => ({
+                      value: model.file,
+                      label: `${model.label} · ${model.size}${model.downloaded ? "" : ` · ${t.settings.models.needsDownload}`}`,
+                    }))}
+                  />
+                  {!shownTranscriptionModel.downloaded && (
+                    <p className="border-b border-line px-4 py-2.5 text-[11.5px] text-muted">
+                      {t.settings.models.transcriptionWillDownload(shownTranscriptionModel.size)}
+                    </p>
+                  )}
+                  {!transcriptionModel.live_ready && (
+                    <div className="border-b border-line px-4 py-3">
+                      <p className="mb-2 text-[11.5px] text-muted">{t.settings.models.liveModelMissing}</p>
+                      <Button size="sm" disabled={liveModelBusy} onClick={() => void downloadLiveModels()}>
+                        {liveModelBusy
+                          ? liveModelProgress?.stage === "queued"
+                            ? t.job.queued
+                            : `${t.job.stages.download}${liveModelProgress?.total ? ` · ${Math.round(100 * liveModelProgress.done / liveModelProgress.total)}%` : "…"}`
+                          : t.settings.models.downloadLiveModel}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
               <ModelRow
                 icon={<LayersIcon size={17} />}
                 tint="bg-cyan/15 text-teal"
@@ -631,6 +693,7 @@ function SelectRow({
   onChange,
   options,
   last,
+  stacked = false,
 }: {
   title: string;
   desc: string;
@@ -638,9 +701,10 @@ function SelectRow({
   onChange: (next: string) => void;
   options: { value: string; label: string }[];
   last?: boolean;
+  stacked?: boolean;
 }) {
   return (
-    <div className={cx("flex items-center gap-3 px-4 py-3.5", !last && "border-b border-line")}>
+    <div className={cx("flex gap-3 px-4 py-3.5", stacked ? "flex-col items-stretch" : "items-center", !last && "border-b border-line")}>
       <div className="min-w-0 flex-1">
         <div className="text-[13px] text-ink">{title}</div>
         <div className="mt-0.5 text-[11px] text-muted">{desc}</div>
@@ -650,7 +714,7 @@ function SelectRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           aria-label={title}
-          className="appearance-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2 pr-8 text-[12.5px] text-body focus:border-brand focus:outline-none"
+          className={cx("max-w-full appearance-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2 pr-8 text-[12.5px] text-body focus:border-brand focus:outline-none", stacked && "w-full")}
         >
           {options.map((o) => (
             <option key={o.value} value={o.value}>

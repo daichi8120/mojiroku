@@ -74,6 +74,9 @@ pub struct Settings {
     /// back to automatic in core ([`mojiroku_core::models::select_summary_model_with`]).
     #[serde(default)]
     pub local_summary_model: String,
+    /// Explicit offline Whisper model. Empty/unknown values resolve to turbo.
+    #[serde(default)]
+    pub transcription_model: String,
 }
 
 impl Default for Settings {
@@ -89,6 +92,7 @@ impl Default for Settings {
             transcribe_language: default_transcribe_language(),
             auto_record_prompt: false,
             local_summary_model: String::new(),
+            transcription_model: String::new(),
         }
     }
 }
@@ -231,5 +235,18 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(s.effective_language(), "ja");
+    }
+
+    #[test]
+    fn old_settings_keep_turbo_and_model_choice_roundtrips() {
+        let mut cfg: Settings = serde_json::from_str("{}").unwrap();
+        assert!(cfg.transcription_model.is_empty());
+        cfg.transcription_model = mojiroku_core::models::FULL_WHISPER_MODEL.to_string();
+        let restored: Settings =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            restored.transcription_model,
+            mojiroku_core::models::FULL_WHISPER_MODEL
+        );
     }
 }
