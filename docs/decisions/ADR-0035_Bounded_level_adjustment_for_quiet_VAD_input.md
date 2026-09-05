@@ -31,11 +31,15 @@ Prepare a separate analysis buffer before Silero VAD:
 
 The shared STT path applies this to both live and offline inference. The saved WAV, playback, Whisper sample amplitudes, and diarization input are unaffected. No persisted setting or schema change is needed. `vad_spans_cli` uses the same preparation by default and accepts a final `raw` argument for an unadjusted comparison; its RMS measurements still describe the original audio.
 
+The live worker must allow quiet tails to reach this shared path. With a VAD model present, its early gate skips only digital silence (all-zero samples), leaving speech classification to VAD. Without a VAD model, it retains the existing RMS 0.001 guard against low-level noise reaching Whisper directly. The former unconditional RMS guard rejected the RMS 0.0003 regression level before VAD could run. Tail duration limits, draining, and heavy-job yielding are unchanged.
+
 The cutoff, target, percentile, and cap are a bounded initial policy, not universally optimal values. Quiet inputs with varied speaker levels and background speech still need real-use validation. VAD can admit background speech; raising the input level does not distinguish intended speech from an intelligible background conversation.
 
 ## Regression verification
 
 Unit checks cover bounded gain, a loud outlier, digital silence, partial blocks, unchanged original samples, and borrowing normal-level input. The real-model test checks that VAD preserves the words the decoder can hear in a pinned public English fixture and still rejects 60 seconds of digital silence. Punctuation and case are excluded from the word comparison.
+
+Live-worker regression checks cover a tail below the old RMS cutoff, digital silence with and without VAD, and retention of the RMS guard when VAD is unavailable.
 
 Verification of the implemented policy reproduced the attenuated-speech results above. The six unattenuated public fixtures and both tracks of an earlier meeting fixture produced identical transcripts before and after the change. The local candidate produced 14 segments instead of 3; its accuracy still requires listening-based confirmation. Generated digital silence and quiet Gaussian noise with a loud transient both produced zero segments. Bypassing the new preparation made the real-model regression fail for lost words; restoring it made the regression pass.
 

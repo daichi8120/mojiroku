@@ -14,6 +14,8 @@
 //! - **VAD ＋ RMS ゲート**: VAD で無音を除去しつつ、tail 全体が無音なら RMS で事前スキップする
 //!   （完全無音 tail は VAD が空を返し生 PCM にフォールバック → whisper がハルシネーションする。
 //!   CLAUDE.md の「ご視聴ありがとうございました」反復）。
+//! Since ADR-0035, a present VAD model handles quiet nonzero tails; the RMS gate
+//! below is only a fallback when VAD is unavailable. Digital silence is always skipped.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -51,6 +53,15 @@ const MAX_LINES: usize = 80;
 const SILENCE_RMS: f32 = 1e-3;
 /// stop 応答性のためのスリープ刻み。
 const SLEEP_STEP: Duration = Duration::from_millis(80);
+
+/// Let VAD classify quiet speech; retain the old noise guard without a VAD model.
+fn skip_silent_tail(tail: &[f32], vad_available: bool) -> bool {
+    if vad_available {
+        tail.iter().all(|sample| *sample == 0.0)
+    } else {
+        rms(tail) < SILENCE_RMS
+    }
+}
 
 /// UI へ送るライブ行。committed=true は確定（以後書き換えない）、false は未確定 tail。
 #[derive(Clone, Serialize)]
@@ -202,6 +213,7 @@ fn run_worker(
     }
     let vad_path = models_dir.join(DEFAULT_VAD_MODEL);
     let vad = if vad_path.exists() { Some(vad_path) } else { None };
+    let vad_available = vad.is_some();
     let engine = match WhisperStt::load(&whisper_path, vad) {
         Ok(e) => e,
         Err(_) => return,
@@ -282,7 +294,7 @@ fn run_worker(
         );
 
         // 3) 無音 tail は whisper に渡さない（ハルシネーション回避）。長すぎる無音は drain で前進。
-        if rms(&tail) < SILENCE_RMS {
+        if skip_silent_tail(&tail, vad_available) {
             if tail_ms > MAX_TAIL_MS {
                 drain_front(
                     &mut mic16k,
@@ -346,6 +358,31 @@ fn run_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quiet_live_tail_reaches_vad_below_the_old_rms_gate() {
+        let tail: Vec<f32> = (0..ms_to_samples(3500))
+            .map(|i| (i as f32 * 0.1).sin() * 0.0003 * 2.0_f32.sqrt())
+            .collect();
+        assert!(rms(&tail) < SILENCE_RMS);
+        assert!(!skip_silent_tail(&tail, true), "quiet speech must reach VAD");
+        assert!(skip_silent_tail(&tail, false), "keep the guard without VAD");
+    }
+
+    #[test]
+    fn live_silence_is_skipped_with_or_without_vad() {
+        for vad_available in [false, true] {
+            assert!(skip_silent_tail(&[], vad_available));
+            assert!(skip_silent_tail(
+                &vec![0.0; ms_to_samples(14000)],
+                vad_available
+            ));
+            assert!(!skip_silent_tail(
+                &vec![0.02; ms_to_samples(3500)],
+                vad_available
+            ));
+        }
+    }
 
     #[test]
     fn tail_align_trims_heads_to_equal_len() {
