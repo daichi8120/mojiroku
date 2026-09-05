@@ -127,8 +127,11 @@ impl Settings {
     /// Since Issue #66, both `""` (legacy persisted value) and `"auto"` enable detection;
     /// UI/content language no longer constrains the language spoken in the recording.
     pub fn effective_transcribe_language(&self) -> Option<&str> {
+        // "mixed" is an application mode handled by core before Whisper parameters are built.
         match self.transcribe_language.as_str() {
-            "ja" | "en" => Some(self.transcribe_language.as_str()),
+            "ja" | "en" | mojiroku_core::stt::MIXED_LANGUAGE_MODE => {
+                Some(self.transcribe_language.as_str())
+            }
             _ => None,
         }
     }
@@ -205,6 +208,8 @@ mod tests {
         assert_eq!(s.effective_transcribe_language(), None);
         s.transcribe_language = "ja".into();
         assert_eq!(s.effective_transcribe_language(), Some("ja"));
+        s.transcribe_language = mojiroku_core::stt::MIXED_LANGUAGE_MODE.into();
+        assert_eq!(s.effective_transcribe_language(), Some("mixed"));
     }
 
     /// An old settings.json without the field means automatic (None); whitespace-only too.
