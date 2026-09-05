@@ -111,6 +111,76 @@ gitignore されているため、clone 直後は存在しません。無いま�
 - 挙動が変わる変更は、`docs/` の該当箇所も一緒に更新してください。
 - 技術的な判断を伴う変更は、`docs/decisions/` に ADR を添えてください。
 
+## Issue and Project synchronization
+
+When an agent opens a PR, linking and status verification are part of that task.
+This is an agent-run workflow using the existing `gh` login and browser session;
+it is not an unattended GitHub Actions job. It does not need a new token or change
+shared Project automations.
+
+1. Identify the issues actually implemented by the PR. Use `Refs #N` for partial
+   work; use `Closes #N` only when all acceptance criteria are satisfied. Do not
+   treat every issue mentioned in a PR as an implementation target.
+2. Read the issue's state and Project Status **before** linking. Keep explicit
+   deferred work at Todo. Review issue scope before deciding completion.
+3. After opening the PR, use the issue's **Development** selector in the browser.
+   Search for the **full PR URL**, select only the intended PR, and dismiss the
+   selector. Preserve existing links. Confirm the link appears in Development.
+   A bare number can match unrelated PR bodies and hide the intended result.
+4. Run the checker below. It verifies both the native link and the Project's
+   **Linked pull requests** field. Fix any missing link in the browser and rerun.
+5. Apply the intended status, then verify again after a merge or issue closure.
+   Update the issue's progress/checklists from the actual result. Keep release,
+   real-device verification, and other unmet criteria open.
+
+```bash
+# Read-only check, scoped to one issue and one or more same-repository PRs.
+python3 scripts/sync_issue_project.py --issue 87 --pr 88
+
+# After authorized linking: active open work -> In Progress; closed work -> Done.
+python3 scripts/sync_issue_project.py --issue 87 --pr 88 \
+  --open-status 'In Progress' --apply
+
+# Historical link on deferred work: restore its previous Todo intent.
+python3 scripts/sync_issue_project.py --issue 42 --pr 54 \
+  --open-status Todo --apply
+```
+
+The default repository comes from `gh repo view`; use `--repo OWNER/REPO` outside
+the checkout. Repeat `--pr` when several PRs implement the same issue. Omit `--pr`
+only for a status-only check; its success output does not claim link verification. With multiple
+Project memberships, select the intended existing Project using `--project-id`.
+Archived items, inaccessible Projects, ambiguous fields, and truncated API lists
+are reported as blockers rather than silently skipped.
+
+| Issue state / intent | Result |
+|---|---|
+| Closed, including a historical link | Done |
+| Open and explicitly active | In Progress |
+| Open and explicitly deferred | Todo |
+| Open, no explicit status requested | Preserve the current status; missing status becomes Todo |
+| Open but already marked Done | Require an explicit Todo/In Progress choice |
+
+The script is read-only unless `--apply` is passed, checks for concurrent changes,
+and reads back the result. It never creates links or closes issues. Exit codes:
+`0` = verified, `1` = missing link or unapplied status correction, `2` = API,
+ambiguity, concurrency, or verification error. Do not report completion after a
+nonzero exit. Creating a PR does not authorize unrelated issue closures.
+
+**Why the browser step is needed:** GitHub interprets closing keywords only for
+PRs targeting the default branch (`main` here), so they do not create native links
+on feature PRs targeting `develop`. A closing keyword in a commit can close the
+issue later without populating the PR link. See [GitHub's linking rules](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).
+Project link automations can also change Status when a merged PR is linked to an
+already-closed issue, so run the status correction **after** linking. See
+[built-in Project automations](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-built-in-automations).
+
+Validate changes to the helper with:
+
+```bash
+python3 -B -m unittest discover -s scripts -p 'test_sync_issue_project.py'
+```
+
 ## ライセンスと CLA
 
 本プロジェクトは **[AGPL-3.0-or-later](../LICENSE)** です。判断の経緯は
