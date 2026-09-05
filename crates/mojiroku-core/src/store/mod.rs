@@ -74,6 +74,9 @@ pub struct JobParams {
     /// whisper への言語ヒント（None=自動判定）。
     #[serde(default)]
     pub stt_lang: Option<String>,
+    /// Offline model captured at enqueue time. Old jobs default to turbo.
+    #[serde(default)]
+    pub transcription_model: String,
     /// 話者ラベル・既定タイトル等のコンテンツ言語（"ja"|"en"）。
     pub lang: String,
 }

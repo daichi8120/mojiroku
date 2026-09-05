@@ -12,6 +12,50 @@ use crate::error::{CoreError, Result};
 /// 既定の文字起こしモデル（large-v3-turbo q5_0, 約 547MiB）。
 pub const DEFAULT_WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 
+pub const FULL_WHISPER_MODEL: &str = "ggml-large-v3-q5_0.bin";
+
+/// Allowed offline transcription models. Live transcription always uses turbo.
+#[derive(Debug)]
+pub struct WhisperModel {
+    pub file: &'static str,
+    pub label: &'static str,
+    pub size_bytes: u64,
+    pub sha256: &'static str,
+}
+
+pub const WHISPER_MODELS: &[WhisperModel] = &[
+    WhisperModel {
+        file: DEFAULT_WHISPER_MODEL,
+        label: "Whisper large-v3-turbo q5_0",
+        size_bytes: 574041195,
+        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    },
+    WhisperModel {
+        file: FULL_WHISPER_MODEL,
+        label: "Whisper large-v3 q5_0",
+        size_bytes: 1081140203,
+        sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
+    },
+];
+
+/// An explicit catalog choice wins; empty/unknown values always fall back to turbo.
+/// Cached full-model weights never opt a user into the slower model automatically.
+pub fn select_whisper_model(requested: Option<&str>) -> &'static WhisperModel {
+    requested
+        .and_then(|name| {
+            WHISPER_MODELS
+                .iter()
+                .find(|model| model.file == name.trim())
+        })
+        .unwrap_or(&WHISPER_MODELS[0])
+}
+
+pub fn whisper_model_downloaded(model: &WhisperModel, models_dir: &Path) -> bool {
+    fs::metadata(models_dir.join(model.file))
+        .map(|metadata| metadata.is_file() && metadata.len() == model.size_bytes)
+        .unwrap_or(false)
+}
+
 /// 既定の要約モデル。実会議での品質ゲートを PASS 済み（docs/roadmap.md）。
 ///
 /// **「既定」の意味は 2 つ。**小の段が配るモデルであり、かつどの段にも採用済みが
@@ -294,10 +338,10 @@ pub fn vad_model_url(file: &str) -> String {
 /// 出所: HF は LFS メタデータ（paths-info API）、GitHub アセットは実 DL の実測値。
 /// いずれも 2026-07-05 取得・ローカル既存ファイルとの突き合わせ済み。
 fn expected_sha256(model_file: &str) -> Option<&'static str> {
+    if let Some(model) = WHISPER_MODELS.iter().find(|model| model.file == model_file) {
+        return Some(model.sha256);
+    }
     match model_file {
-        DEFAULT_WHISPER_MODEL => {
-            Some("394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2")
-        }
         DEFAULT_VAD_MODEL => {
             Some("29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf")
         }
@@ -366,7 +410,9 @@ fn download_to_file(
     let mut buf = [0u8; 64 * 1024];
     let mut downloaded: u64 = 0;
     loop {
-        let n = reader.read(&mut buf).map_err(|e| CoreError::Io(e.to_string()))?;
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| CoreError::Io(e.to_string()))?;
         if n == 0 {
             break;
         }
@@ -430,7 +476,12 @@ pub fn ensure_model(
 ) -> Result<PathBuf> {
     fs::create_dir_all(models_dir).map_err(|e| CoreError::Io(e.to_string()))?;
     let dest = models_dir.join(model_file);
-    if cached(&dest) {
+    let downloaded = WHISPER_MODELS
+        .iter()
+        .find(|model| model.file == model_file)
+        .map(|model| whisper_model_downloaded(model, models_dir))
+        .unwrap_or_else(|| cached(&dest));
+    if downloaded {
         return Ok(dest);
     }
 
@@ -516,7 +567,8 @@ mod tests {
         let reported = "Connection Failed: tls connection init failed: \
                         invalid peer certificate: UnknownIssuer";
         assert!(
-            download_error_key("download request", reported).starts_with("error.model.download_tls:"),
+            download_error_key("download request", reported)
+                .starts_with("error.model.download_tls:"),
             "報告された証明書エラーが download_tls に振り分けられていない"
         );
 
@@ -533,7 +585,11 @@ mod tests {
         }
 
         // 証明書と無関係な失敗は従来のキーのまま（過剰に振り分けない）。
-        for s in ["Connection Failed: dns error", "io: timed out", "status code 503"] {
+        for s in [
+            "Connection Failed: dns error",
+            "io: timed out",
+            "status code 503",
+        ] {
             assert!(
                 download_error_key("l", s).starts_with("error.model.download:"),
                 "{s} が誤って download_tls に振り分けられた"
@@ -573,8 +629,7 @@ mod tests {
     #[test]
     fn verify_download_rejects_hash_mismatch_and_removes_tmp() {
         let p = tmp_file("mojiroku-verify-hash.part");
-        let err =
-            verify_download(&p, 3, Some(3), ABC_SHA256, Some("deadbeef"), "t").unwrap_err();
+        let err = verify_download(&p, 3, Some(3), ABC_SHA256, Some("deadbeef"), "t").unwrap_err();
         assert!(err.to_string().contains("error.model.checksum_mismatch"));
         assert!(!p.exists(), "ハッシュ不一致時は tmp を削除する");
     }
@@ -601,7 +656,10 @@ mod tests {
         assert_eq!(DIAR_SEG_ARCHIVE_SHA256.len(), 64);
         // URL はリビジョン固定（main を含まない）であること。
         for base in [WHISPER_BASE, SUMMARY_BASE, VAD_BASE] {
-            assert!(!base.contains("/resolve/main/"), "{base} はリビジョン固定にする");
+            assert!(
+                !base.contains("/resolve/main/"),
+                "{base} はリビジョン固定にする"
+            );
         }
     }
 
@@ -947,5 +1005,32 @@ mod tests {
         .unwrap();
         assert!(path.exists());
         assert!(fs::metadata(&path).unwrap().len() > 100_000_000);
+    }
+
+    #[test]
+    fn full_whisper_requires_an_explicit_catalog_choice() {
+        for requested in [
+            None,
+            Some(""),
+            Some("unknown.bin"),
+            Some("../ggml-large-v3-q5_0.bin"),
+        ] {
+            assert_eq!(select_whisper_model(requested).file, DEFAULT_WHISPER_MODEL);
+        }
+        assert_eq!(
+            select_whisper_model(Some(FULL_WHISPER_MODEL)).file,
+            FULL_WHISPER_MODEL
+        );
+        assert_eq!(
+            select_whisper_model(Some(DEFAULT_WHISPER_MODEL)).file,
+            DEFAULT_WHISPER_MODEL
+        );
+        for model in WHISPER_MODELS {
+            assert_eq!(expected_sha256(model.file), Some(model.sha256));
+            assert_eq!(model.sha256.len(), 64);
+            assert!(
+                whisper_model_url(model.file).contains("5359861c739e955e79d9a303bcbc70fb988958b1")
+            );
+        }
     }
 }

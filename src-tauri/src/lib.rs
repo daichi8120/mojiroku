@@ -83,6 +83,7 @@ pub fn run() {
             commands::transcription::transcribe_file,
             commands::transcription::summarize,
             commands::transcription::summary_model_info,
+            commands::transcription::transcription_model_info,
             commands::history::list_recordings,
             commands::history::search_recordings,
             commands::history::get_recording,

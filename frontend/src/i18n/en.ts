@@ -460,6 +460,9 @@ const en: Dict = {
     loadFailed: (e: string) => `Failed to load settings: ${e}`,
     saveFailed: (e: string) => `Failed to save settings: ${e}`,
     models: {
+      transcriptionPickerLabel: "Model for recordings and files",
+      transcriptionPickerDesc: "Full large-v3 is slower and may improve accuracy. Live transcription always uses turbo. Existing models are kept.",
+      transcriptionWillDownload: (size: string) => `The next recording or file transcription will download ${size}.`,
       desc: "All stored on this Mac and work offline.",
       stt: "Transcription",
       summarize: "Summary",

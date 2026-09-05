@@ -458,6 +458,9 @@ const ja = {
     loadFailed: (e: string) => `設定の読み込みに失敗: ${e}`,
     saveFailed: (e: string) => `設定の保存に失敗: ${e}`,
     models: {
+      transcriptionPickerLabel: "Model for recordings and files",
+      transcriptionPickerDesc: "Full large-v3 is slower and may improve accuracy. Live transcription always uses turbo. Existing models are kept.",
+      transcriptionWillDownload: (size: string) => `The next recording or file transcription will download ${size}.`,
       desc: "すべてこの Mac に保存され、オフラインで動作します。",
       stt: "文字起こし",
       summarize: "要約",

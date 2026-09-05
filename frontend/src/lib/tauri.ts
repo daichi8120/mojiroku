@@ -45,6 +45,12 @@ export type SummaryModelChoice = {
 };
 export const summaryModelInfo = () => invoke<SummaryModelInfo>("summary_model_info");
 
+export type TranscriptionModelInfo = {
+  default_file: string;
+  choices: { file: string; label: string; size: string; downloaded: boolean }[];
+};
+export const transcriptionModelInfo = () => invoke<TranscriptionModelInfo>("transcription_model_info");
+
 /**
  * 音声ファイル → 原本コピー確定 → 文字起こしジョブを投入して即返す（ADR-0024）。
  * diarize で話者分離。STT はワーカーが回し、進捗は `job://update` で届く。

@@ -97,6 +97,12 @@ mojiroku は初回利用時にユーザーの端末へモデルを取得しま�
   文字起こし   ggml-large-v3-turbo-q5_0.bin  (約 547MiB)
                https://huggingface.co/ggerganov/whisper.cpp
 
+  Optional transcription model: ggml-large-v3-q5_0.bin (1.08 GB, q5_0)
+               Copyright (c) 2022 OpenAI. License: MIT.
+               https://huggingface.co/ggerganov/whisper.cpp
+               https://github.com/openai/whisper/blob/main/LICENSE
+               Converted to ggml and quantized by the model distributor; no retraining here.
+
   要約         端末の搭載メモリに合わせて 1 本を取得します（ADR-0030）。
 
                16GB 以上   Qwen3.5-9B-Q4_K_M.gguf  (約 5.7GB)
