@@ -23,13 +23,19 @@ fn main() {
     let total_ms = pcm.len() as u64 * 1000 / 16_000;
 
     let vad = models_dir.join(mojiroku_core::models::DEFAULT_VAD_MODEL);
-    let mut ctx = WhisperVadContext::new(&vad.to_string_lossy(), WhisperVadContextParams::new())
-        .expect("vad ctx");
-    let mut p = WhisperVadParams::new();
-    p.set_threshold(threshold);
-    p.set_min_speech_duration(min_speech);
-    p.set_min_silence_duration(min_silence);
-    let segs = ctx.segments_from_samples(p, &pcm).expect("vad segments");
+    // Same rule as the product STT path (ADR-0021): whisper.cpp calls go through the FFI guard so
+    // a C++ exception (e.g. bad_alloc) becomes an error message instead of a process abort.
+    let segs = mojiroku_core::ffi_guard::guard("silero vad", || {
+        let mut ctx =
+            WhisperVadContext::new(&vad.to_string_lossy(), WhisperVadContextParams::new())?;
+        let mut p = WhisperVadParams::new();
+        p.set_threshold(threshold);
+        p.set_min_speech_duration(min_speech);
+        p.set_min_silence_duration(min_silence);
+        ctx.segments_from_samples(p, &pcm)
+    })
+    .expect("vad (foreign exception)")
+    .expect("vad");
 
     let mut kept_ms = 0u64;
     let mut n = 0usize;
