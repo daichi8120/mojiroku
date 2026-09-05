@@ -370,8 +370,11 @@ fn filtered_ms_to_original(map: &[TimeSpan], t_ms: u64, at_end: bool) -> u64 {
             break;
         }
     }
-    // A start that falls inside an inserted silence gap belongs to the next span.
-    if !at_end && t_ms > chosen.filtered_start_ms + chosen.dur_ms {
+    // A start that falls inside an inserted silence gap belongs to the next span. The gap's first
+    // sample (== the previous span's end) counts as inside: whisper and the VAD both work in
+    // 10 ms units, so an exact hit is realistic, and a start left at the previous span's end
+    // would place the subtitle before the removed silence.
+    if !at_end && t_ms >= chosen.filtered_start_ms + chosen.dur_ms {
         if let Some(n) = next {
             return n.orig_start_ms;
         }
@@ -537,7 +540,9 @@ mod tests {
         // to the previous one. Neither may land in the removed 3000-8000 silence.
         assert_eq!(filtered_ms_to_original(&m, 2500, false), 8000);
         assert_eq!(filtered_ms_to_original(&m, 2500, true), 3000);
-        // Gap edges behave like the old contiguous boundary.
+        // Gap edges behave like the old contiguous boundary. The gap's first sample is an exact
+        // hit whisper can produce (10 ms units); a start there must not stay at the previous end.
+        assert_eq!(filtered_ms_to_original(&m, 2000, false), 8000);
         assert_eq!(filtered_ms_to_original(&m, 2000, true), 3000);
         assert_eq!(filtered_ms_to_original(&m, 3000, false), 8000);
         assert_eq!(filtered_ms_to_original(&m, 3000, true), 3000);
