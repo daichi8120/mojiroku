@@ -147,7 +147,8 @@ python3 scripts/sync_issue_project.py --issue 42 --pr 54 \
 ```
 
 The default repository comes from `gh repo view`; use `--repo OWNER/REPO` outside
-the checkout. Repeat `--pr` when several PRs implement the same issue. With multiple
+the checkout. Repeat `--pr` when several PRs implement the same issue. Omit `--pr`
+only for a status-only check; its success output does not claim link verification. With multiple
 Project memberships, select the intended existing Project using `--project-id`.
 Archived items, inaccessible Projects, ambiguous fields, and truncated API lists
 are reported as blockers rather than silently skipped.

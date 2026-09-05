@@ -154,7 +154,10 @@ def reconcile(repo, number, project_id=None, pr_urls=(), open_status=None, apply
     if (final["state"] != plan["state"] or final["current"] != plan["target"]
             or final["missing_native"] or final["missing_project"]):
         raise RuntimeError("Read-back differs from the plan; inspect Project automations")
-    print("Verified: native links, Project links, issue state, and Status.")
+    if pr_urls:
+        print("Verified: native links, Project links, issue state, and Status.")
+    else:
+        print("Verified: issue state and Status only (no PR links requested).")
     return 0
 
 
@@ -163,7 +166,7 @@ def main():
     parser.add_argument("--repo", help="OWNER/REPO; defaults to the current gh repository")
     parser.add_argument("--issue", type=int, required=True)
     parser.add_argument("--pr", type=int, action="append", default=[],
-                        help="Same-repository PR to verify; repeat for multiple PRs")
+                        help="Same-repository PR to verify; repeat for multiple PRs; omit for status-only checks")
     parser.add_argument("--project-id", help="Required if the issue belongs to multiple Projects")
     parser.add_argument("--open-status", choices=["Todo", "In Progress"],
                         help="Explicit intent for open work; otherwise preserve current status")

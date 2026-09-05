@@ -99,6 +99,18 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(sync.reconcile("example/repo", 7, pr_urls=["missing"], apply=True), 1)
         gh.assert_not_called()
 
+    @patch.object(sync, "read_issue")
+    def test_success_message_names_only_the_requested_checks(self, read):
+        read.return_value = fixture()
+        for urls, message in [
+            ([], "Verified: issue state and Status only (no PR links requested)."),
+            (["https://github.com/example/repo/pull/12"],
+             "Verified: native links, Project links, issue state, and Status."),
+        ]:
+            with self.subTest(pr_urls=urls), patch("builtins.print") as output:
+                self.assertEqual(sync.reconcile("example/repo", 7, pr_urls=urls), 0)
+                self.assertEqual(output.call_args.args, (message,))
+
     @patch.object(sync, "gh_json")
     @patch.object(sync, "read_issue")
     def test_repair_then_second_run_is_a_noop(self, read, gh):
