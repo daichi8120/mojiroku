@@ -134,10 +134,45 @@ impl WhisperStt {
         // VAD（無音ハルシネーション対策）。whisper-rs の state.full() は内蔵VAD(whisper_full)を
         // バイパスするため、明示的に WhisperVadContext で無音を除去してから渡す。
         // 失敗時は元の PCM をそのまま使う（best-effort）。
+        //
+        // When the VAD runs fine but finds no speech at all, the answer is an empty transcript.
+        // Handing the raw (silent) PCM to whisper instead is exactly the case the VAD exists to
+        // prevent: 60 s of digital silence came back as two hallucinated segments (ADR-0031).
+        // One diagnostic line per transcription so a user running a dev build can report what the
+        // VAD kept (same pattern as the meeting track offset line). Live transcription calls this
+        // every 3.5 s with a tail of at most 14 s; printing there would flood the terminal that
+        // `tauri dev` relays, so only whole-recording inputs (>= 30 s) print.
+        let diag = pcm_secs(pcm16k_mono) >= 30.0;
         let (pcm, time_map): (Cow<[f32]>, Option<Vec<TimeSpan>>) = match &self.vad_model_path {
             Some(vad) => match vad_filter(&vad.to_string_lossy(), pcm16k_mono) {
-                Ok((filtered, map)) if !filtered.is_empty() => (Cow::Owned(filtered), Some(map)),
-                _ => (Cow::Borrowed(pcm16k_mono), None),
+                Ok((filtered, _)) if filtered.is_empty() => {
+                    if diag {
+                        eprintln!(
+                            "stt vad: no speech found in {:.1}s, skipping whisper",
+                            pcm_secs(pcm16k_mono)
+                        );
+                    }
+                    return Ok(Transcript {
+                        language: language.map(|s| s.to_string()),
+                        segments: Vec::new(),
+                    });
+                }
+                Ok((filtered, map)) => {
+                    if diag {
+                        // kept = padded spans (VAD_PAD_MS on each side), so it runs above the raw
+                        // Silero coverage; whisper input adds VAD_GAP_MS between spans on top.
+                        let kept_ms: u64 = map.iter().map(|s| s.dur_ms).sum();
+                        eprintln!(
+                            "stt vad: {} spans, kept {:.0}% of {:.1}s incl. padding, whisper input {:.1}s",
+                            map.len(),
+                            kept_ms as f32 / 10.0 / pcm_secs(pcm16k_mono),
+                            pcm_secs(pcm16k_mono),
+                            pcm_secs(&filtered),
+                        );
+                    }
+                    (Cow::Owned(filtered), Some(map))
+                }
+                Err(_) => (Cow::Borrowed(pcm16k_mono), None),
             },
             None => (Cow::Borrowed(pcm16k_mono), None),
         };
@@ -258,39 +293,69 @@ fn vad_filter(model_path: &str, pcm: &[f32]) -> Result<(Vec<f32>, Vec<TimeSpan>)
         })
         .collect();
 
-    let sample_to_ms = |s: usize| ((s as f32 / SAMPLE_RATE_F) * 1000.0) as u64;
     let ranges = padded_sample_ranges(&segs_ms, pcm.len());
-    // filtered は各区間の連結長、map は区間数だけ伸びる。事前予約で倍化 realloc のピークを
-    // 避ける（発話支配的な長尺録音では filtered が原 PCM の大半に達しうる＝ADR-0021 の 16GB
-    // 機メモリ枯渇面）。ranges は互いに素で各 i1 が pcm.len() で clamp 済＝合計は pcm.len()
-    // 以下の信頼できる長さ。
+    Ok(concat_ranges(pcm, &ranges))
+}
+
+/// Silence inserted between two speech ranges that were not adjacent in the original audio.
+///
+/// Gluing the ranges back to back hands whisper one continuous stream with no pauses, and it
+/// then merges many short utterances into one long segment and drops the short replies
+/// ("はい", "なるほど", "OKです") in between. A 1 s pause restores the utterance boundaries:
+/// on a 257 s two-track meeting the segment count went from 26 to 39 (mic) and 35 to 71
+/// (system) with the same content and ~20% more whisper wall time (ADR-0031).
+const VAD_GAP_MS: u64 = 1000;
+
+/// Concatenate the sample ranges into the PCM whisper will see, with [`VAD_GAP_MS`] of silence
+/// between ranges that are not adjacent in the original, and build the filtered→original map.
+/// Gap regions are not covered by the map; [`filtered_ms_to_original`] snaps times inside a gap
+/// to the neighbouring range.
+fn concat_ranges(pcm: &[f32], ranges: &[(usize, usize)]) -> (Vec<f32>, Vec<TimeSpan>) {
+    let sample_to_ms = |s: usize| ((s as f32 / SAMPLE_RATE_F) * 1000.0) as u64;
+    let gap_samples = ((VAD_GAP_MS as f32 / 1000.0) * SAMPLE_RATE_F) as usize;
+    // filtered は各区間の連結長 + ギャップ、map は区間数だけ伸びる。事前予約で倍化 realloc の
+    // ピークを避ける（発話支配的な長尺録音では filtered が原 PCM の大半に達しうる＝ADR-0021 の
+    // 16GB 機メモリ枯渇面）。ranges は互いに素で各 i1 が pcm.len() で clamp 済＝合計は
+    // pcm.len() 以下の信頼できる長さ。
     let total: usize = ranges.iter().map(|&(i0, i1)| i1 - i0).sum();
-    let mut filtered: Vec<f32> = Vec::with_capacity(total);
+    let mut filtered: Vec<f32> =
+        Vec::with_capacity(total + gap_samples * ranges.len().saturating_sub(1));
     let mut map: Vec<TimeSpan> = Vec::with_capacity(ranges.len());
-    for (i0, i1) in ranges {
+    let mut prev_end: Option<usize> = None;
+    for &(i0, i1) in ranges {
+        if matches!(prev_end, Some(pe) if i0 > pe) {
+            filtered.resize(filtered.len() + gap_samples, 0.0);
+        }
         map.push(TimeSpan {
             filtered_start_ms: sample_to_ms(filtered.len()),
             orig_start_ms: sample_to_ms(i0),
             dur_ms: sample_to_ms(i1 - i0),
         });
         filtered.extend_from_slice(&pcm[i0..i1]);
+        prev_end = Some(i1);
     }
-    Ok((filtered, map))
+    (filtered, map)
+}
+
+fn pcm_secs(pcm: &[f32]) -> f32 {
+    pcm.len() as f32 / SAMPLE_RATE_F
 }
 
 /// フィルタ後の時刻(ms)を元 PCM の時刻(ms)に変換する。
 ///
-/// span は filtered / original とも時刻昇順で、filtered 上では連続して並ぶ
-/// （前 span の末尾 == 次 span の先頭）。この連続点に時刻が一致したとき、
+/// span は filtered / original とも時刻昇順。filtered 上では連続して並ぶか、
+/// [`VAD_GAP_MS`] の無音ギャップを挟む。span の境界（連続点）に時刻が一致したとき、
 /// セグメント開始(`at_end=false`)は次区間の先頭へ、終了(`at_end=true`)は前区間の末尾へ
-/// 割り当てる。これにより終了時刻が無音ギャップをまたいで次区間へ飛ぶ誤りを防ぎ、
-/// 変換後の時刻が単調非減少になることを保証する。
+/// 割り当てる。ギャップの内側に落ちた時刻も同じ規則で、開始は次区間の先頭へ、終了は
+/// 前区間の末尾へ寄せる。これにより終了時刻が無音ギャップをまたいで次区間へ飛ぶ誤りを
+/// 防ぎ、変換後の時刻が単調非減少になることを保証する。
 /// filtered 長を超える時刻は最終区間の末尾へクランプする。
 fn filtered_ms_to_original(map: &[TimeSpan], t_ms: u64, at_end: bool) -> u64 {
     let Some(first) = map.first() else {
         return t_ms;
     };
     let mut chosen = first;
+    let mut next: Option<&TimeSpan> = None;
     for span in map {
         // 終了は境界で前 span に留まり(`>`)、開始は次 span へ進む(`>=`)。
         let past = if at_end {
@@ -301,10 +366,17 @@ fn filtered_ms_to_original(map: &[TimeSpan], t_ms: u64, at_end: bool) -> u64 {
         if past {
             chosen = span;
         } else {
+            next = Some(span);
             break;
         }
     }
-    // 区間内オフセットは区間長でクランプ（filtered 長超過もここで吸収）。
+    // A start that falls inside an inserted silence gap belongs to the next span.
+    if !at_end && t_ms > chosen.filtered_start_ms + chosen.dur_ms {
+        if let Some(n) = next {
+            return n.orig_start_ms;
+        }
+    }
+    // 区間内オフセットは区間長でクランプ（filtered 長超過・ギャップ内の終了もここで吸収）。
     let offset = (t_ms - chosen.filtered_start_ms).min(chosen.dur_ms);
     chosen.orig_start_ms + offset
 }
@@ -335,8 +407,16 @@ mod tests {
     /// 元 time の無音 3000-8000ms を VAD が除去した想定（filtered 上では連続）。
     fn sample_map() -> Vec<TimeSpan> {
         vec![
-            TimeSpan { filtered_start_ms: 0, orig_start_ms: 1000, dur_ms: 2000 },
-            TimeSpan { filtered_start_ms: 2000, orig_start_ms: 8000, dur_ms: 1500 },
+            TimeSpan {
+                filtered_start_ms: 0,
+                orig_start_ms: 1000,
+                dur_ms: 2000,
+            },
+            TimeSpan {
+                filtered_start_ms: 2000,
+                orig_start_ms: 8000,
+                dur_ms: 1500,
+            },
         ]
     }
 
@@ -347,10 +427,10 @@ mod tests {
     fn padded_ranges_disjoint_segments_get_full_padding() {
         // 十分離れた 2 区間（1000-2000ms, 5000-6000ms）は前後 200ms パディング付きで独立。
         let r = padded_sample_ranges(&[(1000, 2000), (5000, 6000)], 10_000 * SPMS);
-        assert_eq!(r, vec![
-            (800 * SPMS, 2200 * SPMS),
-            (4800 * SPMS, 6200 * SPMS),
-        ]);
+        assert_eq!(
+            r,
+            vec![(800 * SPMS, 2200 * SPMS), (4800 * SPMS, 6200 * SPMS),]
+        );
     }
 
     #[test]
@@ -358,10 +438,13 @@ mod tests {
         // 間隔 300ms（< 2×200ms パディング）の隣接区間。旧実装は 2100-2300ms 帯を
         // 二重に切り出し、境界の語が二重転写され得た。開始を前区間末尾でクランプする。
         let r = padded_sample_ranges(&[(1000, 2100), (2400, 3000)], 10_000 * SPMS);
-        assert_eq!(r, vec![
-            (800 * SPMS, 2300 * SPMS),
-            (2300 * SPMS, 3200 * SPMS), // 2200(=2400-200) でなく前区間末尾 2300 から
-        ]);
+        assert_eq!(
+            r,
+            vec![
+                (800 * SPMS, 2300 * SPMS),
+                (2300 * SPMS, 3200 * SPMS), // 2200(=2400-200) でなく前区間末尾 2300 から
+            ]
+        );
         // 互いに素（重複サンプルなし）。
         assert!(r[0].1 <= r[1].0);
     }
@@ -421,9 +504,101 @@ mod tests {
             let mut prev = 0u64;
             for t in 0..=4000 {
                 let v = filtered_ms_to_original(&m, t, at_end);
-                assert!(v >= prev, "non-monotonic at t={t} (at_end={at_end}): {v} < {prev}");
+                assert!(
+                    v >= prev,
+                    "non-monotonic at t={t} (at_end={at_end}): {v} < {prev}"
+                );
                 prev = v;
             }
         }
+    }
+
+    /// Same audio as `sample_map`, but with the 1 s silence gap `concat_ranges` inserts:
+    /// filtered 0-2000 → orig 1000-3000, gap 2000-3000, filtered 3000-4500 → orig 8000-9500.
+    fn gap_map() -> Vec<TimeSpan> {
+        vec![
+            TimeSpan {
+                filtered_start_ms: 0,
+                orig_start_ms: 1000,
+                dur_ms: 2000,
+            },
+            TimeSpan {
+                filtered_start_ms: 3000,
+                orig_start_ms: 8000,
+                dur_ms: 1500,
+            },
+        ]
+    }
+
+    #[test]
+    fn gap_start_snaps_to_next_span_end_snaps_to_previous() {
+        let m = gap_map();
+        // Inside the inserted gap: a segment start belongs to the next utterance, a segment end
+        // to the previous one. Neither may land in the removed 3000-8000 silence.
+        assert_eq!(filtered_ms_to_original(&m, 2500, false), 8000);
+        assert_eq!(filtered_ms_to_original(&m, 2500, true), 3000);
+        // Gap edges behave like the old contiguous boundary.
+        assert_eq!(filtered_ms_to_original(&m, 2000, true), 3000);
+        assert_eq!(filtered_ms_to_original(&m, 3000, false), 8000);
+        assert_eq!(filtered_ms_to_original(&m, 3000, true), 3000);
+        // Interior points are unaffected.
+        assert_eq!(filtered_ms_to_original(&m, 3500, false), 8500);
+        assert_eq!(filtered_ms_to_original(&m, 4500, true), 9500);
+    }
+
+    #[test]
+    fn gap_remap_is_monotonic_nondecreasing() {
+        let m = gap_map();
+        for at_end in [false, true] {
+            let mut prev = 0u64;
+            for t in 0..=5000 {
+                let v = filtered_ms_to_original(&m, t, at_end);
+                assert!(
+                    v >= prev,
+                    "non-monotonic at t={t} (at_end={at_end}): {v} < {prev}"
+                );
+                prev = v;
+            }
+        }
+    }
+
+    #[test]
+    fn concat_inserts_silence_between_separated_ranges_only() {
+        let pcm: Vec<f32> = (0..10_000 * SPMS).map(|i| i as f32).collect();
+        let gap = VAD_GAP_MS as usize * SPMS;
+        // Three ranges: the second is adjacent to the first (clamped padding), the third is not.
+        let ranges = [
+            (800 * SPMS, 2300 * SPMS),
+            (2300 * SPMS, 3200 * SPMS),
+            (5000 * SPMS, 6000 * SPMS),
+        ];
+        let (filtered, map) = concat_ranges(&pcm, &ranges);
+
+        let speech: usize = ranges.iter().map(|&(a, b)| b - a).sum();
+        assert_eq!(filtered.len(), speech + gap, "exactly one gap");
+        assert_eq!(map.len(), 3);
+        assert_eq!(map[0].filtered_start_ms, 0);
+        assert_eq!(map[1].filtered_start_ms, 1500, "adjacent range: no gap");
+        assert_eq!(
+            map[2].filtered_start_ms,
+            1500 + 900 + VAD_GAP_MS,
+            "separated range: after the gap"
+        );
+        assert_eq!((map[2].orig_start_ms, map[2].dur_ms), (5000, 1000));
+        // The gap is digital silence and the speech samples are copied verbatim.
+        let gap_start = 2400 * SPMS;
+        assert!(filtered[gap_start..gap_start + gap]
+            .iter()
+            .all(|&x| x == 0.0));
+        assert_eq!(filtered[gap_start + gap], (5000 * SPMS) as f32);
+        assert_eq!(filtered[0], (800 * SPMS) as f32);
+    }
+
+    #[test]
+    fn concat_without_ranges_is_empty() {
+        let pcm = vec![0.5f32; 16_000];
+        let (filtered, map) = concat_ranges(&pcm, &[]);
+        assert!(filtered.is_empty());
+        assert!(map.is_empty());
     }
 }
