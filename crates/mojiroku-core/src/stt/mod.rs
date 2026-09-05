@@ -14,8 +14,13 @@ use crate::schemas::{Segment, Transcript};
 
 const SAMPLE_RATE_F: f32 = 16_000.0;
 
-fn set_decoder_language<'a, 'b>(params: &mut FullParams<'a, 'b>, language: Option<&'a str>) {
+fn configure_decoder<'a, 'b>(params: &mut FullParams<'a, 'b>, language: Option<&'a str>) {
     params.set_language(language);
+    // no_context clears history only when full() starts. The bundled whisper.cpp still
+    // feeds decoded text into subsequent audio windows, allowing a mistaken phrase to
+    // reinforce itself for the rest of a recording. Disable that rolling prompt too.
+    // This keeps every window conditioned on its audio (ADR-0032).
+    params.set_n_max_text_ctx(0);
 }
 
 /// 文字起こしエンジンの抽象。
@@ -180,7 +185,7 @@ impl WhisperStt {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         // FullParams defaults to English. Calling set_language(None) is therefore required for
         // Whisper's language auto-detection; merely omitting this call silently forces English.
-        set_decoder_language(&mut params, language);
+        configure_decoder(&mut params, language);
         params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);
@@ -411,9 +416,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn decoder_disables_rolling_text_history() {
+        // no_context alone only clears history at the start of full(), not between its
+        // audio windows. Pin the separate history budget against dependency defaults.
+        for language in [None, Some("ja"), Some("en")] {
+            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+            configure_decoder(&mut params, language);
+            let debug = format!("{params:?}");
+            assert!(debug.contains("n_max_text_ctx: 0,"), "{debug}");
+        }
+    }
+
+    #[test]
     fn auto_language_clears_whisper_english_default() {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        set_decoder_language(&mut params, None);
+        configure_decoder(&mut params, None);
 
         let debug = format!("{params:?}");
         assert!(debug.contains("language: 0x0"), "{debug}");
@@ -422,7 +439,7 @@ mod tests {
     #[test]
     fn explicit_language_keeps_a_non_null_language_pointer() {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        set_decoder_language(&mut params, Some("ja"));
+        configure_decoder(&mut params, Some("ja"));
 
         let debug = format!("{params:?}");
         assert!(!debug.contains("language: 0x0"), "{debug}");
