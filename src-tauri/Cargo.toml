@@ -1,6 +1,6 @@
 [package]
 name = "mojiroku"
-version = "0.5.6"
+version = "0.5.7"
 description = "mojiroku — local transcription & meeting minutes"
 authors = ["daichi"]
 edition = "2021"
