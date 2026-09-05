@@ -56,7 +56,11 @@ fn main() {
             .transcribe(&pcm, language.as_deref())
             .expect("transcribe");
         let chars: usize = t.segments.iter().map(|s| s.text.chars().count()).sum();
-        let speech_ms: u64 = t.segments.iter().map(|s| s.end_ms - s.start_ms).sum();
+        let speech_ms: u64 = t
+            .segments
+            .iter()
+            .map(|s| s.end_ms.saturating_sub(s.start_ms))
+            .sum();
         eprintln!(
             "{label}: {} segments, {chars} chars, {speech_ms} ms covered, {:.1}s wall",
             t.segments.len(),

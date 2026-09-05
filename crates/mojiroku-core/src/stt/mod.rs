@@ -222,8 +222,7 @@ impl WhisperStt {
             // VAD でフィルタした場合は filtered-time → original-time に戻す。
             // 区間境界では開始は次区間へ、終了は前区間へ寄せ、無音ギャップの飛び越えを防ぐ。
             if let Some(map) = &time_map {
-                start_ms = filtered_ms_to_original(map, start_ms, false);
-                end_ms = filtered_ms_to_original(map, end_ms, true);
+                (start_ms, end_ms) = remap_segment(map, start_ms, end_ms);
             }
             segments.push(Segment {
                 // idx は保存時に insert_segments が enumerate で採番し直す（schemas.rs 参照）。
@@ -382,6 +381,16 @@ fn filtered_ms_to_original(map: &[TimeSpan], t_ms: u64, at_end: bool) -> u64 {
     // 区間内オフセットは区間長でクランプ（filtered 長超過・ギャップ内の終了もここで吸収）。
     let offset = (t_ms - chosen.filtered_start_ms).min(chosen.dur_ms);
     chosen.orig_start_ms + offset
+}
+
+/// Map one whisper segment's `[start, end]` (filtered ms) to original time, keeping
+/// `start <= end`. A segment that lies entirely inside an inserted silence gap would otherwise
+/// get its start snapped forward and its end snapped backward, and the inverted interval would
+/// reach the database and the SRT export. Such a segment collapses onto the next span's start.
+fn remap_segment(map: &[TimeSpan], start_ms: u64, end_ms: u64) -> (u64, u64) {
+    let s = filtered_ms_to_original(map, start_ms, false);
+    let e = filtered_ms_to_original(map, end_ms, true);
+    (s, e.max(s))
 }
 
 #[cfg(test)]
@@ -563,6 +572,29 @@ mod tests {
                     "non-monotonic at t={t} (at_end={at_end}): {v} < {prev}"
                 );
                 prev = v;
+            }
+        }
+    }
+
+    #[test]
+    fn gap_only_segment_collapses_instead_of_inverting() {
+        let m = gap_map();
+        // Both endpoints inside the inserted gap: start would snap to 8000, end back to 3000.
+        assert_eq!(remap_segment(&m, 2500, 2500), (8000, 8000));
+        assert_eq!(remap_segment(&m, 2200, 2800), (8000, 8000));
+        // Segments that touch speech on either side are unaffected.
+        assert_eq!(remap_segment(&m, 1500, 2500), (2500, 3000));
+        assert_eq!(remap_segment(&m, 2500, 3500), (8000, 8500));
+        assert_eq!(remap_segment(&m, 500, 4000), (1500, 9000));
+    }
+
+    #[test]
+    fn remapped_segments_never_invert() {
+        let m = gap_map();
+        for s in (0..=5000).step_by(50) {
+            for e in (s..=5000).step_by(50) {
+                let (os, oe) = remap_segment(&m, s, e);
+                assert!(os <= oe, "inverted: [{s},{e}] -> [{os},{oe}]");
             }
         }
     }
