@@ -1,6 +1,6 @@
 # 0008. VAD は whisper.cpp 内蔵 Silero を独立適用（whisper-rs の `state.full()` は内蔵VADをバイパス）
 
-- ステータス: 採用（ADR-0007 末尾「VAD 必須」の実装。spec §2/§6 の「Silero VAD（ONNX, sherpa 同梱）」を訂正）
+- ステータス: 採用（ADR-0007 末尾「VAD 必須」の実装。spec §2/§6 の「Silero VAD（ONNX, sherpa 同梱）」を訂正）。Refined by [ADR-0031](./ADR-0031_VAD区間の間に無音を挟み無音入力は空の文字起こしにする.md) (2026-09-05): the filtered PCM now carries 1 s of silence between non-adjacent spans, and a VAD result with no speech yields an empty transcript instead of the raw-PCM fallback.
 - 日付: 2026-06-24
 
 ## Context

@@ -17,6 +17,8 @@
 
 ## 現在の ADR
 
+- [ADR-0032: Disable rolling Whisper text history](ADR-0032_Disable_rolling_Whisper_text_history.md) — prevent decoded text from reinforcing repetition across audio windows.
+
 - [`ADR-0001_アーキテクチャ決定記録を残す.md`](ADR-0001_アーキテクチャ決定記録を残す.md) — 重要な技術判断を ADR として時系列で記録する方針
 - [`ADR-0002_デスクトップ基盤にTauri-v2を採用.md`](ADR-0002_デスクトップ基盤にTauri-v2を採用.md) — ローカル ML・$0 維持費・ネイティブ高速化のため Tauri v2
 - [`ADR-0003_MLをRust単一ランタイムに集約.md`](ADR-0003_MLをRust単一ランタイムに集約.md) — PyInstaller/torch を避け全 ML を Rust in-process で実装（案B）
@@ -47,3 +49,4 @@
 - [`ADR-0028_話者分離segmentationをpyannoteに差し替え.md`](ADR-0028_話者分離segmentationをpyannoteに差し替え.md) — segmentation の reverb-diarization-v1 が Rev Model Non-Production License（Outputs にも及ぶ）と判明 → pyannote-segmentation-3.0（MIT, CNRS）に差し替え。ADR-0009 の「被覆」指標は過剰検出を報奨していた（recall −3.4pt / precision +29pt）。出荷ゲートの purity 再スパイクは 2026-08-21 に実施し PASS（誤帰属は reverb の半分以下・製品粒度では同等以上。ただしフレーム単位では reverb が 5pt 上）。再現資材は `eval/diarization/`
 - [`ADR-0029_プロンプトはモデル自身のchatテンプレートで組む.md`](ADR-0029_プロンプトはモデル自身のchatテンプレートで組む.md) — 要約 sidecar が Qwen2.5 の ChatML を直書きしていたのをやめ、GGUF に焼かれた chat テンプレートを使う。非 Qwen 系は `<|im_end|>` を特殊トークンとして持たないため文字列として出力し生成が止まらなかった（実測: 非 Qwen 5 本すべてで漏れ / Qwen 6 本は 0 件）。**Qwen2.5 では旧実装と出力が完全一致**（GGUF のテンプレートが手書き ChatML と同一）。BOS はテンプレート次第なので決め打ちしない
 - [`ADR-0030_要約モデルを端末のメモリで段分けする.md`](ADR-0030_要約モデルを端末のメモリで段分けする.md) — 要約モデルを搭載メモリで段分けする。1 行 1 モデルのカタログ（DL 元・ハッシュ・サイズ・段・採用可否）に集約。**2026-08-30 に中・大の段を Qwen3.5-9B へ差し替えた**（決め手は機械採点ではなく議事録の中身——現行は 27,947 字の会議でも 410 字しか出さない。ピーク RSS は +0.27GB のみ）。小の段は軽い候補が実会議のゲートで 2 件落ちたため現行を据え置き。見るのは搭載メモリ（空きは起動ごとに変わり判定が安定しない）、分からなければ小さい方へ倒す（重すぎ＝クラッシュしうる / 軽すぎ＝質が落ちるだけ）。手元にあるモデルは黙って置き換えない（キャッシュ優先をテストで固定）。境界の値と品質ゲートは未測定
+- [`ADR-0031_VAD区間の間に無音を挟み無音入力は空の文字起こしにする.md`](ADR-0031_VAD区間の間に無音を挟み無音入力は空の文字起こしにする.md) — Issue #65, missing-text half. The Silero thresholds were not the cause: on a 257 s two-track meeting the VAD kept the quiet backchannels, but gluing the spans back to back made whisper merge utterances and drop short replies. Padded spans are now separated by 1 s of silence (segments 26→39 mic, 28→71 system, same content, ~20% more STT wall time), the time map snaps gap times to the neighbouring span, and a VAD result with no speech returns an empty transcript instead of feeding raw silence to whisper (60 s of silence used to come back as two hallucinated segments). Thresholds unchanged; chunked whisper calls and `no_context` rejected
