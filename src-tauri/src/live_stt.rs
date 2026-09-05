@@ -215,6 +215,8 @@ fn run_worker(
     let vad = if vad_path.exists() { Some(vad_path) } else { None };
     let vad_available = vad.is_some();
     let engine = match WhisperStt::load(&whisper_path, vad) {
+        // The early gate may admit quiet tails only if a VAD failure cannot decode raw audio.
+        Ok(e) if vad_available => e.with_required_vad(),
         Ok(e) => e,
         Err(_) => return,
     };

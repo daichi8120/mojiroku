@@ -6,10 +6,26 @@
 //!   defaults are whisper.cpp's: threshold 0.5, min_speech 250, min_silence 100
 //! Optional final argument: `leveled` (default, same quiet-input preparation as the product)
 //! or `raw` (inspect the original VAD behavior). Reported RMS always uses the original audio.
+//! Example with all numeric defaults: vad_spans_cli <audio> <models_dir> raw
 
 use std::path::PathBuf;
 
 use whisper_rs::{WhisperVadContext, WhisperVadContextParams, WhisperVadParams};
+
+fn parse_options(args: &[String]) -> (f32, i32, i32, &str) {
+    let (args, input_mode) = match args.last().map(String::as_str) {
+        Some(mode @ ("raw" | "leveled")) => (&args[..args.len() - 1], mode),
+        _ => (args, "leveled"),
+    };
+    assert!(
+        args.len() <= 3,
+        "expected up to three numeric VAD parameters"
+    );
+    let threshold = args.first().map(|s| s.parse().unwrap()).unwrap_or(0.5);
+    let min_speech = args.get(1).map(|s| s.parse().unwrap()).unwrap_or(250);
+    let min_silence = args.get(2).map(|s| s.parse().unwrap()).unwrap_or(100);
+    (threshold, min_speech, min_silence, input_mode)
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -17,14 +33,7 @@ fn main() {
         "usage: vad_spans_cli <audio> <models_dir> [threshold] [min_speech_ms] [min_silence_ms]",
     );
     let models_dir = PathBuf::from(args.get(2).expect("models_dir"));
-    let threshold: f32 = args.get(3).map(|s| s.parse().unwrap()).unwrap_or(0.5);
-    let min_speech: i32 = args.get(4).map(|s| s.parse().unwrap()).unwrap_or(250);
-    let min_silence: i32 = args.get(5).map(|s| s.parse().unwrap()).unwrap_or(100);
-    let input_mode = args.get(6).map(String::as_str).unwrap_or("leveled");
-    assert!(
-        matches!(input_mode, "leveled" | "raw"),
-        "input mode must be leveled or raw"
-    );
+    let (threshold, min_speech, min_silence, input_mode) = parse_options(&args[3..]);
 
     let pcm = mojiroku_core::audio::decode_to_pcm16k_mono(audio).expect("decode");
     let total_ms = pcm.len() as u64 * 1000 / 16_000;
@@ -74,4 +83,39 @@ fn main() {
         "# spans={n} kept={kept_ms}ms ({:.1}% of audio)",
         kept_ms as f64 * 100.0 / total_ms as f64
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trailing_mode_works_with_any_number_of_numeric_options() {
+        for mode in ["raw", "leveled"] {
+            for count in 0..=3 {
+                let mut args: Vec<String> = ["0.7", "350", "200"]
+                    .iter()
+                    .take(count)
+                    .map(|s| s.to_string())
+                    .collect();
+                args.push(mode.to_string());
+                assert_eq!(
+                    parse_options(&args),
+                    (
+                        if count > 0 { 0.7 } else { 0.5 },
+                        if count > 1 { 350 } else { 250 },
+                        if count > 2 { 200 } else { 100 },
+                        mode
+                    )
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn mode_defaults_to_leveled() {
+        assert_eq!(parse_options(&[]), (0.5, 250, 100, "leveled"));
+        let args = ["0.7", "350", "200"].map(String::from);
+        assert_eq!(parse_options(&args), (0.7, 350, 200, "leveled"));
+    }
 }

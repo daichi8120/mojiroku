@@ -34,6 +34,7 @@ pub struct WhisperStt {
     ctx: WhisperContext,
     /// VAD モデル（Silero, ggml）。Some なら無音区間をスキップしハルシネーションを抑制。
     vad_model_path: Option<PathBuf>,
+    require_vad: bool,
 }
 
 impl WhisperStt {
@@ -60,7 +61,15 @@ impl WhisperStt {
         Ok(Self {
             ctx,
             vad_model_path,
+            require_vad: false,
         })
+    }
+
+    /// Require successful VAD on every call, including after a cached file is removed.
+    /// Live workers use this when admitting quiet tails that must not reach raw Whisper.
+    pub fn with_required_vad(mut self) -> Self {
+        self.require_vad = true;
+        self
     }
 }
 
@@ -177,8 +186,12 @@ impl WhisperStt {
                     }
                     (Cow::Owned(filtered), Some(map))
                 }
+                Err(error) if self.require_vad => return Err(error),
                 Err(_) => (Cow::Borrowed(pcm16k_mono), None),
             },
+            None if self.require_vad => {
+                return Err(CoreError::Model("VAD model is required".into()));
+            }
             None => (Cow::Borrowed(pcm16k_mono), None),
         };
 
@@ -524,6 +537,7 @@ mod tests {
             words(&raw).split_whitespace().count() >= 10,
             "the decoder can hear this fixture"
         );
+        engine = engine.with_required_vad();
         engine.vad_model_path = Some(models.join(crate::models::DEFAULT_VAD_MODEL));
         let filtered = engine.transcribe(&pcm, None).unwrap();
         assert_eq!(
@@ -540,6 +554,39 @@ mod tests {
             .unwrap()
             .segments
             .is_empty());
+
+        use std::io::Write;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let broken_vad = std::env::temp_dir().join(format!(
+            "mojiroku-broken-vad-{}-{stamp}.bin",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&broken_vad)
+            .unwrap()
+            .write_all(b"invalid VAD model")
+            .unwrap();
+        engine.vad_model_path = Some(broken_vad.clone());
+        let corrupt = engine.transcribe(&pcm, None);
+        std::fs::remove_file(&broken_vad).unwrap();
+        assert!(
+            corrupt.is_err(),
+            "required VAD must not fall back to raw PCM"
+        );
+        assert!(
+            engine.transcribe(&pcm, None).is_err(),
+            "removed VAD must fail closed"
+        );
+        engine.vad_model_path = None;
+        assert!(
+            engine.transcribe(&pcm, None).is_err(),
+            "missing VAD must fail closed"
+        );
     }
 
     #[test]
