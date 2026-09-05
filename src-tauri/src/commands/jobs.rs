@@ -14,11 +14,47 @@ use tauri::State;
 /// `super::insert_and_enqueue_transcribe`（録音停止・ファイル取り込みのフリップ）からも使う。
 pub(crate) fn snapshot_params(app: &AppHandle, diarize: bool) -> Result<JobParams, String> {
     let cfg = load_settings(app)?;
-    Ok(JobParams {
+    Ok(params_from_settings(&cfg, diarize))
+}
+
+fn params_from_settings(cfg: &crate::settings::Settings, diarize: bool) -> JobParams {
+    JobParams {
         diarize,
         stt_lang: cfg.effective_transcribe_language().map(str::to_string),
+        transcription_model: mojiroku_core::models::select_whisper_model(Some(
+            &cfg.transcription_model,
+        ))
+        .file
+        .to_string(),
         lang: cfg.effective_language().to_string(),
-    })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queued_model_is_independent_of_later_settings_changes() {
+        use mojiroku_core::models::{DEFAULT_WHISPER_MODEL, FULL_WHISPER_MODEL};
+        let mut cfg = crate::settings::Settings {
+            transcription_model: FULL_WHISPER_MODEL.to_string(),
+            ..Default::default()
+        };
+        let queued = params_from_settings(&cfg, true);
+        cfg.transcription_model = DEFAULT_WHISPER_MODEL.to_string();
+        assert_eq!(queued.transcription_model, FULL_WHISPER_MODEL);
+        assert!(queued.diarize);
+        assert_eq!(
+            params_from_settings(&cfg, false).transcription_model,
+            DEFAULT_WHISPER_MODEL
+        );
+        cfg.transcription_model = "unknown-model.bin".to_string();
+        assert_eq!(
+            params_from_settings(&cfg, false).transcription_model,
+            DEFAULT_WHISPER_MODEL
+        );
+    }
 }
 
 /// 既存録音を（再）文字起こしするジョブを投入する。`diarize=true` なら STT に話者分離も含める。
@@ -57,7 +93,10 @@ pub(crate) fn diarize_recording(
 ) -> Result<StartJobResult, String> {
     // 会議は enqueue 前に弾く（doomed なジョブ行を作らず即フィードバック）。
     let detail = resolve_recording_detail(&store, &recording_id)?;
-    if matches!(detail.recording.source_type, mojiroku_core::SourceType::Live) {
+    if matches!(
+        detail.recording.source_type,
+        mojiroku_core::SourceType::Live
+    ) {
         return Err("error.job.already_diarized".to_string());
     }
     // diarize ジョブに話者分離フラグは不要だが、params の形は共通なので false を入れる。

@@ -458,6 +458,11 @@ const ja = {
     loadFailed: (e: string) => `設定の読み込みに失敗: ${e}`,
     saveFailed: (e: string) => `設定の保存に失敗: ${e}`,
     models: {
+      transcriptionPickerLabel: "録音・音声ファイルに使うモデル",
+      liveModelMissing: "録音中の文字起こしには turbo と、声のある区間を見つけるモデル（合計最大 575 MB）が必要です。録音・音声ファイル用のモデルを変えずに、別途ダウンロードできます。取得後、新しく開始する会議の録音から使えます。",
+      downloadLiveModel: "録音中の文字起こし用モデルをダウンロード",
+      transcriptionPickerDesc: "large-v3 は処理に時間がかかりますが、認識精度が上がる場合があります。録音中の文字起こしには常に turbo を使います。取得済みのモデルは削除しません。",
+      transcriptionWillDownload: (size: string) => `次の録音・音声ファイルの文字起こし時に ${size} をダウンロードします。`,
       desc: "すべてこの Mac に保存され、オフラインで動作します。",
       stt: "文字起こし",
       summarize: "要約",

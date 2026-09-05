@@ -14,6 +14,28 @@ use crate::schemas::{Segment, Transcript};
 
 const SAMPLE_RATE_F: f32 = 16_000.0;
 
+/// Decoder choices measured by the public-audio evaluation harness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodingStrategy {
+    Greedy,
+    BeamSearch5,
+}
+
+impl DecodingStrategy {
+    fn sampling(self) -> SamplingStrategy {
+        match self {
+            Self::Greedy => SamplingStrategy::Greedy { best_of: 1 },
+            Self::BeamSearch5 => SamplingStrategy::BeamSearch {
+                beam_size: 5,
+                patience: -1.0,
+            },
+        }
+    }
+}
+
+/// Keep the file default conservative until measured gains justify the cost (Issue #77).
+pub const FILE_DECODING: DecodingStrategy = DecodingStrategy::Greedy;
+
 fn configure_decoder<'a, 'b>(params: &mut FullParams<'a, 'b>, language: Option<&'a str>) {
     params.set_language(language);
     // no_context clears history only when full() starts. The bundled whisper.cpp still
@@ -79,7 +101,7 @@ impl SttEngine for WhisperStt {
         // Err に変換。シールド無しだと例外が tokio の catch_unwind に達してプロセスごと
         // abort する（docs/error.md の実クラッシュ）。
         crate::ffi_guard::guard("文字起こし (whisper)", || {
-            self.transcribe_inner(pcm16k_mono, language, None)
+            self.transcribe_inner(pcm16k_mono, language, DecodingStrategy::Greedy, None)
         })?
     }
 }
@@ -127,8 +149,20 @@ impl WhisperStt {
         language: Option<&str>,
         on_pct: Option<&dyn Fn(i32)>,
     ) -> Result<Transcript> {
+        self.transcribe_with_decoding(pcm16k_mono, language, FILE_DECODING, on_pct)
+    }
+
+    /// Explicit decoding for offline comparisons, with the same VAD and FFI protection.
+    /// Live transcription uses `SttEngine::transcribe`, which always selects greedy.
+    pub fn transcribe_with_decoding(
+        &self,
+        pcm16k_mono: &[f32],
+        language: Option<&str>,
+        decoding: DecodingStrategy,
+        on_pct: Option<&dyn Fn(i32)>,
+    ) -> Result<Transcript> {
         crate::ffi_guard::guard("文字起こし (whisper)", || {
-            self.transcribe_inner(pcm16k_mono, language, on_pct)
+            self.transcribe_inner(pcm16k_mono, language, decoding, on_pct)
         })?
     }
 }
@@ -138,6 +172,7 @@ impl WhisperStt {
         &self,
         pcm16k_mono: &[f32],
         language: Option<&str>,
+        decoding: DecodingStrategy,
         on_pct: Option<&dyn Fn(i32)>,
     ) -> Result<Transcript> {
         let mut state = self
@@ -187,7 +222,10 @@ impl WhisperStt {
                     (Cow::Owned(filtered), Some(map))
                 }
                 Err(error) if self.require_vad => return Err(error),
-                Err(_) => (Cow::Borrowed(pcm16k_mono), None),
+                Err(error) => {
+                    eprintln!("stt vad: filtering failed, using raw audio: {error}");
+                    (Cow::Borrowed(pcm16k_mono), None)
+                }
             },
             None if self.require_vad => {
                 return Err(CoreError::Model("VAD model is required".into()));
@@ -195,7 +233,7 @@ impl WhisperStt {
             None => (Cow::Borrowed(pcm16k_mono), None),
         };
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let mut params = FullParams::new(decoding.sampling());
         // FullParams defaults to English. Calling set_language(None) is therefore required for
         // Whisper's language auto-detection; merely omitting this call silently forces English.
         configure_decoder(&mut params, language);
@@ -594,11 +632,26 @@ mod tests {
         // no_context alone only clears history at the start of full(), not between its
         // audio windows. Pin the separate history budget against dependency defaults.
         for language in [None, Some("ja"), Some("en")] {
-            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-            configure_decoder(&mut params, language);
-            let debug = format!("{params:?}");
-            assert!(debug.contains("n_max_text_ctx: 0,"), "{debug}");
+            for decoding in [DecodingStrategy::Greedy, DecodingStrategy::BeamSearch5] {
+                let mut params = FullParams::new(decoding.sampling());
+                configure_decoder(&mut params, language);
+                let debug = format!("{params:?}");
+                assert!(debug.contains("n_max_text_ctx: 0,"), "{debug}");
+            }
         }
+    }
+
+    #[test]
+    fn decoder_choices_reach_whisper_with_the_requested_search_width() {
+        let greedy = format!("{:?}", FullParams::new(DecodingStrategy::Greedy.sampling()));
+        let beam = format!(
+            "{:?}",
+            FullParams::new(DecodingStrategy::BeamSearch5.sampling())
+        );
+        assert!(greedy.contains("strategy: 0,"), "{greedy}");
+        assert!(greedy.contains("best_of: 1"), "{greedy}");
+        assert!(beam.contains("strategy: 1,"), "{beam}");
+        assert!(beam.contains("beam_size: 5"), "{beam}");
     }
 
     #[test]

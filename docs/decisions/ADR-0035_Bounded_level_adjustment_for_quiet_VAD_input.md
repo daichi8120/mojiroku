@@ -35,6 +35,8 @@ The live worker must allow quiet tails to reach this shared path. With a VAD mod
 
 When the live worker configures VAD, it also enables `WhisperStt::with_required_vad()`. A VAD initialization or inference error then returns an error to the worker, which skips that preview attempt without affecting recording. This prevents a corrupt, unreadable, or subsequently removed model from silently falling back to raw Whisper after the early RMS gate has admitted quiet audio. Other STT callers retain their existing fallback policy unless they explicitly require VAD.
 
+Failed live inference drains paired pending buffers back to the existing 14-second tail limit. Persistent VAD errors therefore cannot accumulate the entire meeting in the live worker; a repeated-failure test covers the bound and track alignment.
+
 The diagnostic CLI recognizes a trailing `raw` or `leveled` mode independently of the optional numeric parameters: `vad_spans_cli <audio> <models_dir> raw` uses all default thresholds.
 
 The cutoff, target, percentile, and cap are a bounded initial policy, not universally optimal values. Quiet inputs with varied speaker levels and background speech still need real-use validation. VAD can admit background speech; raising the input level does not distinguish intended speech from an intelligible background conversation.

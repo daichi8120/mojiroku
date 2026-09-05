@@ -103,7 +103,15 @@ async fn run_one_job(app: &AppHandle, job: Job) {
     if heavy_job_busy() {
         let store = app.state::<SqliteStore>();
         let _ = store.set_job_stage(&job_id, "queued");
-        emit_lifecycle(app, &job_id, &recording_id, &kind, "running", Some("queued"), None);
+        emit_lifecycle(
+            app,
+            &job_id,
+            &recording_id,
+            &kind,
+            "running",
+            Some("queued"),
+            None,
+        );
     }
     // 重い ML を全体 1 本に直列化（既存セマフォ流用・ADR-0021）。permit は処理完了で手放す。
     let permit = acquire_heavy_job_permit().await;
@@ -129,7 +137,15 @@ async fn run_one_job(app: &AppHandle, job: Job) {
             if let Err(e) = store.set_job_failed(&job_id, &msg) {
                 eprintln!("[jobs] set_job_failed 失敗: {e}");
             }
-            emit_lifecycle(app, &job_id, &recording_id, &kind, "failed", None, Some(&msg));
+            emit_lifecycle(
+                app,
+                &job_id,
+                &recording_id,
+                &kind,
+                "failed",
+                None,
+                Some(&msg),
+            );
         }
     }
 }
@@ -187,6 +203,7 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
 
     let plan = resolve_transcribe_plan(&rec_dir, &id, source_type, job.params.diarize)?;
     let stt_lang = job.params.stt_lang.clone();
+    let model = mojiroku_core::models::select_whisper_model(Some(&job.params.transcription_model));
     let lang = mojiroku_core::lang::Lang::from_code(&job.params.lang);
     let progress = job_progress_callback(app.clone(), job.id.clone(), id.clone(), job.kind.clone());
 
@@ -200,27 +217,32 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
         String,
     > {
         let cb = progress;
+        let options = mojiroku_core::TranscriptionOptions {
+            language: stt_lang.as_deref(),
+            model,
+            ..Default::default()
+        };
         match plan {
-            TranscribePlan::DualTrack { mic, system } => mojiroku_core::transcribe_meeting_dual_track(
+            TranscribePlan::DualTrack { mic, system } => mojiroku_core::transcribe_meeting_dual_track_with_options(
                 &mic,
                 &system,
                 &models_dir,
-                stt_lang.as_deref(),
+                options,
                 lang,
                 mic_offset_ms,
                 Some(&cb),
             )
             .map_err(core_err),
-            TranscribePlan::Diarize(path) => mojiroku_core::transcribe_and_diarize_file(
+            TranscribePlan::Diarize(path) => mojiroku_core::transcribe_and_diarize_file_with_options(
                 &path,
                 &models_dir,
-                stt_lang.as_deref(),
+                options,
                 lang,
                 Some(&cb),
             )
             .map_err(core_err),
             TranscribePlan::SttOnly(path) => {
-                mojiroku_core::transcribe_file(&path, &models_dir, stt_lang.as_deref(), Some(&cb))
+                mojiroku_core::transcribe_file_with_options(&path, &models_dir, options, Some(&cb))
                     .map(|t| (t, Vec::new(), Vec::new()))
                     .map_err(core_err)
             }
@@ -238,9 +260,11 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     // 話者分離を含んだ場合は声紋も保存（ライブラリ照合・ADR-0018）。best-effort。
     if !embeddings.is_empty() {
-        if let Err(e) =
-            store.save_speaker_embeddings(&id, &embeddings, mojiroku_core::models::DEFAULT_DIAR_EMB_MODEL)
-        {
+        if let Err(e) = store.save_speaker_embeddings(
+            &id,
+            &embeddings,
+            mojiroku_core::models::DEFAULT_DIAR_EMB_MODEL,
+        ) {
             eprintln!("[jobs] 声紋の保存に失敗（本文は保存済み・照合のみ無効）: {e}");
         }
     }
@@ -267,7 +291,9 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
             // 文字起こし前は割当先が無い。先に transcribe すること。
             return Err("error.job.no_transcript".to_string());
         }
-        let old_emb = store.get_speaker_embeddings(&id).map_err(|e| e.to_string())?;
+        let old_emb = store
+            .get_speaker_embeddings(&id)
+            .map_err(|e| e.to_string())?;
         // 旧 (Speaker, 声紋) ペア。声紋を持つ話者だけ（引き継ぎ元）。
         let old_pairs: Vec<(mojiroku_core::Speaker, Vec<f32>)> = detail
             .speakers

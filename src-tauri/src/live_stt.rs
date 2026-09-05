@@ -170,6 +170,14 @@ fn drain_front(mic16k: &mut Vec<f32>, sys16k: &mut Vec<f32>, n: usize) {
     sys16k.drain(..s);
 }
 
+/// Keep retry buffers bounded when inference cannot produce a drain point.
+fn bound_failed_tail(mic16k: &mut Vec<f32>, sys16k: &mut Vec<f32>, tail_ms: u64) {
+    let drop_ms = tail_ms.saturating_sub(MAX_TAIL_MS);
+    if drop_ms > 0 {
+        drain_front(mic16k, sys16k, ms_to_samples(drop_ms));
+    }
+}
+
 /// TICK までの残りを stop を見ながら細かくスリープ（stop 応答 ~80ms）。
 fn sleep_remainder(t0: Instant, stop: &AtomicBool) {
     while t0.elapsed() < TICK {
@@ -313,6 +321,7 @@ fn run_worker(
         let transcript = match engine.transcribe(&tail, language) {
             Ok(t) => t,
             Err(_) => {
+                bound_failed_tail(&mut mic16k, &mut sys16k, tail_ms);
                 sleep_remainder(t0, stop);
                 continue;
             }
@@ -360,6 +369,22 @@ fn run_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_inference_failures_keep_a_bounded_aligned_tail() {
+        let mut mic = Vec::new();
+        let mut system = Vec::new();
+        for tick in 0..20 {
+            mic.extend(vec![tick as f32; ms_to_samples(3500)]);
+            system.extend(vec![-(tick as f32); ms_to_samples(3500)]);
+            let tail_ms = mic.len() as u64 * 1000 / TARGET_RATE as u64;
+            bound_failed_tail(&mut mic, &mut system, tail_ms);
+            assert!(mic.len() <= ms_to_samples(MAX_TAIL_MS));
+            assert_eq!(mic.len(), system.len());
+            assert_eq!(mic.last(), Some(&(tick as f32)));
+        }
+        assert!(mic.iter().zip(&system).all(|(a, b)| *a == -*b));
+    }
 
     #[test]
     fn quiet_live_tail_reaches_vad_below_the_old_rms_gate() {
