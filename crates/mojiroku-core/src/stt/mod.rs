@@ -386,11 +386,24 @@ fn filtered_ms_to_original(map: &[TimeSpan], t_ms: u64, at_end: bool) -> u64 {
 /// Map one whisper segment's `[start, end]` (filtered ms) to original time, keeping
 /// `start <= end`. A segment that lies entirely inside an inserted silence gap would otherwise
 /// get its start snapped forward and its end snapped backward, and the inverted interval would
-/// reach the database and the SRT export. Such a segment collapses onto the next span's start.
+/// reach the database and the SRT export. Such a segment is re-anchored at the next span's
+/// start and keeps whisper's own duration, clamped to that span, so it still has a nonzero
+/// interval for SRT cues and for speaker assignment by overlap (a zero-length whisper segment
+/// stays zero-length, as it does without a gap).
 fn remap_segment(map: &[TimeSpan], start_ms: u64, end_ms: u64) -> (u64, u64) {
     let s = filtered_ms_to_original(map, start_ms, false);
     let e = filtered_ms_to_original(map, end_ms, true);
-    (s, e.max(s))
+    if e >= s {
+        return (s, e);
+    }
+    let dur = end_ms.saturating_sub(start_ms);
+    match map.iter().find(|sp| sp.filtered_start_ms > start_ms) {
+        Some(next) => (
+            next.orig_start_ms,
+            next.orig_start_ms + dur.min(next.dur_ms),
+        ),
+        None => (s, s),
+    }
 }
 
 #[cfg(test)]
@@ -577,11 +590,28 @@ mod tests {
     }
 
     #[test]
-    fn gap_only_segment_collapses_instead_of_inverting() {
+    fn gap_only_segment_keeps_its_duration_on_the_next_span() {
         let m = gap_map();
         // Both endpoints inside the inserted gap: start would snap to 8000, end back to 3000.
+        // The segment is re-anchored at the next span with whisper's own 600 ms duration, so
+        // SRT cues and overlap-based speaker assignment still see a real interval.
+        assert_eq!(remap_segment(&m, 2200, 2800), (8000, 8600));
+        // A zero-length whisper segment stays zero-length (unchanged behaviour without gaps).
         assert_eq!(remap_segment(&m, 2500, 2500), (8000, 8000));
-        assert_eq!(remap_segment(&m, 2200, 2800), (8000, 8000));
+        // The carried duration is clamped to the next span.
+        let short_next = vec![
+            TimeSpan {
+                filtered_start_ms: 0,
+                orig_start_ms: 1000,
+                dur_ms: 2000,
+            },
+            TimeSpan {
+                filtered_start_ms: 3000,
+                orig_start_ms: 8000,
+                dur_ms: 300,
+            },
+        ];
+        assert_eq!(remap_segment(&short_next, 2100, 2900), (8000, 8300));
         // Segments that touch speech on either side are unaffected.
         assert_eq!(remap_segment(&m, 1500, 2500), (2500, 3000));
         assert_eq!(remap_segment(&m, 2500, 3500), (8000, 8500));
