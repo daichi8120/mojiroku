@@ -17,6 +17,8 @@
 
 ## 現在の ADR
 
+- [ADR-0035: Bounded level adjustment for quiet VAD input](ADR-0035_Bounded_level_adjustment_for_quiet_VAD_input.md) — preserve quiet speech without changing Whisper audio or restoring the silence fallback.
+
 - [ADR-0032: Disable rolling Whisper text history](ADR-0032_Disable_rolling_Whisper_text_history.md) — prevent decoded text from reinforcing repetition across audio windows.
 
 - [`ADR-0001_アーキテクチャ決定記録を残す.md`](ADR-0001_アーキテクチャ決定記録を残す.md) — 重要な技術判断を ADR として時系列で記録する方針

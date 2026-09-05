@@ -4,6 +4,8 @@
 //!
 //! Usage: cargo run --release --example vad_spans_cli -- <audio> <models_dir> [threshold] [min_speech_ms] [min_silence_ms]
 //!   defaults are whisper.cpp's: threshold 0.5, min_speech 250, min_silence 100
+//! Optional final argument: `leveled` (default, same quiet-input preparation as the product)
+//! or `raw` (inspect the original VAD behavior). Reported RMS always uses the original audio.
 
 use std::path::PathBuf;
 
@@ -18,6 +20,11 @@ fn main() {
     let threshold: f32 = args.get(3).map(|s| s.parse().unwrap()).unwrap_or(0.5);
     let min_speech: i32 = args.get(4).map(|s| s.parse().unwrap()).unwrap_or(250);
     let min_silence: i32 = args.get(5).map(|s| s.parse().unwrap()).unwrap_or(100);
+    let input_mode = args.get(6).map(String::as_str).unwrap_or("leveled");
+    assert!(
+        matches!(input_mode, "leveled" | "raw"),
+        "input mode must be leveled or raw"
+    );
 
     let pcm = mojiroku_core::audio::decode_to_pcm16k_mono(audio).expect("decode");
     let total_ms = pcm.len() as u64 * 1000 / 16_000;
@@ -32,7 +39,12 @@ fn main() {
         p.set_threshold(threshold);
         p.set_min_speech_duration(min_speech);
         p.set_min_silence_duration(min_silence);
-        ctx.segments_from_samples(p, &pcm)
+        let analysis = if input_mode == "raw" {
+            std::borrow::Cow::Borrowed(pcm.as_slice())
+        } else {
+            mojiroku_core::stt::vad_analysis_pcm(&pcm)
+        };
+        ctx.segments_from_samples(p, &analysis)
     })
     .expect("vad (foreign exception)")
     .expect("vad");
@@ -40,6 +52,7 @@ fn main() {
     let mut kept_ms = 0u64;
     let mut n = 0usize;
     println!("# threshold={threshold} min_speech={min_speech} min_silence={min_silence} total={total_ms}ms");
+    println!("# VAD input={input_mode}; RMS below is measured on original audio");
     println!("#   start_ms    end_ms   dur_ms  rms_db");
     for seg in segs {
         let s_ms = (seg.start.max(0.0) * 10.0) as u64;
