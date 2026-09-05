@@ -365,7 +365,10 @@ mod tests {
             .map(|i| (i as f32 * 0.1).sin() * 0.0003 * 2.0_f32.sqrt())
             .collect();
         assert!(rms(&tail) < SILENCE_RMS);
-        assert!(!skip_silent_tail(&tail, true), "quiet speech must reach VAD");
+        assert!(
+            !skip_silent_tail(&tail, true),
+            "quiet speech must reach VAD"
+        );
         assert!(skip_silent_tail(&tail, false), "keep the guard without VAD");
     }
 
