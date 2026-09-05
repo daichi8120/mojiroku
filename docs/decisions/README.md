@@ -17,6 +17,8 @@
 
 ## 現在の ADR
 
+- [ADR-0032: Disable rolling Whisper text history](ADR-0032_Disable_rolling_Whisper_text_history.md) — prevent decoded text from reinforcing repetition across audio windows.
+
 - [`ADR-0001_アーキテクチャ決定記録を残す.md`](ADR-0001_アーキテクチャ決定記録を残す.md) — 重要な技術判断を ADR として時系列で記録する方針
 - [`ADR-0002_デスクトップ基盤にTauri-v2を採用.md`](ADR-0002_デスクトップ基盤にTauri-v2を採用.md) — ローカル ML・$0 維持費・ネイティブ高速化のため Tauri v2
 - [`ADR-0003_MLをRust単一ランタイムに集約.md`](ADR-0003_MLをRust単一ランタイムに集約.md) — PyInstaller/torch を避け全 ML を Rust in-process で実装（案B）
