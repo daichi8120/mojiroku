@@ -47,9 +47,11 @@ export const summaryModelInfo = () => invoke<SummaryModelInfo>("summary_model_in
 
 export type TranscriptionModelInfo = {
   default_file: string;
+  live_ready: boolean;
   choices: { file: string; label: string; size: string; downloaded: boolean }[];
 };
 export const transcriptionModelInfo = () => invoke<TranscriptionModelInfo>("transcription_model_info");
+export const downloadLiveTranscriptionModels = () => invoke<void>("download_live_transcription_models");
 
 /**
  * 音声ファイル → 原本コピー確定 → 文字起こしジョブを投入して即返す（ADR-0024）。

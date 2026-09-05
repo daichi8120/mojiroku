@@ -22,6 +22,31 @@ Screenshot: the actual Settings component in an isolated browser preview with
 mocked Tauri responses. It demonstrates layout, selection, and the download notice;
 model inference was verified separately through the real Rust pipeline.
 
+### Preparing live transcription on a fresh installation
+
+Full-model offline jobs do not download turbo. When turbo or Silero is missing,
+Settings shows a separate **Download live transcription** action (up to 575 MB).
+It prepares both live models with checksum verification and leaves the offline
+selection unchanged. Download/queued progress is shown; errors remain visible and
+the action can be retried. The action shares the heavy-job lock with offline jobs
+so simultaneous downloads cannot write the same `.part` file.
+
+![Live-model setup while full large-v3 stays selected](../images/live-transcription-setup.png)
+
+This is the isolated Settings preview with mocked Tauri responses. The underlying
+download helper was tested separately against the real model host from a cache
+containing only a placeholder offline model. Both live models were prepared, the
+offline file was untouched, and a second call reused the downloaded turbo file.
+Run that network regression explicitly:
+
+```bash
+cargo test -p mojiroku-core models::tests::prepares_live_models_with_only_full_model_cached -- --ignored --exact
+```
+
+Live previews are created when a meeting starts, so a meeting already in progress
+must be restarted to use newly downloaded models. Offline transcription never
+depends on this optional preparation succeeding.
+
 ## Selection and job semantics
 
 `models::WHISPER_MODELS` is the allowlist and metadata source for file names, labels,

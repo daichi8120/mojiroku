@@ -23,6 +23,7 @@ pub(crate) struct TranscriptionModelChoice {
 pub(crate) struct TranscriptionModelInfo {
     default_file: String,
     choices: Vec<TranscriptionModelChoice>,
+    live_ready: bool,
 }
 
 #[tauri::command]
@@ -31,6 +32,7 @@ pub(crate) fn transcription_model_info(app: AppHandle) -> Result<TranscriptionMo
     let models_dir = resolve_models_dir(&app)?;
     Ok(TranscriptionModelInfo {
         default_file: DEFAULT_WHISPER_MODEL.to_string(),
+        live_ready: mojiroku_core::models::live_transcription_models_ready(&models_dir),
         choices: WHISPER_MODELS
             .iter()
             .map(|model| TranscriptionModelChoice {
@@ -45,6 +47,22 @@ pub(crate) fn transcription_model_info(app: AppHandle) -> Result<TranscriptionMo
             })
             .collect(),
     })
+}
+
+/// Download the fixed live-preview models without changing the offline selection.
+#[tauri::command]
+pub(crate) async fn download_live_transcription_models(app: AppHandle) -> Result<(), String> {
+    let models_dir = resolve_models_dir(&app)?;
+    // Offline jobs write to the same cache. Share their lock to avoid .part-file races.
+    let _permit = acquire_heavy_job(&app, "model://progress").await;
+    tauri::async_runtime::spawn_blocking(move || {
+        let progress =
+            |done, total| emit_progress(&app, "model://progress", "download", done, total);
+        mojiroku_core::models::ensure_live_transcription_models(&models_dir, Some(&progress))
+            .map_err(core_err)
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 /// What the Settings screen shows: the summary model automatic picks for this Mac, plus

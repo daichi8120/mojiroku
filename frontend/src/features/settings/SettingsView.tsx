@@ -9,7 +9,7 @@ import { useApp } from "@/lib/app";
 import { translateError, useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { openFeedbackForm } from "@/lib/feedback";
-import { byokKeyName, type Settings } from "@/lib/types";
+import { byokKeyName, type Progress, type Settings } from "@/lib/types";
 import {
   deleteSecret,
   getSettings,
@@ -17,8 +17,10 @@ import {
   setSecret,
   summaryModelInfo,
   transcriptionModelInfo,
+  downloadLiveTranscriptionModels,
   type SummaryModelInfo,
   type TranscriptionModelInfo,
+  useTauriEvent,
 } from "@/lib/tauri";
 import { useSettingsPatch } from "@/lib/useSettingsPatch";
 import { Button, StatusBadge, Toggle } from "@/components/ui";
@@ -61,6 +63,11 @@ export function SettingsView() {
   // 取得に失敗したら行は出すが型名は空にする（嘘の型名を出すより無いほうがよい）。
   const [summaryModel, setSummaryModel] = useState<SummaryModelInfo | null>(null);
   const [transcriptionModel, setTranscriptionModel] = useState<TranscriptionModelInfo | null>(null);
+  const [liveModelBusy, setLiveModelBusy] = useState(false);
+  const [liveModelProgress, setLiveModelProgress] = useState<Progress | null>(null);
+  useTauriEvent<Progress>("model://progress", (progress) => {
+    if (liveModelBusy) setLiveModelProgress(progress);
+  });
   useEffect(() => {
     transcriptionModelInfo().then(setTranscriptionModel).catch(() => {});
   }, []);
@@ -97,6 +104,20 @@ export function SettingsView() {
   const shownTranscriptionModel = transcriptionModel?.choices.find(
     (model) => model.file === cfg?.transcription_model.trim(),
   ) ?? transcriptionModel?.choices.find((model) => model.file === transcriptionModel.default_file);
+
+  const downloadLiveModels = async () => {
+    if (liveModelBusy) return;
+    setLiveModelBusy(true);
+    setLiveModelProgress(null);
+    try {
+      await downloadLiveTranscriptionModels();
+      setTranscriptionModel(await transcriptionModelInfo());
+    } catch (error) {
+      toast(translateError(error, t), "error");
+    } finally {
+      setLiveModelBusy(false);
+    }
+  };
 
   // 入力中の API キー（平文。保存後は state に残さない）と、キーチェーン保存済みフラグ。
   const [apiKey, setApiKey] = useState("");
@@ -239,6 +260,18 @@ export function SettingsView() {
                     <p className="border-b border-line px-4 py-2.5 text-[11.5px] text-muted">
                       {t.settings.models.transcriptionWillDownload(shownTranscriptionModel.size)}
                     </p>
+                  )}
+                  {!transcriptionModel.live_ready && (
+                    <div className="border-b border-line px-4 py-3">
+                      <p className="mb-2 text-[11.5px] text-muted">{t.settings.models.liveModelMissing}</p>
+                      <Button size="sm" disabled={liveModelBusy} onClick={() => void downloadLiveModels()}>
+                        {liveModelBusy
+                          ? liveModelProgress?.stage === "queued"
+                            ? t.job.queued
+                            : `${t.job.stages.download}${liveModelProgress?.total ? ` · ${Math.round(100 * liveModelProgress.done / liveModelProgress.total)}%` : "…"}`
+                          : t.settings.models.downloadLiveModel}
+                      </Button>
+                    </div>
                   )}
                 </>
               )}

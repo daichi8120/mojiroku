@@ -56,6 +56,13 @@ pub fn whisper_model_downloaded(model: &WhisperModel, models_dir: &Path) -> bool
         .unwrap_or(false)
 }
 
+pub fn live_transcription_models_ready(models_dir: &Path) -> bool {
+    whisper_model_downloaded(select_whisper_model(None), models_dir)
+        && fs::metadata(models_dir.join(DEFAULT_VAD_MODEL))
+            .map(|metadata| metadata.is_file() && metadata.len() > 0)
+            .unwrap_or(false)
+}
+
 /// 既定の要約モデル。実会議での品質ゲートを PASS 済み（docs/roadmap.md）。
 ///
 /// **「既定」の意味は 2 つ。**小の段が配るモデルであり、かつどの段にも採用済みが
@@ -362,6 +369,26 @@ const DIAR_SEG_ARCHIVE_SHA256: &str =
 
 /// 進捗コールバック: `(downloaded_bytes, total_bytes_opt)`。
 pub type ProgressFn<'a> = dyn Fn(u64, Option<u64>) + 'a;
+
+/// Prepare live transcription independently of the offline model choice.
+pub fn ensure_live_transcription_models(
+    models_dir: &Path,
+    on_progress: Option<&ProgressFn<'_>>,
+) -> Result<()> {
+    ensure_model(
+        DEFAULT_WHISPER_MODEL,
+        &whisper_model_url(DEFAULT_WHISPER_MODEL),
+        models_dir,
+        on_progress,
+    )?;
+    ensure_model(
+        DEFAULT_VAD_MODEL,
+        &vad_model_url(DEFAULT_VAD_MODEL),
+        models_dir,
+        on_progress,
+    )?;
+    Ok(())
+}
 
 /// キャッシュ判定: `dest` が存在し空でなければ true（DL 済みとみなす）。
 fn cached(dest: &Path) -> bool {
@@ -1032,5 +1059,28 @@ mod tests {
                 whisper_model_url(model.file).contains("5359861c739e955e79d9a303bcbc70fb988958b1")
             );
         }
+    }
+
+    #[test]
+    #[ignore = "downloads the 575 MB live models; run explicitly for the fresh-cache regression"]
+    fn prepares_live_models_with_only_full_model_cached() {
+        let dir = std::env::temp_dir().join(format!(
+            "mojiroku-live-download-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let full = dir.join(FULL_WHISPER_MODEL);
+        let original = b"offline model is unrelated to live-model preparation";
+        fs::write(&full, original).unwrap();
+        assert!(!live_transcription_models_ready(&dir));
+        ensure_live_transcription_models(&dir, None).unwrap();
+        assert!(live_transcription_models_ready(&dir));
+        assert_eq!(fs::read(&full).unwrap(), original);
+        // A second preparation reuses the downloaded model, without rewriting it.
+        let turbo = dir.join(DEFAULT_WHISPER_MODEL);
+        let modified = fs::metadata(&turbo).unwrap().modified().unwrap();
+        ensure_live_transcription_models(&dir, None).unwrap();
+        assert_eq!(fs::metadata(&turbo).unwrap().modified().unwrap(), modified);
+        fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -461,6 +461,8 @@ const en: Dict = {
     saveFailed: (e: string) => `Failed to save settings: ${e}`,
     models: {
       transcriptionPickerLabel: "Model for recordings and files",
+      liveModelMissing: "Live transcription needs turbo and its speech detector (up to 575 MB). Download them separately without changing your model for recordings and files. Start a new meeting after the download.",
+      downloadLiveModel: "Download live transcription",
       transcriptionPickerDesc: "Full large-v3 is slower and may improve accuracy. Live transcription always uses turbo. Existing models are kept.",
       transcriptionWillDownload: (size: string) => `The next recording or file transcription will download ${size}.`,
       desc: "All stored on this Mac and work offline.",
