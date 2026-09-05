@@ -14,6 +14,8 @@
 //! - **VAD ＋ RMS ゲート**: VAD で無音を除去しつつ、tail 全体が無音なら RMS で事前スキップする
 //!   （完全無音 tail は VAD が空を返し生 PCM にフォールバック → whisper がハルシネーションする。
 //!   CLAUDE.md の「ご視聴ありがとうございました」反復）。
+//! Since ADR-0035, a present VAD model handles quiet nonzero tails; the RMS gate
+//! below is only a fallback when VAD is unavailable. Digital silence is always skipped.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -51,6 +53,15 @@ const MAX_LINES: usize = 80;
 const SILENCE_RMS: f32 = 1e-3;
 /// stop 応答性のためのスリープ刻み。
 const SLEEP_STEP: Duration = Duration::from_millis(80);
+
+/// Let VAD classify quiet speech; retain the old noise guard without a VAD model.
+fn skip_silent_tail(tail: &[f32], vad_available: bool) -> bool {
+    if vad_available {
+        tail.iter().all(|sample| *sample == 0.0)
+    } else {
+        rms(tail) < SILENCE_RMS
+    }
+}
 
 /// UI へ送るライブ行。committed=true は確定（以後書き換えない）、false は未確定 tail。
 #[derive(Clone, Serialize)]
@@ -159,6 +170,14 @@ fn drain_front(mic16k: &mut Vec<f32>, sys16k: &mut Vec<f32>, n: usize) {
     sys16k.drain(..s);
 }
 
+/// Keep retry buffers bounded when inference cannot produce a drain point.
+fn bound_failed_tail(mic16k: &mut Vec<f32>, sys16k: &mut Vec<f32>, tail_ms: u64) {
+    let drop_ms = tail_ms.saturating_sub(MAX_TAIL_MS);
+    if drop_ms > 0 {
+        drain_front(mic16k, sys16k, ms_to_samples(drop_ms));
+    }
+}
+
 /// TICK までの残りを stop を見ながら細かくスリープ（stop 応答 ~80ms）。
 fn sleep_remainder(t0: Instant, stop: &AtomicBool) {
     while t0.elapsed() < TICK {
@@ -202,7 +221,10 @@ fn run_worker(
     }
     let vad_path = models_dir.join(DEFAULT_VAD_MODEL);
     let vad = if vad_path.exists() { Some(vad_path) } else { None };
+    let vad_available = vad.is_some();
     let engine = match WhisperStt::load(&whisper_path, vad) {
+        // The early gate may admit quiet tails only if a VAD failure cannot decode raw audio.
+        Ok(e) if vad_available => e.with_required_vad(),
         Ok(e) => e,
         Err(_) => return,
     };
@@ -282,7 +304,7 @@ fn run_worker(
         );
 
         // 3) 無音 tail は whisper に渡さない（ハルシネーション回避）。長すぎる無音は drain で前進。
-        if rms(&tail) < SILENCE_RMS {
+        if skip_silent_tail(&tail, vad_available) {
             if tail_ms > MAX_TAIL_MS {
                 drain_front(
                     &mut mic16k,
@@ -299,6 +321,7 @@ fn run_worker(
         let transcript = match engine.transcribe(&tail, language) {
             Ok(t) => t,
             Err(_) => {
+                bound_failed_tail(&mut mic16k, &mut sys16k, tail_ms);
                 sleep_remainder(t0, stop);
                 continue;
             }
@@ -346,6 +369,50 @@ fn run_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_inference_failures_keep_a_bounded_aligned_tail() {
+        let mut mic = Vec::new();
+        let mut system = Vec::new();
+        for tick in 0..20 {
+            mic.extend(vec![tick as f32; ms_to_samples(3500)]);
+            system.extend(vec![-(tick as f32); ms_to_samples(3500)]);
+            let tail_ms = mic.len() as u64 * 1000 / TARGET_RATE as u64;
+            bound_failed_tail(&mut mic, &mut system, tail_ms);
+            assert!(mic.len() <= ms_to_samples(MAX_TAIL_MS));
+            assert_eq!(mic.len(), system.len());
+            assert_eq!(mic.last(), Some(&(tick as f32)));
+        }
+        assert!(mic.iter().zip(&system).all(|(a, b)| *a == -*b));
+    }
+
+    #[test]
+    fn quiet_live_tail_reaches_vad_below_the_old_rms_gate() {
+        let tail: Vec<f32> = (0..ms_to_samples(3500))
+            .map(|i| (i as f32 * 0.1).sin() * 0.0003 * 2.0_f32.sqrt())
+            .collect();
+        assert!(rms(&tail) < SILENCE_RMS);
+        assert!(
+            !skip_silent_tail(&tail, true),
+            "quiet speech must reach VAD"
+        );
+        assert!(skip_silent_tail(&tail, false), "keep the guard without VAD");
+    }
+
+    #[test]
+    fn live_silence_is_skipped_with_or_without_vad() {
+        for vad_available in [false, true] {
+            assert!(skip_silent_tail(&[], vad_available));
+            assert!(skip_silent_tail(
+                &vec![0.0; ms_to_samples(14000)],
+                vad_available
+            ));
+            assert!(!skip_silent_tail(
+                &vec![0.02; ms_to_samples(3500)],
+                vad_available
+            ));
+        }
+    }
 
     #[test]
     fn tail_align_trims_heads_to_equal_len() {

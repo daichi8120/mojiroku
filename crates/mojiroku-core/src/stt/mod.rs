@@ -56,6 +56,7 @@ pub struct WhisperStt {
     ctx: WhisperContext,
     /// VAD モデル（Silero, ggml）。Some なら無音区間をスキップしハルシネーションを抑制。
     vad_model_path: Option<PathBuf>,
+    require_vad: bool,
 }
 
 impl WhisperStt {
@@ -82,7 +83,15 @@ impl WhisperStt {
         Ok(Self {
             ctx,
             vad_model_path,
+            require_vad: false,
         })
+    }
+
+    /// Require successful VAD on every call, including after a cached file is removed.
+    /// Live workers use this when admitting quiet tails that must not reach raw Whisper.
+    pub fn with_required_vad(mut self) -> Self {
+        self.require_vad = true;
+        self
     }
 }
 
@@ -212,11 +221,15 @@ impl WhisperStt {
                     }
                     (Cow::Owned(filtered), Some(map))
                 }
+                Err(error) if self.require_vad => return Err(error),
                 Err(error) => {
                     eprintln!("stt vad: filtering failed, using raw audio: {error}");
                     (Cow::Borrowed(pcm16k_mono), None)
                 }
             },
+            None if self.require_vad => {
+                return Err(CoreError::Model("VAD model is required".into()));
+            }
             None => (Cow::Borrowed(pcm16k_mono), None),
         };
 
@@ -316,13 +329,40 @@ fn padded_sample_ranges(segs_ms: &[(u64, u64)], total: usize) -> Vec<(usize, usi
     out
 }
 
+/// Give very quiet speech a usable level for Silero without changing Whisper's audio.
+/// Use the 90th percentile of nonzero one-second block RMS values: digital silence
+/// must not hide a short utterance, and an isolated loud sound must not prevent gain
+/// on an otherwise quiet track. Normal-level audio is borrowed without a PCM copy.
+/// The gain is capped at 16x (24 dB); VAD still decides whether speech is present.
+pub fn vad_analysis_pcm(pcm: &[f32]) -> Cow<'_, [f32]> {
+    let mut levels: Vec<f32> = pcm
+        .chunks(SAMPLE_RATE_F as usize)
+        .map(|block| (block.iter().map(|s| s * s).sum::<f32>() / block.len() as f32).sqrt())
+        .filter(|rms| *rms > 0.0)
+        .collect();
+    if levels.is_empty() {
+        return Cow::Borrowed(pcm);
+    }
+    levels.sort_unstable_by(f32::total_cmp);
+    let reference = levels[(levels.len() - 1) * 9 / 10];
+    if !reference.is_finite() || reference >= 0.01 {
+        return Cow::Borrowed(pcm);
+    }
+    let gain = (0.05 / reference).min(16.0);
+    Cow::Owned(pcm.iter().map(|s| (s * gain).clamp(-1.0, 1.0)).collect())
+}
+
 /// Silero VAD で発話区間だけを抜き出した PCM と、filtered→original の時刻マップを返す。
 fn vad_filter(model_path: &str, pcm: &[f32]) -> Result<(Vec<f32>, Vec<TimeSpan>)> {
     let mut vctx = WhisperVadContext::new(model_path, WhisperVadContextParams::new())
         .map_err(|e| CoreError::Model(format!("vad ctx: {e:?}")))?;
-    let segs = vctx
-        .segments_from_samples(WhisperVadParams::new(), pcm)
-        .map_err(|e| CoreError::Model(format!("vad segments: {e:?}")))?;
+    let segs = {
+        // Release the analysis copy before allocating the filtered Whisper input.
+        // Spans refer to the same sample indices; concat_ranges below reads the original PCM.
+        let analysis = vad_analysis_pcm(pcm);
+        vctx.segments_from_samples(WhisperVadParams::new(), &analysis)
+            .map_err(|e| CoreError::Model(format!("vad segments: {e:?}")))?
+    };
 
     // centiseconds(10ms) → ms。
     let segs_ms: Vec<(u64, u64)> = segs
@@ -452,6 +492,140 @@ fn remap_segment(map: &[TimeSpan], start_ms: u64, end_ms: u64) -> (u64, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vad_analysis_recovers_quiet_level_despite_an_isolated_loud_sound() {
+        let mut pcm = vec![0.002; 16_000 * 20];
+        pcm[16_000 * 10..16_000 * 11].fill(1.0);
+        let analysis = vad_analysis_pcm(&pcm);
+        assert_eq!(analysis.len(), pcm.len());
+        assert!(
+            analysis[0] >= 0.03,
+            "quiet speech needs useful VAD input level"
+        );
+        assert!(analysis.iter().all(|s| s.abs() <= 1.0));
+        assert_eq!(pcm[0], 0.002, "Whisper must retain the original samples");
+        assert_eq!(pcm[16_000 * 10], 1.0);
+    }
+
+    #[test]
+    fn vad_analysis_leaves_normal_audio_and_silence_borrowed() {
+        for pcm in [vec![], vec![0.0; 16_000], vec![0.05; 16_000]] {
+            assert!(matches!(vad_analysis_pcm(&pcm), Cow::Borrowed(_)));
+        }
+    }
+
+    #[test]
+    fn vad_analysis_bounds_gain_and_handles_partial_blocks() {
+        let pcm = vec![0.0001; 731];
+        let analysis = vad_analysis_pcm(&pcm);
+        assert_eq!(analysis.len(), pcm.len());
+        assert!(analysis[0] > pcm[0]);
+        assert!(
+            analysis[0] <= pcm[0] * 16.0,
+            "never amplify arbitrarily quiet noise without a bound"
+        );
+    }
+
+    #[test]
+    fn vad_analysis_silence_padding_does_not_hide_quiet_speech() {
+        let mut pcm = vec![0.0; 16_000 * 20];
+        pcm[..16_000].fill(0.002);
+        let analysis = vad_analysis_pcm(&pcm);
+        assert!(analysis[0] >= 0.03);
+        assert!(analysis[16_000..].iter().all(|&s| s == 0.0));
+    }
+
+    /// Opt-in real-model check. The fixture is public FLEURS speech, never a meeting recording.
+    /// See ADR-0035 for the pinned fixture and environment variables.
+    #[test]
+    #[ignore = "requires the pinned public WAV, local Whisper/VAD models, and GPU access"]
+    fn vad_keeps_attenuated_public_speech_and_rejects_silence() {
+        use sha2::{Digest, Sha256};
+        let audio = std::env::var("MOJIROKU_TEST_SPEECH_WAV").expect("MOJIROKU_TEST_SPEECH_WAV");
+        let models =
+            PathBuf::from(std::env::var("MOJIROKU_TEST_MODELS").expect("MOJIROKU_TEST_MODELS"));
+        let bytes = std::fs::read(&audio).unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            "697876fbd65b56e578f94a0eed8fa23ef2f0afbb149c83f402135448abed344e",
+            "use the pinned public fixture"
+        );
+        let mut pcm = crate::audio::decode_to_pcm16k_mono(audio).unwrap();
+        let rms = (pcm.iter().map(|s| s * s).sum::<f32>() / pcm.len() as f32).sqrt();
+        for sample in &mut pcm {
+            *sample *= 0.0003 / rms;
+        }
+        let mut engine =
+            WhisperStt::load(models.join(crate::models::DEFAULT_WHISPER_MODEL), None).unwrap();
+        let raw = engine.transcribe(&pcm, None).unwrap();
+        let words = |t: &Transcript| {
+            t.segments
+                .iter()
+                .flat_map(|s| s.text.split_whitespace())
+                .map(|word| {
+                    word.trim_matches(|c: char| !c.is_alphanumeric())
+                        .to_lowercase()
+                })
+                .filter(|word| !word.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert!(
+            words(&raw).split_whitespace().count() >= 10,
+            "the decoder can hear this fixture"
+        );
+        engine = engine.with_required_vad();
+        engine.vad_model_path = Some(models.join(crate::models::DEFAULT_VAD_MODEL));
+        let filtered = engine.transcribe(&pcm, None).unwrap();
+        assert_eq!(
+            words(&filtered),
+            words(&raw),
+            "VAD must not discard the audible sentence"
+        );
+        assert!(filtered
+            .segments
+            .iter()
+            .all(|s| s.start_ms <= s.end_ms && s.end_ms <= 12_440));
+        assert!(engine
+            .transcribe(&vec![0.0; 16_000 * 60], None)
+            .unwrap()
+            .segments
+            .is_empty());
+
+        use std::io::Write;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let broken_vad = std::env::temp_dir().join(format!(
+            "mojiroku-broken-vad-{}-{stamp}.bin",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&broken_vad)
+            .unwrap()
+            .write_all(b"invalid VAD model")
+            .unwrap();
+        engine.vad_model_path = Some(broken_vad.clone());
+        let corrupt = engine.transcribe(&pcm, None);
+        std::fs::remove_file(&broken_vad).unwrap();
+        assert!(
+            corrupt.is_err(),
+            "required VAD must not fall back to raw PCM"
+        );
+        assert!(
+            engine.transcribe(&pcm, None).is_err(),
+            "removed VAD must fail closed"
+        );
+        engine.vad_model_path = None;
+        assert!(
+            engine.transcribe(&pcm, None).is_err(),
+            "missing VAD must fail closed"
+        );
+    }
 
     #[test]
     fn decoder_disables_rolling_text_history() {
