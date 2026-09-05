@@ -38,6 +38,23 @@ repo は「全部の家」ではない。
 - **「ビルドが通る」は作業ツリーではなくコミット対象ツリーで確認する。**
   過去に `models/` の gitignore で同名ソースが漏れた前例がある（手順は CLAUDE.md）。
 
+## Issue and Project synchronization
+
+- PR creation is not complete until each implementation issue has a native
+  **Development** link and its Project status has been checked. Follow
+  [the issue/PR workflow](docs/CONTRIBUTING.md#issue-and-project-synchronization).
+- Use the browser for native links on `develop` PRs; a `Refs`/`Closes` mention alone
+  is insufficient. Search by the exact PR URL, preserve existing links, and verify
+  with `python3 scripts/sync_issue_project.py --issue N --pr P`.
+- After authorized linking, run the same command with `--apply` and explicit
+  `--open-status 'In Progress'` for active work, or `--open-status Todo` for deferred
+  work. Closed issues must remain **Done**, including historical link backfills.
+- Run the checker again after a merge or an authorized issue closure. A merged PR
+  does not establish that acceptance criteria are complete. Never close an issue
+  or set open work to Done merely to make its Project status match a merged PR.
+- Keep public issue progress/checklists current when reporting work. If the browser
+  or Project access is unavailable, report the missing link/status as unfinished.
+
 ## Code Review Rules
 
 PR の自動レビュー（Codex のコードレビュー）が読む規則。**見出し名は Codex 側の仕様で
