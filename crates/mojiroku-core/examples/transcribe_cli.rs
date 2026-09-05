@@ -2,6 +2,7 @@
 //! 使い方: cargo run --example transcribe_cli -- <audio> [models_dir] [lang]
 //!   lang: "ja"(既定) | "en" など whisper 言語コード | "auto"（言語自動判定）
 //! Optional trailing arguments: [default|greedy|beam5] [--json] [--model <catalog-file>].
+//! Language `mixed` opts into language re-detection at speech pauses; `auto` keeps one call.
 //! JSON mode emits one object on stdout; diagnostics stay on stderr.
 
 fn main() {

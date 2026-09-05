@@ -556,6 +556,8 @@ const en: Dict = {
       transcribeLabel: "Transcription language",
       transcribeDesc: "Speech-recognition language. If your meetings are in one language, picking it is the most accurate",
       auto: "Auto-detect",
+      mixed: "Japanese + English (slower)",
+      mixedDesc: "Re-detects the spoken language after pauses. Switches without a clear pause may still be missed.",
       names: { ja: "日本語", en: "English" },
     },
   },

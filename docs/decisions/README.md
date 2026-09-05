@@ -17,6 +17,8 @@
 
 ## 現在の ADR
 
+- [ADR-0036: Opt-in language switching at speech pauses](ADR-0036_Opt_in_language_switching_at_speech_pauses.md) — re-detect language between speech windows while keeping Auto unchanged.
+
 - [ADR-0035: Bounded level adjustment for quiet VAD input](ADR-0035_Bounded_level_adjustment_for_quiet_VAD_input.md) — preserve quiet speech without changing Whisper audio or restoring the silence fallback.
 
 - [ADR-0032: Disable rolling Whisper text history](ADR-0032_Disable_rolling_Whisper_text_history.md) — prevent decoded text from reinforcing repetition across audio windows.

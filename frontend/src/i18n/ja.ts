@@ -555,6 +555,8 @@ const ja = {
       transcribeLabel: "文字起こしの言語",
       transcribeDesc: "音声認識に使う言語。会議の言語が決まっているなら指定が最も正確です",
       auto: "自動判定",
+      mixed: "Japanese + English (slower)",
+      mixedDesc: "Re-detects the spoken language after pauses. Switches without a clear pause may still be missed.",
       names: { ja: "日本語", en: "English" } as Record<"ja" | "en", string>,
     },
   },

@@ -36,6 +36,9 @@ impl DecodingStrategy {
 /// Keep the file default conservative until measured gains justify the cost (Issue #77).
 pub const FILE_DECODING: DecodingStrategy = DecodingStrategy::Greedy;
 
+/// Opt-in language selection stored by Settings and queued jobs, never sent to Whisper.
+pub const MIXED_LANGUAGE_MODE: &str = "mixed";
+
 fn configure_decoder<'a, 'b>(params: &mut FullParams<'a, 'b>, language: Option<&'a str>) {
     params.set_language(language);
     // no_context clears history only when full() starts. The bundled whisper.cpp still
@@ -175,6 +178,64 @@ impl WhisperStt {
         decoding: DecodingStrategy,
         on_pct: Option<&dyn Fn(i32)>,
     ) -> Result<Transcript> {
+        if language == Some(MIXED_LANGUAGE_MODE) {
+            return self.transcribe_mixed_inner(pcm16k_mono, decoding, on_pct);
+        }
+        self.transcribe_single_inner(pcm16k_mono, language, decoding, on_pct, self.require_vad)
+    }
+
+    fn transcribe_mixed_inner(
+        &self,
+        pcm: &[f32],
+        decoding: DecodingStrategy,
+        on_pct: Option<&dyn Fn(i32)>,
+    ) -> Result<Transcript> {
+        let vad = self
+            .vad_model_path
+            .as_ref()
+            .ok_or_else(|| CoreError::Model("VAD model is required".into()))?;
+        let ranges = vad_sample_ranges(&vad.to_string_lossy(), pcm)?;
+        let windows = mixed_language_windows(&ranges, pcm.len());
+        let mut segments = Vec::new();
+        if let Some(cb) = on_pct {
+            cb(0);
+        }
+        for (start, end) in windows {
+            let report = |pct| {
+                if let Some(cb) = on_pct {
+                    cb(window_progress(start, end, pcm.len(), pct));
+                }
+            };
+            let callback = on_pct.map(|_| &report as &dyn Fn(i32));
+            // A fresh decoding call re-detects language without restoring rolling text history.
+            // The model is shared; each window's state and filtered PCM are dropped before the next.
+            let transcript =
+                self.transcribe_single_inner(&pcm[start..end], None, decoding, callback, true)?;
+            let offset_ms = start as u64 / 16;
+            for mut segment in transcript.segments {
+                segment.start_ms += offset_ms;
+                segment.end_ms += offset_ms;
+                segments.push(segment);
+            }
+            report(100);
+        }
+        if let Some(cb) = on_pct {
+            cb(100);
+        }
+        Ok(Transcript {
+            language: None,
+            segments,
+        })
+    }
+
+    fn transcribe_single_inner(
+        &self,
+        pcm16k_mono: &[f32],
+        language: Option<&str>,
+        decoding: DecodingStrategy,
+        on_pct: Option<&dyn Fn(i32)>,
+        require_vad: bool,
+    ) -> Result<Transcript> {
         let mut state = self
             .ctx
             .create_state()
@@ -221,13 +282,13 @@ impl WhisperStt {
                     }
                     (Cow::Owned(filtered), Some(map))
                 }
-                Err(error) if self.require_vad => return Err(error),
+                Err(error) if require_vad => return Err(error),
                 Err(error) => {
                     eprintln!("stt vad: filtering failed, using raw audio: {error}");
                     (Cow::Borrowed(pcm16k_mono), None)
                 }
             },
-            None if self.require_vad => {
+            None if require_vad => {
                 return Err(CoreError::Model("VAD model is required".into()));
             }
             None => (Cow::Borrowed(pcm16k_mono), None),
@@ -309,6 +370,35 @@ struct TimeSpan {
 
 const VAD_PAD_MS: u64 = 200;
 
+/// Re-detect language across a pause of at least 750 ms before VAD padding.
+const MIXED_LANGUAGE_PAUSE_MS: u64 = 750;
+
+fn mixed_language_windows(ranges: &[(usize, usize)], total: usize) -> Vec<(usize, usize)> {
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    let retained_gap = (MIXED_LANGUAGE_PAUSE_MS - 2 * VAD_PAD_MS) as usize * 16;
+    let mut windows = Vec::new();
+    let mut start = 0;
+    for pair in ranges.windows(2) {
+        if pair[1].0.saturating_sub(pair[0].1) >= retained_gap {
+            let cut = pair[0].1 + (pair[1].0 - pair[0].1) / 2;
+            windows.push((start, cut));
+            start = cut;
+        }
+    }
+    windows.push((start, total));
+    windows
+}
+
+fn window_progress(start: usize, end: usize, total: usize, pct: i32) -> i32 {
+    if total == 0 {
+        return 100;
+    }
+    ((start as u128 * 100 + (end - start) as u128 * pct.clamp(0, 100) as u128) / total as u128)
+        as i32
+}
+
 /// VAD 区間（ms, 元時刻）へ前後パディングを付け、切り出すサンプル範囲へ変換する。
 /// 隣接区間の間隔が 2×VAD_PAD_MS 未満だとパディング同士が重なるため、開始を前区間の
 /// 末尾でクランプして**同じ音声を二重に切り出さない**（重複すると境界の語が二重に
@@ -354,6 +444,12 @@ pub fn vad_analysis_pcm(pcm: &[f32]) -> Cow<'_, [f32]> {
 
 /// Silero VAD で発話区間だけを抜き出した PCM と、filtered→original の時刻マップを返す。
 fn vad_filter(model_path: &str, pcm: &[f32]) -> Result<(Vec<f32>, Vec<TimeSpan>)> {
+    let ranges = vad_sample_ranges(model_path, pcm)?;
+    Ok(concat_ranges(pcm, &ranges))
+}
+
+/// Detect and pad original-time speech ranges with the same policy for both modes.
+fn vad_sample_ranges(model_path: &str, pcm: &[f32]) -> Result<Vec<(usize, usize)>> {
     let mut vctx = WhisperVadContext::new(model_path, WhisperVadContextParams::new())
         .map_err(|e| CoreError::Model(format!("vad ctx: {e:?}")))?;
     let segs = {
@@ -375,8 +471,7 @@ fn vad_filter(model_path: &str, pcm: &[f32]) -> Result<(Vec<f32>, Vec<TimeSpan>)
         })
         .collect();
 
-    let ranges = padded_sample_ranges(&segs_ms, pcm.len());
-    Ok(concat_ranges(pcm, &ranges))
+    Ok(padded_sample_ranges(&segs_ms, pcm.len()))
 }
 
 /// Silence inserted between two speech ranges that were not adjacent in the original audio.
@@ -494,6 +589,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mixed_windows_split_at_long_pauses_without_cutting_speech() {
+        let ranges = [(800, 2400), (4000, 8000), (24000, 32000)];
+        let windows = mixed_language_windows(&ranges, 40000);
+        assert_eq!(windows, [(0, 16000), (16000, 40000)]);
+        for (start, end) in ranges {
+            assert_eq!(
+                windows
+                    .iter()
+                    .filter(|(a, b)| *a <= start && end <= *b)
+                    .count(),
+                1
+            );
+        }
+        assert_eq!(windows.iter().map(|(a, b)| b - a).sum::<usize>(), 40000);
+    }
+
+    #[test]
+    fn mixed_windows_handle_silence_and_the_padded_gap_threshold() {
+        assert!(mixed_language_windows(&[], 48000).is_empty());
+        assert_eq!(
+            mixed_language_windows(&[(0, 16000), (21599, 32000)], 32000),
+            [(0, 32000)]
+        );
+        assert_eq!(
+            mixed_language_windows(&[(0, 16000), (21600, 32000)], 32000),
+            [(0, 18800), (18800, 32000)]
+        );
+    }
+
+    #[test]
+    fn mixed_progress_does_not_restart_at_window_boundaries() {
+        let progress: Vec<_> = [(0, 100), (100, 400)]
+            .into_iter()
+            .flat_map(|(start, end)| [0, 50, 100].map(|pct| window_progress(start, end, 400, pct)))
+            .collect();
+        assert_eq!(progress, [0, 12, 25, 25, 62, 100]);
+        assert_eq!(window_progress(100, 400, 400, -1), 25);
+        assert_eq!(window_progress(100, 400, 400, 101), 100);
+        assert_eq!(window_progress(0, 0, 0, 0), 100);
+    }
+
+    #[test]
     fn vad_analysis_recovers_quiet_level_despite_an_isolated_loud_sound() {
         let mut pcm = vec![0.002; 16_000 * 20];
         pcm[16_000 * 10..16_000 * 11].fill(1.0);
@@ -559,6 +696,7 @@ mod tests {
         let mut engine =
             WhisperStt::load(models.join(crate::models::DEFAULT_WHISPER_MODEL), None).unwrap();
         let raw = engine.transcribe(&pcm, None).unwrap();
+        assert!(engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE)).is_err());
         let words = |t: &Transcript| {
             t.segments
                 .iter()
@@ -578,6 +716,8 @@ mod tests {
         engine = engine.with_required_vad();
         engine.vad_model_path = Some(models.join(crate::models::DEFAULT_VAD_MODEL));
         let filtered = engine.transcribe(&pcm, None).unwrap();
+        let mixed = engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE)).unwrap();
+        assert_eq!(words(&mixed), words(&filtered));
         assert_eq!(
             words(&filtered),
             words(&raw),
@@ -592,6 +732,24 @@ mod tests {
             .unwrap()
             .segments
             .is_empty());
+        assert!(engine
+            .transcribe(&vec![0.0; 16_000 * 60], Some(MIXED_LANGUAGE_MODE))
+            .unwrap()
+            .segments
+            .is_empty());
+
+        let mut noise_state = 17_u64;
+        let noise: Vec<f32> = (0..16_000 * 20)
+            .map(|_| {
+                noise_state = noise_state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1);
+                (noise_state >> 32) as i32 as f32 / i32::MAX as f32 * 0.0003
+            })
+            .collect();
+        for mode in [None, Some(MIXED_LANGUAGE_MODE)] {
+            assert!(engine.transcribe(&noise, mode).unwrap().segments.is_empty());
+        }
 
         use std::io::Write;
         let stamp = std::time::SystemTime::now()
@@ -611,15 +769,18 @@ mod tests {
             .unwrap();
         engine.vad_model_path = Some(broken_vad.clone());
         let corrupt = engine.transcribe(&pcm, None);
+        let mixed_corrupt = engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE));
         std::fs::remove_file(&broken_vad).unwrap();
         assert!(
             corrupt.is_err(),
             "required VAD must not fall back to raw PCM"
         );
+        assert!(mixed_corrupt.is_err(), "mixed mode requires successful VAD");
         assert!(
             engine.transcribe(&pcm, None).is_err(),
             "removed VAD must fail closed"
         );
+        assert!(engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE)).is_err());
         engine.vad_model_path = None;
         assert!(
             engine.transcribe(&pcm, None).is_err(),

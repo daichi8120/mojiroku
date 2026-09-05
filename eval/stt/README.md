@@ -186,3 +186,81 @@ decision still depends on real-use feedback. See
 
 Model-comparison provenance: base commit `cf0452d` plus this change; measured
 executable SHA-256 `5c5058146c7b4cff36c5b056c12112aee637313c5854226c14c14aaa3a06661a`.
+
+## Mixed-language recordings
+
+The optional **Japanese + English (slower)** setting re-detects language at speech
+pauses. `auto` keeps the original fast path; `mixed` selects the new mode in
+`transcribe_cli`. See [ADR-0036](../../docs/decisions/ADR-0036_Opt_in_language_switching_at_speech_pauses.md).
+
+`mixed.py` builds four switching fixtures and two single-language controls from the
+first three existing FLEURS samples per language. It preserves float PCM samples
+and inserts one second of silence between clips. The resulting language boundaries
+and reference text come from composition and corpus labels. This is a constructed
+read-speech check, not evidence about natural code-switching or overlapping meetings.
+
+```bash
+python3 eval/stt/download.py --limit 20
+python3 eval/stt/mixed.py prepare
+cargo build --release -p mojiroku-core --example transcribe_cli
+python3 eval/stt/mixed.py run \
+  --models /path/to/models \
+  --output eval/stt/results/mixed-turbo
+```
+
+Use a fresh output directory for each run. Source copies, composed audio, references,
+and raw transcripts stay under ignored `cache/` and `results/` directories.
+The manifest pins source and composed audio hashes and retains corpus attribution.
+The run records model/binary/source/scorer hashes, warms up each mode, alternates
+mode order, and executes one inference process at a time with Metal access.
+
+The default gate requires `mixed` to pass every fixture. A mode passes only when:
+
+- Each continuous language block retains nonempty text and has fewer errors than
+  deleting the entire reference.
+- Errors stay within the isolated-clip baseline plus the larger of two additional
+  units or 5% of the reference units. `--extra-units` and `--extra-rate` expose these
+  tolerances. CER/WER normalization and raw error counts are unchanged.
+- Timestamps are valid and ordered, and no segment crosses a language boundary.
+
+Adjacent clips in the same language are scored as one block, so a valid segment
+spanning two same-language clips is not penalized as missing text. Isolated sources
+are decoded with the same model and automatic detection before comparison. This
+avoids mistaking existing errors, such as `A.D.` versus `AD`, for switching losses.
+It still reports those errors; an English fixture gains one missing article in
+mixed mode compared with its isolated result.
+
+To check the optional full model once it is downloaded:
+
+```bash
+python3 eval/stt/mixed.py run --models /path/to/models \
+  --model ggml-large-v3-q5_0.bin --modes mixed \
+  --output eval/stt/results/mixed-full
+```
+
+To verify that ordinary Auto behavior remains unchanged, build `transcribe_cli`
+from the comparison baseline in a separate worktree, then compare the existing
+40-recording corpus. The check compares complete transcript objects, including
+timestamps, and fails if any differ:
+
+```bash
+python3 eval/stt/mixed.py compare-auto \
+  --baseline-binary /path/to/baseline/transcribe_cli \
+  --models /path/to/models \
+  --output eval/stt/results/auto-regression
+python3 -m unittest discover -s eval/stt -p 'test_*.py' -v
+```
+
+Measured against `45dfae5` on Apple M4 Max, 128 GiB RAM, macOS 26.6.2:
+
+| Check | Auto | Mixed |
+| --- | --- | --- |
+| Four switching recordings | 0/4 pass | 4/4 pass |
+| Two constructed single-language controls | 2/2 pass | 2/2 pass |
+| Pipeline time for the four switching recordings | 5.28 s | 12.61 s |
+| Existing 40-recording corpus versus baseline Auto | 40/40 identical transcripts | Not the default path |
+| Full large-v3 on the six constructed fixtures | Isolated-source baselines only | 6/6 pass |
+
+The switching recordings total 225.74 seconds and reuse six source clips. The
+2.39x measured cost is why the new mode is opt-in. Word-level switches without a
+clear pause remain outside what these fixtures establish.

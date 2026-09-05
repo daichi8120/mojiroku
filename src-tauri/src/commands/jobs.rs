@@ -35,6 +35,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn queued_language_mode_survives_settings_changes_and_serialization() {
+        let mut cfg = crate::settings::Settings {
+            transcribe_language: mojiroku_core::stt::MIXED_LANGUAGE_MODE.into(),
+            ..Default::default()
+        };
+        let queued = params_from_settings(&cfg, false);
+        cfg.transcribe_language = "auto".into();
+        let restored: JobParams =
+            serde_json::from_str(&serde_json::to_string(&queued).unwrap()).unwrap();
+        assert_eq!(restored.stt_lang.as_deref(), Some("mixed"));
+        assert_eq!(params_from_settings(&cfg, false).stt_lang, None);
+    }
+
+    #[test]
     fn queued_model_is_independent_of_later_settings_changes() {
         use mojiroku_core::models::{DEFAULT_WHISPER_MODEL, FULL_WHISPER_MODEL};
         let mut cfg = crate::settings::Settings {

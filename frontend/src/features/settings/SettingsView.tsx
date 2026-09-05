@@ -508,15 +508,22 @@ export function SettingsView() {
               />
               <SelectRow
                 title={t.settings.language.transcribeLabel}
-                desc={t.settings.language.transcribeDesc}
+                desc={
+                  cfg?.transcribe_language === "mixed"
+                    ? t.settings.language.mixedDesc
+                    : t.settings.language.transcribeDesc
+                }
                 value={
-                  cfg?.transcribe_language === "ja" || cfg?.transcribe_language === "en"
+                  cfg?.transcribe_language === "ja" ||
+                  cfg?.transcribe_language === "en" ||
+                  cfg?.transcribe_language === "mixed"
                     ? cfg.transcribe_language
                     : "auto"
                 }
                 onChange={(v) => patch({ transcribe_language: v as Settings["transcribe_language"] })}
                 options={[
                   { value: "auto", label: t.settings.language.auto },
+                  { value: "mixed", label: t.settings.language.mixed },
                   { value: "ja", label: t.settings.language.names.ja },
                   { value: "en", label: t.settings.language.names.en },
                 ]}
