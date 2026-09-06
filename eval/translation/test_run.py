@@ -17,8 +17,42 @@ evaluation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(evaluation)
 
 
+def process_is_running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    if sys.platform.startswith("linux"):
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+        except FileNotFoundError:
+            # The child may have been reaped between the signal and state checks.
+            # If /proc is unavailable, keep treating a present PID as running.
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            return True
+        # The command name can contain spaces and parentheses; state follows its
+        # final closing parenthesis. PID 1 may retain a terminated zombie in CI.
+        return stat.rpartition(") ")[2].split()[0] != "Z"
+    return True
+
+
 @unittest.skipUnless(os.name == "posix", "evaluation uses POSIX process groups")
 class ProcessTests(unittest.TestCase):
+    def test_linux_zombie_is_terminated_but_live_states_are_not(self):
+        # A zombie still accepts signal 0; process existence alone is insufficient.
+        with mock.patch.object(sys, "platform", "linux"), mock.patch.object(os, "kill", return_value=None):
+            for state, running in [("Z", False), ("S", True), ("R", True)]:
+                with self.subTest(state=state), mock.patch.object(Path, "read_text", return_value=f"123 (worker (child)) {state} 1 2 3"):
+                    self.assertEqual(process_is_running(123), running)
+
+    def test_reaped_descendant_needs_no_process_state_read(self):
+        with mock.patch.object(os, "kill", side_effect=ProcessLookupError), mock.patch.object(Path, "read_text") as read:
+            self.assertFalse(process_is_running(123))
+            read.assert_not_called()
+
     def test_success_and_nonzero_exit(self):
         result = evaluation.run_checked([sys.executable, "-c", "print('caption')"], subprocess.DEVNULL, 3)
         self.assertEqual(result.stdout, "caption\n")
@@ -64,11 +98,7 @@ else:
                 pids = json.loads(marker.read_text())
                 for pid in pids:
                     deadline = time.monotonic() + 2
-                    while True:
-                        try:
-                            os.kill(pid, 0)
-                        except ProcessLookupError:
-                            break
+                    while process_is_running(pid):
                         if time.monotonic() >= deadline:
                             self.fail(f"process {pid} survived timeout")
                         time.sleep(0.01)
