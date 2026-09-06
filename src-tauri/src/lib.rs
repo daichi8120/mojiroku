@@ -9,6 +9,7 @@ mod audio;
 mod commands;
 mod jobs;
 mod live_stt;
+mod live_translation;
 mod mic;
 mod oauth;
 mod scheduler;
@@ -55,6 +56,7 @@ pub fn run() {
             app.manage(mic::MicState::new());
             app.manage(system_audio::SystemAudioState::new());
             app.manage(live_stt::LiveSttState::new());
+            app.manage(live_translation::LiveTranslationState::default());
             // バックグラウンドジョブ基盤（ADR-0024）: enqueue 通知チャネルを管理し、ワーカーを起動する。
             // ワーカーは起動時に中断された running を pending へ戻し（再起動継続）、以後 pending を
             // 1 本ずつ直列処理する。キャプチャは permit を取らないので並行録音は常に開始できる。
@@ -65,7 +67,8 @@ pub fn run() {
             // 不確実性を避け、他コードと同じ app_data_dir を実行時に許可する。
             let rec_dir = data_dir.join("recordings");
             std::fs::create_dir_all(&rec_dir)?;
-            app.asset_protocol_scope().allow_directory(&rec_dir, false)?;
+            app.asset_protocol_scope()
+                .allow_directory(&rec_dir, false)?;
             // 録音 spool（ADR-0023）のクラッシュ残骸を掃除する（正常経路は stop/cancel が
             // rename/削除済み。ここに残っている = 前回異常終了の書きかけ）。best-effort。
             let _ = std::fs::remove_dir_all(rec_dir.join(".spool"));
@@ -79,10 +82,16 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            live_translation::begin_live_translation,
+            live_translation::end_live_translation,
+            live_translation::cancel_live_translation_request,
+            live_translation::translate_live_line,
             commands::transcription::health,
             commands::transcription::transcribe_file,
             commands::transcription::summarize,
             commands::transcription::summary_model_info,
+            commands::transcription::transcription_model_info,
+            commands::transcription::download_live_transcription_models,
             commands::history::list_recordings,
             commands::history::search_recordings,
             commands::history::get_recording,

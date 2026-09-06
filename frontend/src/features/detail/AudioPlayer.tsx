@@ -1,6 +1,6 @@
 // 録音の音声プレーヤ（詳細ビュー）。バックエンドの recording_audio_src が返す asset:// URL を
 // <audio> で再生する。File/Mic/会議（結合ミックス <id>.wav）で同一に扱う。
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useI18n } from "@/i18n";
 import { formatDuration } from "@/lib/types";
 import { PauseIcon, PlayIcon } from "@/components/icons";
@@ -12,19 +12,30 @@ export function AudioPlayer({
   src: string;
   fallbackDurationMs: number;
 }) {
+  // src/録音が変わったら頭出しに戻す。
+  return <SourceAudioPlayer key={src} src={src} fallbackDurationMs={fallbackDurationMs} />;
+}
+
+function SourceAudioPlayer({ src, fallbackDurationMs }: { src: string; fallbackDurationMs: number }) {
   const { t } = useI18n();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   // 尺は <audio> のメタデータを優先し、未取得の間は Recording.duration_ms を仮表示。
-  const [durationMs, setDurationMs] = useState(fallbackDurationMs);
+  const [mediaDurationMs, setMediaDurationMs] = useState<number | null>(null);
+  const fallback = Number.isFinite(fallbackDurationMs) && fallbackDurationMs > 0 ? fallbackDurationMs : 0;
+  const durationMs = mediaDurationMs ?? fallback;
 
-  // src/録音が変わったら頭出しに戻す。
-  useEffect(() => {
+  const readDuration = (audio: HTMLAudioElement) => {
+    const duration = audio.duration;
+    setMediaDurationMs(Number.isFinite(duration) && duration > 0 ? duration * 1000 : null);
+  };
+
+  const resetMedia = () => {
+    setMediaDurationMs(null);
     setPlaying(false);
     setCurrentMs(0);
-    setDurationMs(fallbackDurationMs);
-  }, [src, fallbackDurationMs]);
+  };
 
   const toggle = () => {
     const a = audioRef.current;
@@ -51,10 +62,10 @@ export function AudioPlayer({
         ref={audioRef}
         src={src}
         preload="metadata"
-        onLoadedMetadata={(e) => {
-          const d = e.currentTarget.duration;
-          if (Number.isFinite(d) && d > 0) setDurationMs(d * 1000);
-        }}
+        onLoadedMetadata={(e) => readDuration(e.currentTarget)}
+        onDurationChange={(e) => readDuration(e.currentTarget)}
+        onEmptied={resetMedia}
+        onError={resetMedia}
         onTimeUpdate={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}

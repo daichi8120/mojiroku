@@ -45,6 +45,14 @@ export type SummaryModelChoice = {
 };
 export const summaryModelInfo = () => invoke<SummaryModelInfo>("summary_model_info");
 
+export type TranscriptionModelInfo = {
+  default_file: string;
+  live_ready: boolean;
+  choices: { file: string; label: string; size: string; downloaded: boolean }[];
+};
+export const transcriptionModelInfo = () => invoke<TranscriptionModelInfo>("transcription_model_info");
+export const downloadLiveTranscriptionModels = () => invoke<void>("download_live_transcription_models");
+
 /**
  * 音声ファイル → 原本コピー確定 → 文字起こしジョブを投入して即返す（ADR-0024）。
  * diarize で話者分離。STT はワーカーが回し、進捗は `job://update` で届く。
@@ -352,6 +360,7 @@ export const useJobUpdate = (handler: (u: JobUpdate) => void) =>
 
 /** ライブ文字起こしの1行。committed=確定（以後不変）、false=未確定 tail（書き換わりうる）。 */
 export interface LiveLine {
+  id: number;
   text: string;
   committed: boolean;
 }
@@ -361,8 +370,16 @@ export interface LiveLine {
  * 現在の表示行一式を送る。**使い捨てプレビュー**で、保存される文字起こしは停止時のデュアル
  * トラック結果が権威。payload.lines は確定行＋未確定 tail の現在ビュー全体。
  */
+export interface LiveSnapshot {
+  session_id: string;
+  lines: LiveLine[];
+}
+
+export const useMeetingLiveSnapshot = (handler: (snapshot: LiveSnapshot) => void) =>
+  useTauriEvent<LiveSnapshot>("meeting://live", handler);
+
 export const useMeetingLive = (handler: (lines: LiveLine[]) => void) =>
-  useTauriEvent<{ lines: LiveLine[] }>("meeting://live", (p) => handler(p.lines));
+  useMeetingLiveSnapshot((p) => handler(p.lines));
 
 /**
  * 会議開始スケジューラの発火（ADR-0026）。予定の開始時刻にバックエンドが発行する。

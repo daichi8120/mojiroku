@@ -26,3 +26,9 @@
 
 ## 関連リンク（ADR / Issue）
 -
+
+<!-- Use Refs #N for partial work. Closes #N only when all acceptance criteria are
+met. On develop PRs, create the native Development link after opening the PR. -->
+- [ ] Each implementation issue has a native Development link; Project Status was
+      verified with `python3 scripts/sync_issue_project.py --issue N --pr P`.
+      Use N/A with a reason if this PR has no implementation issue.

@@ -74,6 +74,9 @@ pub struct Settings {
     /// back to automatic in core ([`mojiroku_core::models::select_summary_model_with`]).
     #[serde(default)]
     pub local_summary_model: String,
+    /// Explicit offline Whisper model. Empty/unknown values resolve to turbo.
+    #[serde(default)]
+    pub transcription_model: String,
 }
 
 impl Default for Settings {
@@ -89,6 +92,7 @@ impl Default for Settings {
             transcribe_language: default_transcribe_language(),
             auto_record_prompt: false,
             local_summary_model: String::new(),
+            transcription_model: String::new(),
         }
     }
 }
@@ -123,8 +127,11 @@ impl Settings {
     /// Since Issue #66, both `""` (legacy persisted value) and `"auto"` enable detection;
     /// UI/content language no longer constrains the language spoken in the recording.
     pub fn effective_transcribe_language(&self) -> Option<&str> {
+        // "mixed" is an application mode handled by core before Whisper parameters are built.
         match self.transcribe_language.as_str() {
-            "ja" | "en" => Some(self.transcribe_language.as_str()),
+            "ja" | "en" | mojiroku_core::stt::MIXED_LANGUAGE_MODE => {
+                Some(self.transcribe_language.as_str())
+            }
             _ => None,
         }
     }
@@ -201,6 +208,8 @@ mod tests {
         assert_eq!(s.effective_transcribe_language(), None);
         s.transcribe_language = "ja".into();
         assert_eq!(s.effective_transcribe_language(), Some("ja"));
+        s.transcribe_language = mojiroku_core::stt::MIXED_LANGUAGE_MODE.into();
+        assert_eq!(s.effective_transcribe_language(), Some("mixed"));
     }
 
     /// An old settings.json without the field means automatic (None); whitespace-only too.
@@ -231,5 +240,18 @@ mod tests {
             ..Settings::default()
         };
         assert_eq!(s.effective_language(), "ja");
+    }
+
+    #[test]
+    fn old_settings_keep_turbo_and_model_choice_roundtrips() {
+        let mut cfg: Settings = serde_json::from_str("{}").unwrap();
+        assert!(cfg.transcription_model.is_empty());
+        cfg.transcription_model = mojiroku_core::models::FULL_WHISPER_MODEL.to_string();
+        let restored: Settings =
+            serde_json::from_str(&serde_json::to_string(&cfg).unwrap()).unwrap();
+        assert_eq!(
+            restored.transcription_model,
+            mojiroku_core::models::FULL_WHISPER_MODEL
+        );
     }
 }

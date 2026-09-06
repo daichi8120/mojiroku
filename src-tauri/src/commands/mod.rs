@@ -72,6 +72,10 @@ pub(crate) fn emit_job_update(app: &AppHandle, update: &JobUpdate) {
 static HEAVY_ML_JOB: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
 /// 重い ML ジョブが実行中か（live STT の tick スキップ等、soft な譲り合い判定用）。
+pub(crate) fn try_acquire_live_job() -> Option<tokio::sync::SemaphorePermit<'static>> {
+    HEAVY_ML_JOB.try_acquire().ok()
+}
+
 pub(crate) fn heavy_job_busy() -> bool {
     HEAVY_ML_JOB.available_permits() == 0
 }
@@ -178,7 +182,13 @@ pub(crate) fn get_secret_or_error(name: &str, missing_msg: &str) -> Result<Strin
 
 /// 進捗イベントを emit する薄いヘルパ（`Progress` 構築の重複を畳む）。
 /// 失敗は無視する（UI 進捗表示は best-effort）。
-pub(crate) fn emit_progress(app: &AppHandle, event: &str, stage: &str, done: u64, total: Option<u64>) {
+pub(crate) fn emit_progress(
+    app: &AppHandle,
+    event: &str,
+    stage: &str,
+    done: u64,
+    total: Option<u64>,
+) {
     let _ = app.emit(
         event,
         Progress {

@@ -17,6 +17,8 @@
 
 use std::num::NonZeroU32;
 
+mod translate;
+
 use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
@@ -43,7 +45,11 @@ fn system_prompt(lang: &str) -> &'static str {
 /// Qwen2.5 の ChatML を手で組む。**モデルが chat template を持たないときだけ使う**
 /// フォールバック。GGUF にテンプレートが入っていない古い変換への保険。
 fn chatml_fallback(lang: &str, body: &str, no_think: bool) -> String {
-    let think = if no_think { "<think>\n\n</think>\n\n" } else { "" };
+    let think = if no_think {
+        "<think>\n\n</think>\n\n"
+    } else {
+        ""
+    };
     format!(
         "<|im_start|>system\n{}<|im_end|>\n<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n{}",
         system_prompt(lang),
@@ -118,9 +124,7 @@ fn tokenize_prompt(model: &LlamaModel, prompt: &str) -> Vec<llama_cpp_2::token::
     }
     // AddBos::Always は「モデルの add_bos_token 設定に従う」の意味。BOS を要らない
     // モデル（Qwen 系）では何も足されないので、付け過ぎにはならない。
-    model
-        .str_to_token(prompt, AddBos::Always)
-        .unwrap_or(plain)
+    model.str_to_token(prompt, AddBos::Always).unwrap_or(plain)
 }
 
 /// トークン列を文字列へ戻す（切り詰めた本文をテンプレートへ入れ直すため）。
@@ -138,6 +142,13 @@ fn detokenize(model: &LlamaModel, tokens: &[llama_cpp_2::token::LlamaToken]) -> 
 fn main() {
     // `--lang <ja|en>` を先に抜き取り、残りを位置引数として解釈する（既定 ja）。
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "--translate") {
+        if let Err(error) = translate::run(&args[1..]) {
+            eprintln!("translation failed: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let mut lang = String::from("ja");
     if let Some(i) = args.iter().position(|a| a == "--lang") {
         args.remove(i);
@@ -239,7 +250,9 @@ fn main() {
     // 出力がおかしいときは、まずここで実際に渡している文字列を見る。
     if std::env::var("MOJIROKU_LLM_DEBUG").is_ok() {
         let dump = render_prompt(&model, tmpl.as_ref(), &lang, "《本文》", no_think);
-        eprintln!("[mojiroku-llm] --- 組み上がったプロンプト（本文は伏字） ---\n{dump}\n--- ここまで ---");
+        eprintln!(
+            "[mojiroku-llm] --- 組み上がったプロンプト（本文は伏字） ---\n{dump}\n--- ここまで ---"
+        );
     }
 
     // プロンプトを n_batch ごとに分割して decode（GGML_ASSERT(n_tokens_all <= n_batch) 回避）

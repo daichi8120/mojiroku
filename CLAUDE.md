@@ -32,7 +32,18 @@ mojiroku の開発で Claude Code / 将来のセッションが参照するガ�
 - **whisper-rs の `state.full()` は whisper.cpp 内蔵 VAD をバイパスする**（VAD は `whisper_full` 側にあり `whisper_full_with_state` には無い）。よって VAD は `WhisperVadContext` で speech 区間を抽出 → 無音除去 PCM を whisper に渡し、タイムスタンプを元時刻へ再マッピングする（[ADR-0008](./docs/decisions/ADR-0008_VADはwhisper内蔵Sileroを独立適用.md)）。
 - **sidecar バイナリはビルド成果物**。`src-tauri/binaries/mojiroku-llm-<triple>` は gitignore。`scripts/build-sidecar.sh`（= `just dev`/`just build` が自動実行）で生成する。Tauri externalBin で `.app` に同梱。The same applies to `src-tauri/binaries/mojiroku-mcp-<triple>` since 2026-09-03: the script builds and places both binaries, and both must exist before `cargo build --workspace` or `tauri build`.
 - **モデルは実行時 DL**（`*.gguf`/`*.bin` は gitignore）。保存先は `~/Library/Application Support/com.daichi0812.mojiroku/models/`。whisper large-v3-turbo(547MB) / 要約 Qwen2.5-7B Q4_K_M(4.4GB) / Silero VAD(864KB)。
+  Full Whisper large-v3 q5_0 (1.08 GB) is an explicit offline option in Settings (ADR-0034). Turbo remains the default and is always used by live transcription. `jobs.params.transcription_model` captures the choice at enqueue time; pass it through every offline route, including both meeting tracks. Old settings/jobs default to turbo without a schema migration.
 - whisper の**無音ハルシネーション**（「ご視聴ありがとうございました」反復）は VAD で対処済み。Since 2026-09-05 the padded VAD spans are separated by 1 s of silence before whisper sees them (gap-free concatenation made whisper merge utterances and drop short replies), and a VAD result with no speech returns an empty transcript instead of falling back to the raw PCM ([ADR-0031](./docs/decisions/ADR-0031_VAD区間の間に無音を挟み無音入力は空の文字起こしにする.md)). Do not lower the Silero thresholds without re-running the silence fixtures in that ADR.
+- Very quiet audio receives bounded gain (up to 16x) for **VAD analysis only**; Whisper and diarization still use the original samples. Keep the no-speech result empty. The level estimate ignores digital-silence blocks and resists isolated loud sounds (ADR-0035); `vad_spans_cli` defaults to this preparation and accepts a final `raw` argument for baseline comparisons.
+  The live worker skips only all-zero tails when a VAD model is present so quiet speech can reach that preparation; without VAD it retains the RMS 0.001 guard.
+  A configured live VAD is mandatory for each inference call (`with_required_vad`): a failed or removed model skips that preview attempt instead of decoding raw audio. Recording continues.
+- Transcription language `"mixed"` opts into language re-detection at speech pauses (ADR-0036). It is consumed by the core before Whisper parameters are built; never send this application marker directly to Whisper. The existing `stt_lang` job snapshot carries it through all offline routes, and the meeting-start snapshot carries it to live preview. Auto, turbo, and greedy remain defaults. Mixed mode requires successful VAD and offsets both timestamps and progress across windows.
+- Live translation is an opt-in, temporary meeting preview (ADR-0037), using the separate
+  `mojiroku-llm --translate` path with Qwen3.5-9B and `--no-think`. It requires at least 16 GiB
+  of detected RAM and its own 5.68 GB cache file; downloading it must not change summary
+  selection. Keep session/epoch/request checks, bounded pending work, and cancellation on
+  stop/disable. Live Whisper now reserves the shared heavy-job semaphore atomically;
+  release translation's permit only after its child has terminated and been reaped.
 - LLM プロンプトは **n_batch(2048) ごとに分割して decode** する（長尺会議で `GGML_ASSERT(n_tokens_all <= n_batch)` を踏まないため）。
 - whisper の**逐トークンログ flood** がタイムスタンプ的に長尺会議を停滞させる → `WhisperStt::load()` 先頭で `whisper_rs::install_logging_hooks()` を呼んで抑制（ADR-0009）。話者分離のスケーリングは線形（~0.5xRT）。
 - **C++ 例外は Rust を素通りしてプロセス abort する**（tokio の catch_unwind に届いた時点で "Rust cannot catch foreign exceptions"。v0.3.0 実機クラッシュ 3 件の根本原因＝高負荷時の bad_alloc 等）。whisper / sherpa-onnx を呼ぶ新経路は**必ず `mojiroku_core::ffi_guard::guard` を通す**こと（C++ 側 try/catch で Err 化。ADR-0021）。あわせて重い ML ジョブ（STT/話者分離/ローカル要約 sidecar）は `commands::acquire_heavy_job` で**アプリ全体 1 本に直列化**（16GB 機のメモリ枯渇→クラッシュ/スワップフリーズ対策）。ライブ文字起こしは重いジョブ中 tick をスキップして譲る。
@@ -47,6 +58,7 @@ crates/mojiroku-core/    ML コア。audio/ stt/ summarize/(byok) diarization/ v
 crates/mojiroku-llm/     ローカル要約 sidecar（llama.cpp）。stdin=プロンプトファイル, stdout=要約
 crates/mojiroku-mcp/     ローカル MCP サーバ（rmcp stdio）。履歴 DB を read-only 公開。MCP クライアントが spawn; bundled as externalBin since 2026-09-03
 eval/diarization/        話者分離の品質ゲート用ハーネス（GT + 再現スクリプト。音声・モデルは含まない。ADR-0028）
+eval/stt/                Public FLEURS CER/WER harness and greedy/beam-5 comparison (ADR-0033; audio and raw results are ignored)
 landing/                 配布ランディング（Astro→Cloudflare Workers 静的アセット）。public/_redirects で /download→Releases 302
 scripts/build-sidecar.sh mojiroku-llm（triple 名で配置）+ mojiroku-mcp をビルド (both placed as src-tauri/binaries/<name>-<triple>)
 docs/                    フラット構成。roadmap/requirements/spec/architecture/CONTRIBUTING/install-macos/mcp/updater-plan + decisions/(ADR-0001〜0024)。索引は docs/README.md

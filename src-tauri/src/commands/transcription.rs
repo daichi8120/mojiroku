@@ -11,6 +11,60 @@ pub(crate) fn health() -> String {
     mojiroku_core::health()
 }
 
+#[derive(serde::Serialize)]
+pub(crate) struct TranscriptionModelChoice {
+    file: String,
+    label: String,
+    size: String,
+    downloaded: bool,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct TranscriptionModelInfo {
+    default_file: String,
+    choices: Vec<TranscriptionModelChoice>,
+    live_ready: bool,
+}
+
+#[tauri::command]
+pub(crate) fn transcription_model_info(app: AppHandle) -> Result<TranscriptionModelInfo, String> {
+    use mojiroku_core::models::{whisper_model_downloaded, DEFAULT_WHISPER_MODEL, WHISPER_MODELS};
+    let models_dir = resolve_models_dir(&app)?;
+    Ok(TranscriptionModelInfo {
+        default_file: DEFAULT_WHISPER_MODEL.to_string(),
+        live_ready: mojiroku_core::models::live_transcription_models_ready(&models_dir),
+        choices: WHISPER_MODELS
+            .iter()
+            .map(|model| TranscriptionModelChoice {
+                file: model.file.to_string(),
+                label: model.label.to_string(),
+                size: if model.size_bytes < 1_000_000_000 {
+                    format!("{:.0} MB", model.size_bytes as f64 / 1_000_000.0)
+                } else {
+                    format!("{:.2} GB", model.size_bytes as f64 / 1_000_000_000.0)
+                },
+                downloaded: whisper_model_downloaded(model, &models_dir),
+            })
+            .collect(),
+    })
+}
+
+/// Download the fixed live-preview models without changing the offline selection.
+#[tauri::command]
+pub(crate) async fn download_live_transcription_models(app: AppHandle) -> Result<(), String> {
+    let models_dir = resolve_models_dir(&app)?;
+    // Offline jobs write to the same cache. Share their lock to avoid .part-file races.
+    let _permit = acquire_heavy_job(&app, "model://progress").await;
+    tauri::async_runtime::spawn_blocking(move || {
+        let progress =
+            |done, total| emit_progress(&app, "model://progress", "download", done, total);
+        mojiroku_core::models::ensure_live_transcription_models(&models_dir, Some(&progress))
+            .map_err(core_err)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// What the Settings screen shows: the summary model automatic picks for this Mac, plus
 /// the models it can switch to. The explicit choice itself lives in `Settings`
 /// (`local_summary_model`), which the UI already holds, so it is not repeated here.
@@ -202,7 +256,8 @@ pub(crate) async fn summarize(
     .map_err(|e| e.to_string())??;
 
     // 2) プロンプトを temp ファイルへ（巨大な文字起こしを引数で渡さない）
-    let prompt_file = std::env::temp_dir().join(format!("mojiroku-prompt-{}.txt", std::process::id()));
+    let prompt_file =
+        std::env::temp_dir().join(format!("mojiroku-prompt-{}.txt", std::process::id()));
     std::fs::write(&prompt_file, &prompt).map_err(|e| e.to_string())?;
 
     emit_progress(&app, "summarize://progress", "summarize", 0, None);
@@ -282,19 +337,25 @@ async fn summarize_cloud(
 
     // キーチェーン取得（許可ダイアログでブロックし得る）と ureq はどちらも blocking。
     // tokio ワーカーをブロックしないよう spawn_blocking で一括して回す。
-    tauri::async_runtime::spawn_blocking(
-        move || -> Result<mojiroku_core::Summary, String> {
-            let api_key = get_secret_or_error(&key_name, "error.summarize.api_key_missing")?;
-            let template = template_by_id(&template_id, lang);
-            let result = match provider.as_str() {
-                "openai" => {
-                    OpenAiSummarizer { api_key, model, lang }.summarize(&transcript, &template)
-                }
-                _ => AnthropicSummarizer { api_key, model, lang }.summarize(&transcript, &template),
-            };
-            result.map_err(|e| e.to_string())
-        },
-    )
+    tauri::async_runtime::spawn_blocking(move || -> Result<mojiroku_core::Summary, String> {
+        let api_key = get_secret_or_error(&key_name, "error.summarize.api_key_missing")?;
+        let template = template_by_id(&template_id, lang);
+        let result = match provider.as_str() {
+            "openai" => OpenAiSummarizer {
+                api_key,
+                model,
+                lang,
+            }
+            .summarize(&transcript, &template),
+            _ => AnthropicSummarizer {
+                api_key,
+                model,
+                lang,
+            }
+            .summarize(&transcript, &template),
+        };
+        result.map_err(|e| e.to_string())
+    })
     .await
     .map_err(|e| e.to_string())?
 }

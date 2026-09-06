@@ -12,3 +12,6 @@ path = "src/main.rs"
 [dependencies]
 # llama.cpp（Metal）。whisper を含む本体とは別バイナリなので ggml 衝突しない。
 llama-cpp-2 = { version = "0.1.150", features = ["metal"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

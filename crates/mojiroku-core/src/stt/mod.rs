@@ -14,6 +14,31 @@ use crate::schemas::{Segment, Transcript};
 
 const SAMPLE_RATE_F: f32 = 16_000.0;
 
+/// Decoder choices measured by the public-audio evaluation harness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodingStrategy {
+    Greedy,
+    BeamSearch5,
+}
+
+impl DecodingStrategy {
+    fn sampling(self) -> SamplingStrategy {
+        match self {
+            Self::Greedy => SamplingStrategy::Greedy { best_of: 1 },
+            Self::BeamSearch5 => SamplingStrategy::BeamSearch {
+                beam_size: 5,
+                patience: -1.0,
+            },
+        }
+    }
+}
+
+/// Keep the file default conservative until measured gains justify the cost (Issue #77).
+pub const FILE_DECODING: DecodingStrategy = DecodingStrategy::Greedy;
+
+/// Opt-in language selection stored by Settings and queued jobs, never sent to Whisper.
+pub const MIXED_LANGUAGE_MODE: &str = "mixed";
+
 fn configure_decoder<'a, 'b>(params: &mut FullParams<'a, 'b>, language: Option<&'a str>) {
     params.set_language(language);
     // no_context clears history only when full() starts. The bundled whisper.cpp still
@@ -34,6 +59,7 @@ pub struct WhisperStt {
     ctx: WhisperContext,
     /// VAD モデル（Silero, ggml）。Some なら無音区間をスキップしハルシネーションを抑制。
     vad_model_path: Option<PathBuf>,
+    require_vad: bool,
 }
 
 impl WhisperStt {
@@ -60,7 +86,15 @@ impl WhisperStt {
         Ok(Self {
             ctx,
             vad_model_path,
+            require_vad: false,
         })
+    }
+
+    /// Require successful VAD on every call, including after a cached file is removed.
+    /// Live workers use this when admitting quiet tails that must not reach raw Whisper.
+    pub fn with_required_vad(mut self) -> Self {
+        self.require_vad = true;
+        self
     }
 }
 
@@ -70,7 +104,7 @@ impl SttEngine for WhisperStt {
         // Err に変換。シールド無しだと例外が tokio の catch_unwind に達してプロセスごと
         // abort する（docs/error.md の実クラッシュ）。
         crate::ffi_guard::guard("文字起こし (whisper)", || {
-            self.transcribe_inner(pcm16k_mono, language, None)
+            self.transcribe_inner(pcm16k_mono, language, DecodingStrategy::Greedy, None)
         })?
     }
 }
@@ -118,8 +152,20 @@ impl WhisperStt {
         language: Option<&str>,
         on_pct: Option<&dyn Fn(i32)>,
     ) -> Result<Transcript> {
+        self.transcribe_with_decoding(pcm16k_mono, language, FILE_DECODING, on_pct)
+    }
+
+    /// Explicit decoding for offline comparisons, with the same VAD and FFI protection.
+    /// Live transcription uses `SttEngine::transcribe`, which always selects greedy.
+    pub fn transcribe_with_decoding(
+        &self,
+        pcm16k_mono: &[f32],
+        language: Option<&str>,
+        decoding: DecodingStrategy,
+        on_pct: Option<&dyn Fn(i32)>,
+    ) -> Result<Transcript> {
         crate::ffi_guard::guard("文字起こし (whisper)", || {
-            self.transcribe_inner(pcm16k_mono, language, on_pct)
+            self.transcribe_inner(pcm16k_mono, language, decoding, on_pct)
         })?
     }
 }
@@ -129,7 +175,66 @@ impl WhisperStt {
         &self,
         pcm16k_mono: &[f32],
         language: Option<&str>,
+        decoding: DecodingStrategy,
         on_pct: Option<&dyn Fn(i32)>,
+    ) -> Result<Transcript> {
+        if language == Some(MIXED_LANGUAGE_MODE) {
+            return self.transcribe_mixed_inner(pcm16k_mono, decoding, on_pct);
+        }
+        self.transcribe_single_inner(pcm16k_mono, language, decoding, on_pct, self.require_vad)
+    }
+
+    fn transcribe_mixed_inner(
+        &self,
+        pcm: &[f32],
+        decoding: DecodingStrategy,
+        on_pct: Option<&dyn Fn(i32)>,
+    ) -> Result<Transcript> {
+        let vad = self
+            .vad_model_path
+            .as_ref()
+            .ok_or_else(|| CoreError::Model("VAD model is required".into()))?;
+        let ranges = vad_sample_ranges(&vad.to_string_lossy(), pcm)?;
+        let windows = mixed_language_windows(&ranges, pcm.len());
+        let mut segments = Vec::new();
+        if let Some(cb) = on_pct {
+            cb(0);
+        }
+        for (start, end) in windows {
+            let report = |pct| {
+                if let Some(cb) = on_pct {
+                    cb(window_progress(start, end, pcm.len(), pct));
+                }
+            };
+            let callback = on_pct.map(|_| &report as &dyn Fn(i32));
+            // A fresh decoding call re-detects language without restoring rolling text history.
+            // The model is shared; each window's state and filtered PCM are dropped before the next.
+            let transcript =
+                self.transcribe_single_inner(&pcm[start..end], None, decoding, callback, true)?;
+            let offset_ms = start as u64 / 16;
+            for mut segment in transcript.segments {
+                segment.start_ms += offset_ms;
+                segment.end_ms += offset_ms;
+                segments.push(segment);
+            }
+            report(100);
+        }
+        if let Some(cb) = on_pct {
+            cb(100);
+        }
+        Ok(Transcript {
+            language: None,
+            segments,
+        })
+    }
+
+    fn transcribe_single_inner(
+        &self,
+        pcm16k_mono: &[f32],
+        language: Option<&str>,
+        decoding: DecodingStrategy,
+        on_pct: Option<&dyn Fn(i32)>,
+        require_vad: bool,
     ) -> Result<Transcript> {
         let mut state = self
             .ctx
@@ -177,12 +282,19 @@ impl WhisperStt {
                     }
                     (Cow::Owned(filtered), Some(map))
                 }
-                Err(_) => (Cow::Borrowed(pcm16k_mono), None),
+                Err(error) if require_vad => return Err(error),
+                Err(error) => {
+                    eprintln!("stt vad: filtering failed, using raw audio: {error}");
+                    (Cow::Borrowed(pcm16k_mono), None)
+                }
             },
+            None if require_vad => {
+                return Err(CoreError::Model("VAD model is required".into()));
+            }
             None => (Cow::Borrowed(pcm16k_mono), None),
         };
 
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        let mut params = FullParams::new(decoding.sampling());
         // FullParams defaults to English. Calling set_language(None) is therefore required for
         // Whisper's language auto-detection; merely omitting this call silently forces English.
         configure_decoder(&mut params, language);
@@ -258,6 +370,35 @@ struct TimeSpan {
 
 const VAD_PAD_MS: u64 = 200;
 
+/// Re-detect language across a pause of at least 750 ms before VAD padding.
+const MIXED_LANGUAGE_PAUSE_MS: u64 = 750;
+
+fn mixed_language_windows(ranges: &[(usize, usize)], total: usize) -> Vec<(usize, usize)> {
+    if ranges.is_empty() {
+        return Vec::new();
+    }
+    let retained_gap = (MIXED_LANGUAGE_PAUSE_MS - 2 * VAD_PAD_MS) as usize * 16;
+    let mut windows = Vec::new();
+    let mut start = 0;
+    for pair in ranges.windows(2) {
+        if pair[1].0.saturating_sub(pair[0].1) >= retained_gap {
+            let cut = pair[0].1 + (pair[1].0 - pair[0].1) / 2;
+            windows.push((start, cut));
+            start = cut;
+        }
+    }
+    windows.push((start, total));
+    windows
+}
+
+fn window_progress(start: usize, end: usize, total: usize, pct: i32) -> i32 {
+    if total == 0 {
+        return 100;
+    }
+    ((start as u128 * 100 + (end - start) as u128 * pct.clamp(0, 100) as u128) / total as u128)
+        as i32
+}
+
 /// VAD 区間（ms, 元時刻）へ前後パディングを付け、切り出すサンプル範囲へ変換する。
 /// 隣接区間の間隔が 2×VAD_PAD_MS 未満だとパディング同士が重なるため、開始を前区間の
 /// 末尾でクランプして**同じ音声を二重に切り出さない**（重複すると境界の語が二重に
@@ -278,13 +419,46 @@ fn padded_sample_ranges(segs_ms: &[(u64, u64)], total: usize) -> Vec<(usize, usi
     out
 }
 
+/// Give very quiet speech a usable level for Silero without changing Whisper's audio.
+/// Use the 90th percentile of nonzero one-second block RMS values: digital silence
+/// must not hide a short utterance, and an isolated loud sound must not prevent gain
+/// on an otherwise quiet track. Normal-level audio is borrowed without a PCM copy.
+/// The gain is capped at 16x (24 dB); VAD still decides whether speech is present.
+pub fn vad_analysis_pcm(pcm: &[f32]) -> Cow<'_, [f32]> {
+    let mut levels: Vec<f32> = pcm
+        .chunks(SAMPLE_RATE_F as usize)
+        .map(|block| (block.iter().map(|s| s * s).sum::<f32>() / block.len() as f32).sqrt())
+        .filter(|rms| *rms > 0.0)
+        .collect();
+    if levels.is_empty() {
+        return Cow::Borrowed(pcm);
+    }
+    levels.sort_unstable_by(f32::total_cmp);
+    let reference = levels[(levels.len() - 1) * 9 / 10];
+    if !reference.is_finite() || reference >= 0.01 {
+        return Cow::Borrowed(pcm);
+    }
+    let gain = (0.05 / reference).min(16.0);
+    Cow::Owned(pcm.iter().map(|s| (s * gain).clamp(-1.0, 1.0)).collect())
+}
+
 /// Silero VAD で発話区間だけを抜き出した PCM と、filtered→original の時刻マップを返す。
 fn vad_filter(model_path: &str, pcm: &[f32]) -> Result<(Vec<f32>, Vec<TimeSpan>)> {
+    let ranges = vad_sample_ranges(model_path, pcm)?;
+    Ok(concat_ranges(pcm, &ranges))
+}
+
+/// Detect and pad original-time speech ranges with the same policy for both modes.
+fn vad_sample_ranges(model_path: &str, pcm: &[f32]) -> Result<Vec<(usize, usize)>> {
     let mut vctx = WhisperVadContext::new(model_path, WhisperVadContextParams::new())
         .map_err(|e| CoreError::Model(format!("vad ctx: {e:?}")))?;
-    let segs = vctx
-        .segments_from_samples(WhisperVadParams::new(), pcm)
-        .map_err(|e| CoreError::Model(format!("vad segments: {e:?}")))?;
+    let segs = {
+        // Release the analysis copy before allocating the filtered Whisper input.
+        // Spans refer to the same sample indices; concat_ranges below reads the original PCM.
+        let analysis = vad_analysis_pcm(pcm);
+        vctx.segments_from_samples(WhisperVadParams::new(), &analysis)
+            .map_err(|e| CoreError::Model(format!("vad segments: {e:?}")))?
+    };
 
     // centiseconds(10ms) → ms。
     let segs_ms: Vec<(u64, u64)> = segs
@@ -297,8 +471,7 @@ fn vad_filter(model_path: &str, pcm: &[f32]) -> Result<(Vec<f32>, Vec<TimeSpan>)
         })
         .collect();
 
-    let ranges = padded_sample_ranges(&segs_ms, pcm.len());
-    Ok(concat_ranges(pcm, &ranges))
+    Ok(padded_sample_ranges(&segs_ms, pcm.len()))
 }
 
 /// Silence inserted between two speech ranges that were not adjacent in the original audio.
@@ -416,15 +589,230 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mixed_windows_split_at_long_pauses_without_cutting_speech() {
+        let ranges = [(800, 2400), (4000, 8000), (24000, 32000)];
+        let windows = mixed_language_windows(&ranges, 40000);
+        assert_eq!(windows, [(0, 16000), (16000, 40000)]);
+        for (start, end) in ranges {
+            assert_eq!(
+                windows
+                    .iter()
+                    .filter(|(a, b)| *a <= start && end <= *b)
+                    .count(),
+                1
+            );
+        }
+        assert_eq!(windows.iter().map(|(a, b)| b - a).sum::<usize>(), 40000);
+    }
+
+    #[test]
+    fn mixed_windows_handle_silence_and_the_padded_gap_threshold() {
+        assert!(mixed_language_windows(&[], 48000).is_empty());
+        assert_eq!(
+            mixed_language_windows(&[(0, 16000), (21599, 32000)], 32000),
+            [(0, 32000)]
+        );
+        assert_eq!(
+            mixed_language_windows(&[(0, 16000), (21600, 32000)], 32000),
+            [(0, 18800), (18800, 32000)]
+        );
+    }
+
+    #[test]
+    fn mixed_progress_does_not_restart_at_window_boundaries() {
+        let progress: Vec<_> = [(0, 100), (100, 400)]
+            .into_iter()
+            .flat_map(|(start, end)| [0, 50, 100].map(|pct| window_progress(start, end, 400, pct)))
+            .collect();
+        assert_eq!(progress, [0, 12, 25, 25, 62, 100]);
+        assert_eq!(window_progress(100, 400, 400, -1), 25);
+        assert_eq!(window_progress(100, 400, 400, 101), 100);
+        assert_eq!(window_progress(0, 0, 0, 0), 100);
+    }
+
+    #[test]
+    fn vad_analysis_recovers_quiet_level_despite_an_isolated_loud_sound() {
+        let mut pcm = vec![0.002; 16_000 * 20];
+        pcm[16_000 * 10..16_000 * 11].fill(1.0);
+        let analysis = vad_analysis_pcm(&pcm);
+        assert_eq!(analysis.len(), pcm.len());
+        assert!(
+            analysis[0] >= 0.03,
+            "quiet speech needs useful VAD input level"
+        );
+        assert!(analysis.iter().all(|s| s.abs() <= 1.0));
+        assert_eq!(pcm[0], 0.002, "Whisper must retain the original samples");
+        assert_eq!(pcm[16_000 * 10], 1.0);
+    }
+
+    #[test]
+    fn vad_analysis_leaves_normal_audio_and_silence_borrowed() {
+        for pcm in [vec![], vec![0.0; 16_000], vec![0.05; 16_000]] {
+            assert!(matches!(vad_analysis_pcm(&pcm), Cow::Borrowed(_)));
+        }
+    }
+
+    #[test]
+    fn vad_analysis_bounds_gain_and_handles_partial_blocks() {
+        let pcm = vec![0.0001; 731];
+        let analysis = vad_analysis_pcm(&pcm);
+        assert_eq!(analysis.len(), pcm.len());
+        assert!(analysis[0] > pcm[0]);
+        assert!(
+            analysis[0] <= pcm[0] * 16.0,
+            "never amplify arbitrarily quiet noise without a bound"
+        );
+    }
+
+    #[test]
+    fn vad_analysis_silence_padding_does_not_hide_quiet_speech() {
+        let mut pcm = vec![0.0; 16_000 * 20];
+        pcm[..16_000].fill(0.002);
+        let analysis = vad_analysis_pcm(&pcm);
+        assert!(analysis[0] >= 0.03);
+        assert!(analysis[16_000..].iter().all(|&s| s == 0.0));
+    }
+
+    /// Opt-in real-model check. The fixture is public FLEURS speech, never a meeting recording.
+    /// See ADR-0035 for the pinned fixture and environment variables.
+    #[test]
+    #[ignore = "requires the pinned public WAV, local Whisper/VAD models, and GPU access"]
+    fn vad_keeps_attenuated_public_speech_and_rejects_silence() {
+        use sha2::{Digest, Sha256};
+        let audio = std::env::var("MOJIROKU_TEST_SPEECH_WAV").expect("MOJIROKU_TEST_SPEECH_WAV");
+        let models =
+            PathBuf::from(std::env::var("MOJIROKU_TEST_MODELS").expect("MOJIROKU_TEST_MODELS"));
+        let bytes = std::fs::read(&audio).unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&bytes)),
+            "697876fbd65b56e578f94a0eed8fa23ef2f0afbb149c83f402135448abed344e",
+            "use the pinned public fixture"
+        );
+        let mut pcm = crate::audio::decode_to_pcm16k_mono(audio).unwrap();
+        let rms = (pcm.iter().map(|s| s * s).sum::<f32>() / pcm.len() as f32).sqrt();
+        for sample in &mut pcm {
+            *sample *= 0.0003 / rms;
+        }
+        let mut engine =
+            WhisperStt::load(models.join(crate::models::DEFAULT_WHISPER_MODEL), None).unwrap();
+        let raw = engine.transcribe(&pcm, None).unwrap();
+        assert!(engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE)).is_err());
+        let words = |t: &Transcript| {
+            t.segments
+                .iter()
+                .flat_map(|s| s.text.split_whitespace())
+                .map(|word| {
+                    word.trim_matches(|c: char| !c.is_alphanumeric())
+                        .to_lowercase()
+                })
+                .filter(|word| !word.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        assert!(
+            words(&raw).split_whitespace().count() >= 10,
+            "the decoder can hear this fixture"
+        );
+        engine = engine.with_required_vad();
+        engine.vad_model_path = Some(models.join(crate::models::DEFAULT_VAD_MODEL));
+        let filtered = engine.transcribe(&pcm, None).unwrap();
+        let mixed = engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE)).unwrap();
+        assert_eq!(words(&mixed), words(&filtered));
+        assert_eq!(
+            words(&filtered),
+            words(&raw),
+            "VAD must not discard the audible sentence"
+        );
+        assert!(filtered
+            .segments
+            .iter()
+            .all(|s| s.start_ms <= s.end_ms && s.end_ms <= 12_440));
+        assert!(engine
+            .transcribe(&vec![0.0; 16_000 * 60], None)
+            .unwrap()
+            .segments
+            .is_empty());
+        assert!(engine
+            .transcribe(&vec![0.0; 16_000 * 60], Some(MIXED_LANGUAGE_MODE))
+            .unwrap()
+            .segments
+            .is_empty());
+
+        let mut noise_state = 17_u64;
+        let noise: Vec<f32> = (0..16_000 * 20)
+            .map(|_| {
+                noise_state = noise_state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1);
+                (noise_state >> 32) as i32 as f32 / i32::MAX as f32 * 0.0003
+            })
+            .collect();
+        for mode in [None, Some(MIXED_LANGUAGE_MODE)] {
+            assert!(engine.transcribe(&noise, mode).unwrap().segments.is_empty());
+        }
+
+        use std::io::Write;
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let broken_vad = std::env::temp_dir().join(format!(
+            "mojiroku-broken-vad-{}-{stamp}.bin",
+            std::process::id()
+        ));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&broken_vad)
+            .unwrap()
+            .write_all(b"invalid VAD model")
+            .unwrap();
+        engine.vad_model_path = Some(broken_vad.clone());
+        let corrupt = engine.transcribe(&pcm, None);
+        let mixed_corrupt = engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE));
+        std::fs::remove_file(&broken_vad).unwrap();
+        assert!(
+            corrupt.is_err(),
+            "required VAD must not fall back to raw PCM"
+        );
+        assert!(mixed_corrupt.is_err(), "mixed mode requires successful VAD");
+        assert!(
+            engine.transcribe(&pcm, None).is_err(),
+            "removed VAD must fail closed"
+        );
+        assert!(engine.transcribe(&pcm, Some(MIXED_LANGUAGE_MODE)).is_err());
+        engine.vad_model_path = None;
+        assert!(
+            engine.transcribe(&pcm, None).is_err(),
+            "missing VAD must fail closed"
+        );
+    }
+
+    #[test]
     fn decoder_disables_rolling_text_history() {
         // no_context alone only clears history at the start of full(), not between its
         // audio windows. Pin the separate history budget against dependency defaults.
         for language in [None, Some("ja"), Some("en")] {
-            let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-            configure_decoder(&mut params, language);
-            let debug = format!("{params:?}");
-            assert!(debug.contains("n_max_text_ctx: 0,"), "{debug}");
+            for decoding in [DecodingStrategy::Greedy, DecodingStrategy::BeamSearch5] {
+                let mut params = FullParams::new(decoding.sampling());
+                configure_decoder(&mut params, language);
+                let debug = format!("{params:?}");
+                assert!(debug.contains("n_max_text_ctx: 0,"), "{debug}");
+            }
         }
+    }
+
+    #[test]
+    fn decoder_choices_reach_whisper_with_the_requested_search_width() {
+        let greedy = format!("{:?}", FullParams::new(DecodingStrategy::Greedy.sampling()));
+        let beam = format!(
+            "{:?}",
+            FullParams::new(DecodingStrategy::BeamSearch5.sampling())
+        );
+        assert!(greedy.contains("strategy: 0,"), "{greedy}");
+        assert!(greedy.contains("best_of: 1"), "{greedy}");
+        assert!(beam.contains("strategy: 1,"), "{beam}");
+        assert!(beam.contains("beam_size: 5"), "{beam}");
     }
 
     #[test]

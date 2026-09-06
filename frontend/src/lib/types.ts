@@ -47,6 +47,7 @@ export interface Summary {
 export interface JobParams {
   diarize: boolean;
   stt_lang: string | null;
+  transcription_model: string;
   lang: string;
 }
 
@@ -153,8 +154,9 @@ export interface Settings {
   /**
    * 文字起こし言語。"" = アプリ言語に追従（既定）、"auto" = whisper 自動判定。
    * Issue #66 supersedes the rule above: "" is a legacy value that now behaves like "auto".
+   * "mixed" re-detects language at speech pauses and is explicitly opt-in.
    */
-  transcribe_language: "" | "auto" | "ja" | "en";
+  transcribe_language: "" | "auto" | "ja" | "en" | "mixed";
   /** 会議開始時に録音を促す通知を出すか（既定 OFF＝オプトイン・ADR-0026）。カレンダー連携が前提。 */
   auto_record_prompt: boolean;
   /**
@@ -162,6 +164,8 @@ export interface Settings {
    * Mac's memory and the models already on disk (ADR-0030). Distinct from the BYOK `model`.
    */
   local_summary_model: string;
+  /** Offline Whisper model. Empty/unknown = turbo; live always uses turbo. */
+  transcription_model: string;
 }
 
 /**

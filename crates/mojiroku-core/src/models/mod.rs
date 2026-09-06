@@ -12,6 +12,57 @@ use crate::error::{CoreError, Result};
 /// 既定の文字起こしモデル（large-v3-turbo q5_0, 約 547MiB）。
 pub const DEFAULT_WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 
+pub const FULL_WHISPER_MODEL: &str = "ggml-large-v3-q5_0.bin";
+
+/// Allowed offline transcription models. Live transcription always uses turbo.
+#[derive(Debug)]
+pub struct WhisperModel {
+    pub file: &'static str,
+    pub label: &'static str,
+    pub size_bytes: u64,
+    pub sha256: &'static str,
+}
+
+pub const WHISPER_MODELS: &[WhisperModel] = &[
+    WhisperModel {
+        file: DEFAULT_WHISPER_MODEL,
+        label: "Whisper large-v3-turbo q5_0",
+        size_bytes: 574041195,
+        sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    },
+    WhisperModel {
+        file: FULL_WHISPER_MODEL,
+        label: "Whisper large-v3 q5_0",
+        size_bytes: 1081140203,
+        sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
+    },
+];
+
+/// An explicit catalog choice wins; empty/unknown values always fall back to turbo.
+/// Cached full-model weights never opt a user into the slower model automatically.
+pub fn select_whisper_model(requested: Option<&str>) -> &'static WhisperModel {
+    requested
+        .and_then(|name| {
+            WHISPER_MODELS
+                .iter()
+                .find(|model| model.file == name.trim())
+        })
+        .unwrap_or(&WHISPER_MODELS[0])
+}
+
+pub fn whisper_model_downloaded(model: &WhisperModel, models_dir: &Path) -> bool {
+    fs::metadata(models_dir.join(model.file))
+        .map(|metadata| metadata.is_file() && metadata.len() == model.size_bytes)
+        .unwrap_or(false)
+}
+
+pub fn live_transcription_models_ready(models_dir: &Path) -> bool {
+    whisper_model_downloaded(select_whisper_model(None), models_dir)
+        && fs::metadata(models_dir.join(DEFAULT_VAD_MODEL))
+            .map(|metadata| metadata.is_file() && metadata.len() > 0)
+            .unwrap_or(false)
+}
+
 /// 既定の要約モデル。実会議での品質ゲートを PASS 済み（docs/roadmap.md）。
 ///
 /// **「既定」の意味は 2 つ。**小の段が配るモデルであり、かつどの段にも採用済みが
@@ -294,10 +345,10 @@ pub fn vad_model_url(file: &str) -> String {
 /// 出所: HF は LFS メタデータ（paths-info API）、GitHub アセットは実 DL の実測値。
 /// いずれも 2026-07-05 取得・ローカル既存ファイルとの突き合わせ済み。
 fn expected_sha256(model_file: &str) -> Option<&'static str> {
+    if let Some(model) = WHISPER_MODELS.iter().find(|model| model.file == model_file) {
+        return Some(model.sha256);
+    }
     match model_file {
-        DEFAULT_WHISPER_MODEL => {
-            Some("394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2")
-        }
         DEFAULT_VAD_MODEL => {
             Some("29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf")
         }
@@ -318,6 +369,192 @@ const DIAR_SEG_ARCHIVE_SHA256: &str =
 
 /// 進捗コールバック: `(downloaded_bytes, total_bytes_opt)`。
 pub type ProgressFn<'a> = dyn Fn(u64, Option<u64>) + 'a;
+
+/// Translation uses its own cache name and does not change summary-model selection.
+pub const TRANSLATION_MODEL_FILE: &str = "translation-Qwen3.5-9B-Q4_K_M.gguf";
+pub const TRANSLATION_MODEL_BYTES: u64 = 5_680_522_464;
+const TRANSLATION_MODEL_URL: &str = "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-Q4_K_M.gguf";
+const TRANSLATION_MODEL_SHA256: &str =
+    "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8";
+
+/// Verify or download the translation model. Cancellation never installs a partial file.
+pub fn ensure_translation_model(
+    models_dir: &Path,
+    on_progress: Option<&ProgressFn<'_>>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<PathBuf> {
+    translation_check_cancel(cancelled)?;
+    fs::create_dir_all(models_dir).map_err(|e| CoreError::Io(e.to_string()))?;
+    let dest = models_dir.join(TRANSLATION_MODEL_FILE);
+    if translation_cache_valid(
+        &dest,
+        TRANSLATION_MODEL_BYTES,
+        TRANSLATION_MODEL_SHA256,
+        cancelled,
+    )? {
+        return Ok(dest);
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| CoreError::Io(e.to_string()))?
+        .as_nanos();
+    let tmp = models_dir.join(format!("translation-{}-{stamp}.part", std::process::id()));
+    translation_check_cancel(cancelled)?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(5))
+        .build();
+    let response = agent
+        .get(TRANSLATION_MODEL_URL)
+        .call()
+        .map_err(|e| CoreError::Model(download_error_key("translation model", &e.to_string())))?;
+    install_translation_stream(
+        response.into_reader(),
+        &tmp,
+        &dest,
+        (TRANSLATION_MODEL_BYTES, TRANSLATION_MODEL_SHA256),
+        on_progress,
+        cancelled,
+    )?;
+    Ok(dest)
+}
+
+fn translation_check_cancel(cancelled: &dyn Fn() -> bool) -> Result<()> {
+    if cancelled() {
+        Err(CoreError::Model("translation.cancelled".into()))
+    } else {
+        Ok(())
+    }
+}
+
+fn translation_cache_valid(
+    path: &Path,
+    expected_bytes: u64,
+    expected_sha256: &str,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<bool> {
+    translation_check_cancel(cancelled)?;
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(CoreError::Io(e.to_string())),
+    };
+    // Inspect the opened file, then count the bytes read as well: metadata alone
+    // cannot establish integrity if a cache file changes during verification.
+    let metadata = file.metadata().map_err(|e| CoreError::Io(e.to_string()))?;
+    if !metadata.is_file() || metadata.len() != expected_bytes {
+        return Ok(false);
+    }
+    let (bytes, hash) = copy_translation_stream(
+        &mut file,
+        &mut std::io::sink(),
+        expected_bytes,
+        None,
+        cancelled,
+    )?;
+    Ok(bytes == expected_bytes && hash.eq_ignore_ascii_case(expected_sha256))
+}
+
+/// Only an owned temporary file is removed, including on early return or panic.
+struct TranslationPartial(PathBuf);
+
+impl Drop for TranslationPartial {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn install_translation_stream(
+    mut reader: impl Read,
+    tmp: &Path,
+    dest: &Path,
+    expected: (u64, &str),
+    on_progress: Option<&ProgressFn<'_>>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
+    translation_check_cancel(cancelled)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(tmp)
+        .map_err(|e| CoreError::Io(e.to_string()))?;
+    let _partial = TranslationPartial(tmp.to_path_buf());
+    let (bytes, hash) =
+        copy_translation_stream(&mut reader, &mut file, expected.0, on_progress, cancelled)?;
+    file.flush().map_err(|e| CoreError::Io(e.to_string()))?;
+    drop(file);
+    verify_download(
+        tmp,
+        bytes,
+        Some(expected.0),
+        &hash,
+        Some(expected.1),
+        "translation model",
+    )?;
+    translation_check_cancel(cancelled)?;
+    fs::rename(tmp, dest).map_err(|e| CoreError::Io(e.to_string()))?;
+    Ok(())
+}
+
+fn copy_translation_stream(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    expected_bytes: u64,
+    on_progress: Option<&ProgressFn<'_>>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(u64, String)> {
+    let mut hasher = Sha256::new();
+    let mut downloaded = 0_u64;
+    let mut buf = [0_u8; 64 * 1024];
+    loop {
+        translation_check_cancel(cancelled)?;
+        let n = match reader.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(CoreError::Io(e.to_string())),
+        };
+        // Cancellation during a blocking read (including EOF) must not install
+        // the file or report the cached model as ready.
+        translation_check_cancel(cancelled)?;
+        if n == 0 {
+            break;
+        }
+        if n as u64 > expected_bytes.saturating_sub(downloaded) {
+            return Err(CoreError::Model(
+                "translation model exceeds expected size".into(),
+            ));
+        }
+        writer
+            .write_all(&buf[..n])
+            .map_err(|e| CoreError::Io(e.to_string()))?;
+        downloaded += n as u64;
+        hasher.update(&buf[..n]);
+        if let Some(cb) = on_progress {
+            cb(downloaded, Some(expected_bytes));
+        }
+    }
+    Ok((downloaded, format!("{:x}", hasher.finalize())))
+}
+
+/// Prepare live transcription independently of the offline model choice.
+pub fn ensure_live_transcription_models(
+    models_dir: &Path,
+    on_progress: Option<&ProgressFn<'_>>,
+) -> Result<()> {
+    ensure_model(
+        DEFAULT_WHISPER_MODEL,
+        &whisper_model_url(DEFAULT_WHISPER_MODEL),
+        models_dir,
+        on_progress,
+    )?;
+    ensure_model(
+        DEFAULT_VAD_MODEL,
+        &vad_model_url(DEFAULT_VAD_MODEL),
+        models_dir,
+        on_progress,
+    )?;
+    Ok(())
+}
 
 /// キャッシュ判定: `dest` が存在し空でなければ true（DL 済みとみなす）。
 fn cached(dest: &Path) -> bool {
@@ -366,7 +603,9 @@ fn download_to_file(
     let mut buf = [0u8; 64 * 1024];
     let mut downloaded: u64 = 0;
     loop {
-        let n = reader.read(&mut buf).map_err(|e| CoreError::Io(e.to_string()))?;
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| CoreError::Io(e.to_string()))?;
         if n == 0 {
             break;
         }
@@ -430,7 +669,12 @@ pub fn ensure_model(
 ) -> Result<PathBuf> {
     fs::create_dir_all(models_dir).map_err(|e| CoreError::Io(e.to_string()))?;
     let dest = models_dir.join(model_file);
-    if cached(&dest) {
+    let downloaded = WHISPER_MODELS
+        .iter()
+        .find(|model| model.file == model_file)
+        .map(|model| whisper_model_downloaded(model, models_dir))
+        .unwrap_or_else(|| cached(&dest));
+    if downloaded {
         return Ok(dest);
     }
 
@@ -509,6 +753,212 @@ mod tests {
     /// "abc" の SHA-256（既知ベクタ）。
     const ABC_SHA256: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
+    struct TranslationTestDir(PathBuf);
+
+    impl TranslationTestDir {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "mojiroku-translation-test-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TranslationTestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn translation_download_installs_only_verified_content() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&dest, b"old").unwrap();
+        let progress = std::cell::RefCell::new(Vec::new());
+        install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            Some(&|bytes, total| progress.borrow_mut().push((bytes, total))),
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"abc");
+        assert_eq!(*progress.borrow(), [(3, Some(3))]);
+        assert!(!tmp.exists());
+        assert!(translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
+        fs::write(&dest, b"bad").unwrap();
+        assert!(!translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
+        fs::write(&dest, b"a").unwrap();
+        assert!(!translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
+    }
+
+    #[test]
+    fn translation_download_rejects_corrupt_sizes_and_hash_without_replacing_cache() {
+        for (data, error) in [
+            (&b"ab"[..], "download_incomplete"),
+            (&b"abcd"[..], "exceeds expected size"),
+            (&b"bad"[..], "checksum_mismatch"),
+        ] {
+            let dir = TranslationTestDir::new();
+            let tmp = dir.0.join("model.part");
+            let dest = dir.0.join("model.gguf");
+            fs::write(&dest, b"existing").unwrap();
+            let err =
+                install_translation_stream(data, &tmp, &dest, (3, ABC_SHA256), None, &|| false)
+                    .unwrap_err();
+            assert!(err.to_string().contains(error), "{err}");
+            assert_eq!(fs::read(&dest).unwrap(), b"existing");
+            assert!(!tmp.exists());
+        }
+    }
+
+    #[test]
+    fn translation_download_cancelled_after_progress_removes_partial() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        let cancelled = std::cell::Cell::new(false);
+        let err = install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            Some(&|_, _| cancelled.set(true)),
+            &|| cancelled.get(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("translation.cancelled"));
+        assert!(!tmp.exists());
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn translation_download_cancellation_during_eof_never_installs() {
+        struct CancelAtEof<'a> {
+            data: &'a [u8],
+            cancelled: &'a std::cell::Cell<bool>,
+        }
+        impl Read for CancelAtEof<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.data.read(buf)?;
+                if n == 0 {
+                    self.cancelled.set(true);
+                }
+                Ok(n)
+            }
+        }
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        let cancelled = std::cell::Cell::new(false);
+        let reader = CancelAtEof {
+            data: b"abc",
+            cancelled: &cancelled,
+        };
+        let err = install_translation_stream(reader, &tmp, &dest, (3, ABC_SHA256), None, &|| {
+            cancelled.get()
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("translation.cancelled"));
+        assert!(!tmp.exists());
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn translation_download_read_failure_removes_partial_and_preserves_cache() {
+        struct FailsAfterChunk(bool);
+        impl Read for FailsAfterChunk {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.0 {
+                    return Err(std::io::Error::other("broken stream"));
+                }
+                self.0 = true;
+                buf[0] = b'a';
+                Ok(1)
+            }
+        }
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&dest, b"existing").unwrap();
+        let err = install_translation_stream(
+            FailsAfterChunk(false),
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("broken stream"));
+        assert_eq!(fs::read(&dest).unwrap(), b"existing");
+        assert!(!tmp.exists());
+    }
+
+    #[test]
+    fn translation_download_does_not_delete_another_downloads_partial() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&tmp, b"other download").unwrap();
+        assert!(install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| false
+        )
+        .is_err());
+        assert_eq!(fs::read(&tmp).unwrap(), b"other download");
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn translation_download_precancelled_does_not_touch_files() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        assert!(install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| true
+        )
+        .is_err());
+        assert!(translation_cache_valid(&dest, 3, ABC_SHA256, &|| true).is_err());
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn translation_download_failed_install_removes_verified_partial() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::create_dir(&dest).unwrap();
+        assert!(install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| false
+        )
+        .is_err());
+        assert!(!tmp.exists());
+        assert!(dest.is_dir());
+    }
+
     /// 証明書の失敗を接続の失敗と区別する。**Issue #31 で実際に報告された文字列**を固定する。
     /// 分けないと「ネットワーク接続を確認してください」と出て、利用者は正常な回線を疑う。
     #[test]
@@ -516,7 +966,8 @@ mod tests {
         let reported = "Connection Failed: tls connection init failed: \
                         invalid peer certificate: UnknownIssuer";
         assert!(
-            download_error_key("download request", reported).starts_with("error.model.download_tls:"),
+            download_error_key("download request", reported)
+                .starts_with("error.model.download_tls:"),
             "報告された証明書エラーが download_tls に振り分けられていない"
         );
 
@@ -533,7 +984,11 @@ mod tests {
         }
 
         // 証明書と無関係な失敗は従来のキーのまま（過剰に振り分けない）。
-        for s in ["Connection Failed: dns error", "io: timed out", "status code 503"] {
+        for s in [
+            "Connection Failed: dns error",
+            "io: timed out",
+            "status code 503",
+        ] {
             assert!(
                 download_error_key("l", s).starts_with("error.model.download:"),
                 "{s} が誤って download_tls に振り分けられた"
@@ -573,8 +1028,7 @@ mod tests {
     #[test]
     fn verify_download_rejects_hash_mismatch_and_removes_tmp() {
         let p = tmp_file("mojiroku-verify-hash.part");
-        let err =
-            verify_download(&p, 3, Some(3), ABC_SHA256, Some("deadbeef"), "t").unwrap_err();
+        let err = verify_download(&p, 3, Some(3), ABC_SHA256, Some("deadbeef"), "t").unwrap_err();
         assert!(err.to_string().contains("error.model.checksum_mismatch"));
         assert!(!p.exists(), "ハッシュ不一致時は tmp を削除する");
     }
@@ -601,7 +1055,10 @@ mod tests {
         assert_eq!(DIAR_SEG_ARCHIVE_SHA256.len(), 64);
         // URL はリビジョン固定（main を含まない）であること。
         for base in [WHISPER_BASE, SUMMARY_BASE, VAD_BASE] {
-            assert!(!base.contains("/resolve/main/"), "{base} はリビジョン固定にする");
+            assert!(
+                !base.contains("/resolve/main/"),
+                "{base} はリビジョン固定にする"
+            );
         }
     }
 
@@ -947,5 +1404,55 @@ mod tests {
         .unwrap();
         assert!(path.exists());
         assert!(fs::metadata(&path).unwrap().len() > 100_000_000);
+    }
+
+    #[test]
+    fn full_whisper_requires_an_explicit_catalog_choice() {
+        for requested in [
+            None,
+            Some(""),
+            Some("unknown.bin"),
+            Some("../ggml-large-v3-q5_0.bin"),
+        ] {
+            assert_eq!(select_whisper_model(requested).file, DEFAULT_WHISPER_MODEL);
+        }
+        assert_eq!(
+            select_whisper_model(Some(FULL_WHISPER_MODEL)).file,
+            FULL_WHISPER_MODEL
+        );
+        assert_eq!(
+            select_whisper_model(Some(DEFAULT_WHISPER_MODEL)).file,
+            DEFAULT_WHISPER_MODEL
+        );
+        for model in WHISPER_MODELS {
+            assert_eq!(expected_sha256(model.file), Some(model.sha256));
+            assert_eq!(model.sha256.len(), 64);
+            assert!(
+                whisper_model_url(model.file).contains("5359861c739e955e79d9a303bcbc70fb988958b1")
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "downloads the 575 MB live models; run explicitly for the fresh-cache regression"]
+    fn prepares_live_models_with_only_full_model_cached() {
+        let dir = std::env::temp_dir().join(format!(
+            "mojiroku-live-download-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let full = dir.join(FULL_WHISPER_MODEL);
+        let original = b"offline model is unrelated to live-model preparation";
+        fs::write(&full, original).unwrap();
+        assert!(!live_transcription_models_ready(&dir));
+        ensure_live_transcription_models(&dir, None).unwrap();
+        assert!(live_transcription_models_ready(&dir));
+        assert_eq!(fs::read(&full).unwrap(), original);
+        // A second preparation reuses the downloaded model, without rewriting it.
+        let turbo = dir.join(DEFAULT_WHISPER_MODEL);
+        let modified = fs::metadata(&turbo).unwrap().modified().unwrap();
+        ensure_live_transcription_models(&dir, None).unwrap();
+        assert_eq!(fs::metadata(&turbo).unwrap().modified().unwrap(), modified);
+        fs::remove_dir_all(dir).unwrap();
     }
 }
