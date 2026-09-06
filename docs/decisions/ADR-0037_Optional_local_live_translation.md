@@ -139,6 +139,16 @@ corrupts grammar state and aborts the sidecar. The real-model regression catches
 
 The corrected sampler passed all 24 exact-copy cases and returned valid translated responses
 for all 16 cross-language public captions. This is not a translation-accuracy score.
-The 16 translations took a median of 1.29 seconds and a maximum of 1.85 seconds on the same
+The 16 translations took a median of 1.30 seconds and a maximum of 1.80 seconds on the same
 M4 Max/128 GiB Mac. The initial model-selection timings above predate this response-protocol
 change. They are not the corrected decoder's latency figures.
+
+Caption delimiters are selected per input: append underscores to the tag name until neither
+opening nor closing delimiter appears in the source. The system prompt names those exact
+delimiters, and the original text is preserved without escaping. This prevents literal markup
+such as `</caption>` from colliding with the wrapper. A regression test checks both delimiter
+uniqueness and exact source preservation; bypassing the collision check makes it fail.
+Four synthetic delimiter cases retained the trailing sentence in real-model checks, including
+literal closing-tag text in a markup explanation. The 24 copy and 16 cross-language checks
+above were rerun with this framing. Delimiters are a prompt boundary, not a guarantee that
+the model cannot follow an instruction embedded in speech.
