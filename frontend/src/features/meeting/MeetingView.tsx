@@ -6,22 +6,26 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/lib/app";
 import {
   checkSystemAudioPermission,
-  type LiveLine,
-  useMeetingLive,
+  type LiveSnapshot,
+  useMeetingLiveSnapshot,
 } from "@/lib/tauri";
 import { cx } from "@/lib/cx";
 import { useI18n } from "@/i18n";
 import { elapsedSeconds, formatTimestamp } from "@/lib/types";
 import { Button, ConfirmDialog } from "@/components/ui";
 import { PrivacyBar } from "@/components/composite";
-import { ShieldIcon, SparklesIcon, StopIcon, VideoIcon } from "@/components/icons";
+import { ShieldIcon, StopIcon, VideoIcon } from "@/components/icons";
+
+import { useLiveTranslation } from "@/lib/useLiveTranslation";
+import type { TranslationTarget } from "@/lib/liveTranslation";
+import { LiveTranslationPanel } from "./LiveTranslationPanel";
 
 // システム音声 + マイクのレベルメータ（小さな縦バー）。
 const METER_BARS = [6, 11, 8, 13, 5];
 
 export function MeetingView() {
   const { meeting, startMeeting, stopMeeting, discardMeeting } = useApp();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const capturing = meeting.status === "capturing";
   const stopping = meeting.status === "stopping";
 
@@ -31,9 +35,15 @@ export function MeetingView() {
 
   // ライブ文字起こし（増分C）。確定行＋未確定 tail の現在ビュー全体が毎 tick 届く。使い捨て。
   // 画面に戻った直後は空だが、次の tick で現在ビュー一式が再配信されるので自然に復元する。
-  const [liveLines, setLiveLines] = useState<LiveLine[]>([]);
+  const [liveSnapshot, setLiveSnapshot] = useState<LiveSnapshot | null>(null);
+  const liveLines = liveSnapshot?.lines ?? [];
+  const [translationTarget, setTranslationTarget] = useState<TranslationTarget>(lang);
+  const translation = useLiveTranslation(capturing, liveSnapshot);
   const liveScrollRef = useRef<HTMLDivElement | null>(null);
-  useMeetingLive(setLiveLines);
+  useMeetingLiveSnapshot((snapshot) => {
+    if (capturing) setLiveSnapshot(snapshot);
+  });
+  useEffect(() => { setLiveSnapshot(null); }, [meeting.startedAt]);
 
   // idle のときだけ許可状態を確認して開始ボタン/誘導の出し分けに使う。
   useEffect(() => {
@@ -215,7 +225,7 @@ export function MeetingView() {
               <div className="flex h-full flex-col">
                 <div ref={liveScrollRef} className="min-h-0 flex-1 overflow-auto pr-1">
                   {liveLines.map((l, i) => (
-                    <div key={i} className="py-1">
+                    <div key={l.id} className="py-1">
                       <span
                         className={cx(
                           "text-[13.5px] leading-[1.7]",
@@ -245,26 +255,8 @@ export function MeetingView() {
           </div>
         </section>
 
-        {/* 右: ライブ AI ノート */}
-        <aside className="flex min-w-0 flex-1 flex-col bg-surface">
-          <div className="flex items-center gap-2 px-[18px] pb-2.5 pt-3.5">
-            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-brand text-white">
-              <SparklesIcon size={12} />
-            </span>
-            <span className="text-[12px] font-bold text-ink">{t.meeting.live.aiNotesLabel}</span>
-            <span className="ml-auto text-[10.5px] text-dim">{t.meeting.live.aiNotesAfterStop}</span>
-          </div>
-
-          {/* ライブ AI ノートは未実装。空白にせず、停止後の実フローを案内する。 */}
-          <div className="min-h-0 flex-1 overflow-auto px-[18px] pb-4 pt-3">
-            <p className="text-[12.5px] leading-relaxed text-muted">
-              {t.meeting.live.aiNotesSoon}
-            </p>
-            <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted">
-              {t.meeting.live.aiNotesDetail}
-            </p>
-          </div>
-        </aside>
+        <LiveTranslationPanel translation={translation} target={translationTarget}
+          setTarget={setTranslationTarget} capturing={capturing} />
       </div>
 
       <ConfirmDialog

@@ -14,6 +14,7 @@
 //! - **VAD ＋ RMS ゲート**: VAD で無音を除去しつつ、tail 全体が無音なら RMS で事前スキップする
 //!   （完全無音 tail は VAD が空を返し生 PCM にフォールバック → whisper がハルシネーションする。
 //!   CLAUDE.md の「ご視聴ありがとうございました」反復）。
+//!
 //! Since ADR-0035, a present VAD model handles quiet nonzero tails; the RMS gate
 //! below is only a fallback when VAD is unavailable. Digital silence is always skipped.
 
@@ -66,17 +67,21 @@ fn skip_silent_tail(tail: &[f32], vad_available: bool) -> bool {
 /// UI へ送るライブ行。committed=true は確定（以後書き換えない）、false は未確定 tail。
 #[derive(Clone, Serialize)]
 pub struct LiveLine {
+    pub id: u64,
     pub text: String,
     pub committed: bool,
 }
 
 #[derive(Clone, Serialize)]
 struct LivePayload {
+    session_id: String,
     lines: Vec<LiveLine>,
 }
 
 /// ライブ文字起こしセッション（停止フラグ＋ワーカー join ハンドル）。
 pub struct LiveSttSession {
+    session_id: String,
+    app: AppHandle,
     stop: Arc<AtomicBool>,
     handle: JoinHandle<()>,
 }
@@ -111,12 +116,23 @@ pub fn start(
     // 既存ワーカーがあれば止める（多重起動防止）。
     stop(state);
 
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let worker_session = session_id.clone();
+    let worker_app = app.clone();
     let stop_flag = Arc::new(AtomicBool::new(false));
     let stop_for_worker = Arc::clone(&stop_flag);
     let handle = std::thread::spawn(move || {
         // panic ガード: ワーカーの panic を呑み、録音経路へ波及させない。
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run_worker(&app, &models_dir, mic, system, language.as_deref(), &stop_for_worker);
+            run_worker(
+                &worker_app,
+                &worker_session,
+                &models_dir,
+                mic,
+                system,
+                language.as_deref(),
+                &stop_for_worker,
+            );
         }));
         if result.is_err() {
             eprintln!("ライブ文字起こしワーカーが panic（ライブ表示なし・録音は継続）");
@@ -124,6 +140,8 @@ pub fn start(
     });
 
     *state.0.lock().unwrap() = Some(LiveSttSession {
+        session_id,
+        app,
         stop: stop_flag,
         handle,
     });
@@ -134,8 +152,18 @@ pub fn stop(state: &LiveSttState) {
     let session = state.0.lock().unwrap().take();
     if let Some(s) = session {
         s.stop.store(true, Ordering::Relaxed);
+        crate::live_translation::cancel_session(&s.app, &s.session_id);
         let _ = s.handle.join();
     }
+}
+
+pub(crate) fn session_id(state: &LiveSttState) -> Option<String> {
+    state
+        .0
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|s| s.session_id.clone())
 }
 
 /// 共有バッファから「まだ取り込んでいない」新規サンプルだけを複製して返す（O(new)）。
@@ -188,25 +216,45 @@ fn sleep_remainder(t0: Instant, stop: &AtomicBool) {
     }
 }
 
-fn emit(app: &AppHandle, committed: &VecDeque<String>, live: &[String]) {
-    let mut lines: Vec<LiveLine> = committed
+fn payload(
+    session: &str,
+    count: u64,
+    committed: &VecDeque<String>,
+    live: &[String],
+) -> LivePayload {
+    let lines = committed
         .iter()
-        .map(|t| LiveLine {
-            text: t.clone(),
+        .enumerate()
+        .map(|(index, text)| LiveLine {
+            id: count - committed.len() as u64 + index as u64,
+            text: text.clone(),
             committed: true,
         })
-        .collect();
-    for t in live {
-        lines.push(LiveLine {
-            text: t.clone(),
+        .chain(live.iter().enumerate().map(|(index, text)| LiveLine {
+            id: count + index as u64,
+            text: text.clone(),
             committed: false,
-        });
+        }))
+        .collect();
+    LivePayload {
+        session_id: session.to_owned(),
+        lines,
     }
-    let _ = app.emit("meeting://live", LivePayload { lines });
 }
 
-fn run_worker(
-    app: &AppHandle,
+fn emit<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    session: &str,
+    count: u64,
+    committed: &VecDeque<String>,
+    live: &[String],
+) {
+    let _ = app.emit("meeting://live", payload(session, count, committed, live));
+}
+
+fn run_worker<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    session: &str,
     models_dir: &std::path::Path,
     mic: Option<MicHandle>,
     system: Option<SystemHandle>,
@@ -220,14 +268,30 @@ fn run_worker(
         return;
     }
     let vad_path = models_dir.join(DEFAULT_VAD_MODEL);
-    let vad = if vad_path.exists() { Some(vad_path) } else { None };
+    let vad = if vad_path.exists() {
+        Some(vad_path)
+    } else {
+        None
+    };
     let vad_available = vad.is_some();
+    // Reserve the shared slot during model loading too; recording capture is independent.
+    let load_permit = loop {
+        if stop.load(Ordering::Relaxed) {
+            return;
+        }
+        if let Some(permit) = crate::commands::try_acquire_live_job() {
+            break permit;
+        }
+        std::thread::sleep(SLEEP_STEP);
+    };
     let engine = match WhisperStt::load(&whisper_path, vad) {
         // The early gate may admit quiet tails only if a VAD failure cannot decode raw audio.
         Ok(e) if vad_available => e.with_required_vad(),
         Ok(e) => e,
         Err(_) => return,
     };
+
+    drop(load_permit);
 
     // 16k mono の「未確定」バッファ（確定分は drain 済み＝メモリ一定）。両者はインデックス＝
     // ほぼ同時刻で整合（mic/system とも 16k・キャプチャ開始ほぼ同時。δ は cosmetic）。
@@ -236,6 +300,8 @@ fn run_worker(
     let mut mic_consumed: u64 = 0;
     let mut sys_consumed: u64 = 0;
     let mut committed: VecDeque<String> = VecDeque::new();
+    let mut committed_count = 0;
+    emit(app, session, committed_count, &committed, &[]);
 
     while !stop.load(Ordering::Relaxed) {
         let t0 = Instant::now();
@@ -287,7 +353,7 @@ fn run_worker(
         // 重い ML ジョブ（ファイル文字起こし・話者分離・ローカル要約）の実行中は
         // ライブ推論を休止して譲る（whisper 同時実行によるメモリピーク回避。16GB 機対策）。
         // プレビューは使い捨てなので、休止中に溜まりすぎた分は捨てて前進する（メモリ有界）。
-        if crate::commands::heavy_job_busy() {
+        let Some(permit) = crate::commands::try_acquire_live_job() else {
             if tail_ms > MAX_TAIL_MS {
                 drain_front(
                     &mut mic16k,
@@ -297,7 +363,7 @@ fn run_worker(
             }
             sleep_remainder(t0, stop);
             continue;
-        }
+        };
         let tail = mix_mono(
             mic16k.get(..len).unwrap_or(&[]),
             sys16k.get(..len).unwrap_or(&[]),
@@ -312,7 +378,8 @@ fn run_worker(
                     ms_to_samples(tail_ms - COMMIT_GUARD_MS),
                 );
             }
-            emit(app, &committed, &[]);
+            drop(permit);
+            emit(app, session, committed_count, &committed, &[]);
             sleep_remainder(t0, stop);
             continue;
         }
@@ -321,11 +388,14 @@ fn run_worker(
         let transcript = match engine.transcribe(&tail, language) {
             Ok(t) => t,
             Err(_) => {
+                drop(permit);
                 bound_failed_tail(&mut mic16k, &mut sys16k, tail_ms);
                 sleep_remainder(t0, stop);
                 continue;
             }
         };
+
+        drop(permit);
 
         // 5) tail 末尾 - GUARD より前に終わるセグメントを確定、残りは未確定 tail。
         let commit_ms = tail_ms.saturating_sub(COMMIT_GUARD_MS);
@@ -338,6 +408,7 @@ fn run_worker(
             }
             if seg.end_ms <= commit_ms {
                 committed.push_back(text);
+                committed_count += 1;
                 if committed.len() > MAX_LINES {
                     committed.pop_front();
                 }
@@ -360,7 +431,7 @@ fn run_worker(
         }
 
         // 7) 送信（確定 + 未確定）。
-        emit(app, &committed, &live);
+        emit(app, session, committed_count, &committed, &live);
 
         sleep_remainder(t0, stop);
     }
@@ -369,6 +440,144 @@ fn run_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Replay real audio at capture speed while the actual sidecar shares the ML slot.
+    /// Output is intentionally local: source captions may contain personal data.
+    #[test]
+    #[ignore = "requires MOJIROKU_LIVE_AUDIO, MODELS, SIDECAR, TRANSLATION_MODEL, and OUTPUT"]
+    fn real_audio_live_worker_with_translation() {
+        use tauri::Listener;
+        use tauri_plugin_shell::ShellExt;
+        let env_path = |suffix: &str| {
+            std::path::PathBuf::from(
+                std::env::var(format!("MOJIROKU_LIVE_{suffix}")).expect(suffix),
+            )
+        };
+        let audio = mojiroku_core::audio::decode_to_pcm16k_mono(env_path("AUDIO")).unwrap();
+        let models = env_path("MODELS");
+        let sidecar = env_path("SIDECAR");
+        let model = env_path("TRANSLATION_MODEL");
+        let output = env_path("OUTPUT");
+        let app = tauri::test::mock_builder()
+            .plugin(tauri_plugin_shell::init())
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let listener = app.listen("meeting://live", move |event| {
+            let value: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
+            let _ = send.send(value);
+        });
+        let buffer = Arc::new(SharedPcm::new());
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_app = app.handle().clone();
+        let worker_buffer = buffer.clone();
+        let worker_stop = stop.clone();
+        let worker = std::thread::spawn(move || {
+            run_worker(
+                &worker_app,
+                "real-audio-test",
+                &models,
+                Some((worker_buffer, TARGET_RATE, 1)),
+                None,
+                None,
+                &worker_stop,
+            )
+        });
+        let translator_app = app.handle().clone();
+        let translator = std::thread::spawn(move || {
+            let mut seen = std::collections::HashSet::new();
+            let mut rows = Vec::new();
+            while let Ok(snapshot) = receive.recv() {
+                for line in snapshot["lines"].as_array().unwrap() {
+                    if line["committed"] != true || !seen.insert(line["id"].as_u64().unwrap()) {
+                        continue;
+                    }
+                    let text = line["text"].as_str().unwrap();
+                    let target = if text
+                        .chars()
+                        .any(|ch| ('\u{3040}'..='\u{30ff}').contains(&ch))
+                    {
+                        "en"
+                    } else {
+                        "ja"
+                    };
+                    let started = Instant::now();
+                    let permit =
+                        tauri::async_runtime::block_on(crate::commands::acquire_heavy_job_permit());
+                    let wait_ms = started.elapsed().as_millis();
+                    let prompt = crate::live_translation::test_prompt(text);
+                    let token = tokio_util::sync::CancellationToken::new();
+                    let command = translator_app.shell().command(&sidecar).args([
+                        "--translate",
+                        model.to_str().unwrap(),
+                        prompt.0.to_str().unwrap(),
+                        target,
+                        "--no-think",
+                    ]);
+                    let translated =
+                        tauri::async_runtime::block_on(crate::live_translation::run_child(
+                            command,
+                            &token,
+                            Duration::from_secs(30),
+                        ))
+                        .unwrap();
+                    drop(permit);
+                    rows.push(serde_json::json!({"source_id":line["id"], "source":text, "target":target,
+                        "translation":translated, "wait_ms":wait_ms, "total_ms":started.elapsed().as_millis()}));
+                }
+            }
+            rows
+        });
+        let capture_started = Instant::now();
+        let mut max_capture_late_ms = 0;
+        for (index, chunk) in audio.chunks(ms_to_samples(100)).enumerate() {
+            let due = capture_started + Duration::from_millis(index as u64 * 100);
+            if let Some(wait) = due.checked_duration_since(Instant::now()) {
+                std::thread::sleep(wait);
+            }
+            max_capture_late_ms = max_capture_late_ms.max(due.elapsed().as_millis());
+            buffer.push(chunk);
+            // Exercise the same bounded spool retention as capture workers.
+            buffer.take_flush_chunk(ms_to_samples(30000));
+        }
+        // A padded fixture gives the worker time to commit the last utterance.
+        stop.store(true, Ordering::Relaxed);
+        worker.join().unwrap();
+        app.unlisten(listener);
+        let rows = translator.join().unwrap();
+        assert!(
+            rows.len() >= 2,
+            "real speech must yield multiple translated captions"
+        );
+        assert!(rows.iter().any(|r| r["target"] == "ja"));
+        assert!(rows.iter().any(|r| r["target"] == "en"));
+        std::fs::write(
+            output,
+            serde_json::to_vec_pretty(&serde_json::json!({
+            "audio_seconds":audio.len() as f64 / TARGET_RATE as f64,
+            "max_capture_late_ms":max_capture_late_ms, "rows":rows}))
+            .unwrap(),
+        )
+        .unwrap();
+        eprintln!("live replay: capture lateness maximum={max_capture_late_ms}ms");
+    }
+
+    #[test]
+    fn caption_ids_survive_commitment_and_window_eviction() {
+        let mut committed = VecDeque::from(["first".to_owned()]);
+        let before = payload("one", 1, &committed, &["draft".into()]);
+        committed.push_back("draft".into());
+        committed.pop_front();
+        let after = payload("one", 2, &committed, &["new".into()]);
+        assert_eq!(before.lines[1].id, after.lines[0].id);
+        assert_eq!(before.lines[1].text, after.lines[0].text);
+        assert!(!before.lines[1].committed && after.lines[0].committed);
+        assert_ne!(after.lines[0].id, after.lines[1].id);
+        assert_ne!(
+            after.session_id,
+            payload("two", 0, &VecDeque::new(), &[]).session_id
+        );
+    }
 
     #[test]
     fn repeated_inference_failures_keep_a_bounded_aligned_tail() {

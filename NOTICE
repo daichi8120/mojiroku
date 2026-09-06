@@ -114,6 +114,13 @@ mojiroku は初回利用時にユーザーの端末へモデルを取得しま�
                既に取得済みのモデルがある場合は、それをそのまま使います
                （黙って別のモデルに置き換えることはしません）。
 
+  Optional live translation: Qwen3.5-9B-Q4_K_M.gguf (5.68 GB)
+               Copyright 2026 Alibaba Cloud. License: Apache-2.0.
+               https://huggingface.co/Qwen/Qwen3.5-9B/blob/main/LICENSE
+               https://huggingface.co/unsloth/Qwen3.5-9B-GGUF
+               Quantized by Unsloth; no retraining here. Downloaded at runtime.
+               Stored separately from summary selection (ADR-0037).
+
   VAD          ggml-silero-v5.1.2.bin
                https://huggingface.co/ggml-org/whisper-vad
 
