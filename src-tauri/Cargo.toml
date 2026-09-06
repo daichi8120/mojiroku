@@ -34,7 +34,8 @@ keyring = { version = "3", features = ["apple-native"] }
 mojiroku-core = { path = "../crates/mojiroku-core" }
 # 重い ML ジョブ（STT/話者分離/ローカル要約）の直列化セマフォ（commands::acquire_heavy_job）。
 # tauri が内包する tokio と同一系（1.x）。sync のみで十分。
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { version = "1.23.3", features = ["v4"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 # OAuth 連携（Notion MCP / Slack / Google Calendar）。loopback + PKCE のトークン交換に使う。
@@ -55,3 +56,6 @@ screencapturekit = "8.0"
 # tauri-plugin-process は更新適用後の relaunch 用。
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

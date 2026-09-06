@@ -370,6 +370,172 @@ const DIAR_SEG_ARCHIVE_SHA256: &str =
 /// 進捗コールバック: `(downloaded_bytes, total_bytes_opt)`。
 pub type ProgressFn<'a> = dyn Fn(u64, Option<u64>) + 'a;
 
+/// Translation uses its own cache name and does not change summary-model selection.
+pub const TRANSLATION_MODEL_FILE: &str = "translation-Qwen3.5-9B-Q4_K_M.gguf";
+pub const TRANSLATION_MODEL_BYTES: u64 = 5_680_522_464;
+const TRANSLATION_MODEL_URL: &str = "https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/3885219b6810b007914f3a7950a8d1b469d598a5/Qwen3.5-9B-Q4_K_M.gguf";
+const TRANSLATION_MODEL_SHA256: &str =
+    "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8";
+
+/// Verify or download the translation model. Cancellation never installs a partial file.
+pub fn ensure_translation_model(
+    models_dir: &Path,
+    on_progress: Option<&ProgressFn<'_>>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<PathBuf> {
+    translation_check_cancel(cancelled)?;
+    fs::create_dir_all(models_dir).map_err(|e| CoreError::Io(e.to_string()))?;
+    let dest = models_dir.join(TRANSLATION_MODEL_FILE);
+    if translation_cache_valid(
+        &dest,
+        TRANSLATION_MODEL_BYTES,
+        TRANSLATION_MODEL_SHA256,
+        cancelled,
+    )? {
+        return Ok(dest);
+    }
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| CoreError::Io(e.to_string()))?
+        .as_nanos();
+    let tmp = models_dir.join(format!("translation-{}-{stamp}.part", std::process::id()));
+    translation_check_cancel(cancelled)?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(5))
+        .build();
+    let response = agent
+        .get(TRANSLATION_MODEL_URL)
+        .call()
+        .map_err(|e| CoreError::Model(download_error_key("translation model", &e.to_string())))?;
+    install_translation_stream(
+        response.into_reader(),
+        &tmp,
+        &dest,
+        (TRANSLATION_MODEL_BYTES, TRANSLATION_MODEL_SHA256),
+        on_progress,
+        cancelled,
+    )?;
+    Ok(dest)
+}
+
+fn translation_check_cancel(cancelled: &dyn Fn() -> bool) -> Result<()> {
+    if cancelled() {
+        Err(CoreError::Model("translation.cancelled".into()))
+    } else {
+        Ok(())
+    }
+}
+
+fn translation_cache_valid(
+    path: &Path,
+    expected_bytes: u64,
+    expected_sha256: &str,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<bool> {
+    translation_check_cancel(cancelled)?;
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(CoreError::Io(e.to_string())),
+    };
+    // Inspect the opened file, then count the bytes read as well: metadata alone
+    // cannot establish integrity if a cache file changes during verification.
+    let metadata = file.metadata().map_err(|e| CoreError::Io(e.to_string()))?;
+    if !metadata.is_file() || metadata.len() != expected_bytes {
+        return Ok(false);
+    }
+    let (bytes, hash) = copy_translation_stream(
+        &mut file,
+        &mut std::io::sink(),
+        expected_bytes,
+        None,
+        cancelled,
+    )?;
+    Ok(bytes == expected_bytes && hash.eq_ignore_ascii_case(expected_sha256))
+}
+
+/// Only an owned temporary file is removed, including on early return or panic.
+struct TranslationPartial(PathBuf);
+
+impl Drop for TranslationPartial {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn install_translation_stream(
+    mut reader: impl Read,
+    tmp: &Path,
+    dest: &Path,
+    expected: (u64, &str),
+    on_progress: Option<&ProgressFn<'_>>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
+    translation_check_cancel(cancelled)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(tmp)
+        .map_err(|e| CoreError::Io(e.to_string()))?;
+    let _partial = TranslationPartial(tmp.to_path_buf());
+    let (bytes, hash) =
+        copy_translation_stream(&mut reader, &mut file, expected.0, on_progress, cancelled)?;
+    file.flush().map_err(|e| CoreError::Io(e.to_string()))?;
+    drop(file);
+    verify_download(
+        tmp,
+        bytes,
+        Some(expected.0),
+        &hash,
+        Some(expected.1),
+        "translation model",
+    )?;
+    translation_check_cancel(cancelled)?;
+    fs::rename(tmp, dest).map_err(|e| CoreError::Io(e.to_string()))?;
+    Ok(())
+}
+
+fn copy_translation_stream(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    expected_bytes: u64,
+    on_progress: Option<&ProgressFn<'_>>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(u64, String)> {
+    let mut hasher = Sha256::new();
+    let mut downloaded = 0_u64;
+    let mut buf = [0_u8; 64 * 1024];
+    loop {
+        translation_check_cancel(cancelled)?;
+        let n = match reader.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(CoreError::Io(e.to_string())),
+        };
+        // Cancellation during a blocking read (including EOF) must not install
+        // the file or report the cached model as ready.
+        translation_check_cancel(cancelled)?;
+        if n == 0 {
+            break;
+        }
+        if n as u64 > expected_bytes.saturating_sub(downloaded) {
+            return Err(CoreError::Model(
+                "translation model exceeds expected size".into(),
+            ));
+        }
+        writer
+            .write_all(&buf[..n])
+            .map_err(|e| CoreError::Io(e.to_string()))?;
+        downloaded += n as u64;
+        hasher.update(&buf[..n]);
+        if let Some(cb) = on_progress {
+            cb(downloaded, Some(expected_bytes));
+        }
+    }
+    Ok((downloaded, format!("{:x}", hasher.finalize())))
+}
+
 /// Prepare live transcription independently of the offline model choice.
 pub fn ensure_live_transcription_models(
     models_dir: &Path,
@@ -586,6 +752,212 @@ mod tests {
 
     /// "abc" の SHA-256（既知ベクタ）。
     const ABC_SHA256: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    struct TranslationTestDir(PathBuf);
+
+    impl TranslationTestDir {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "mojiroku-translation-test-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TranslationTestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn translation_download_installs_only_verified_content() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&dest, b"old").unwrap();
+        let progress = std::cell::RefCell::new(Vec::new());
+        install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            Some(&|bytes, total| progress.borrow_mut().push((bytes, total))),
+            &|| false,
+        )
+        .unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"abc");
+        assert_eq!(*progress.borrow(), [(3, Some(3))]);
+        assert!(!tmp.exists());
+        assert!(translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
+        fs::write(&dest, b"bad").unwrap();
+        assert!(!translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
+        fs::write(&dest, b"a").unwrap();
+        assert!(!translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
+    }
+
+    #[test]
+    fn translation_download_rejects_corrupt_sizes_and_hash_without_replacing_cache() {
+        for (data, error) in [
+            (&b"ab"[..], "download_incomplete"),
+            (&b"abcd"[..], "exceeds expected size"),
+            (&b"bad"[..], "checksum_mismatch"),
+        ] {
+            let dir = TranslationTestDir::new();
+            let tmp = dir.0.join("model.part");
+            let dest = dir.0.join("model.gguf");
+            fs::write(&dest, b"existing").unwrap();
+            let err =
+                install_translation_stream(data, &tmp, &dest, (3, ABC_SHA256), None, &|| false)
+                    .unwrap_err();
+            assert!(err.to_string().contains(error), "{err}");
+            assert_eq!(fs::read(&dest).unwrap(), b"existing");
+            assert!(!tmp.exists());
+        }
+    }
+
+    #[test]
+    fn translation_download_cancelled_after_progress_removes_partial() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        let cancelled = std::cell::Cell::new(false);
+        let err = install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            Some(&|_, _| cancelled.set(true)),
+            &|| cancelled.get(),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("translation.cancelled"));
+        assert!(!tmp.exists());
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn translation_download_cancellation_during_eof_never_installs() {
+        struct CancelAtEof<'a> {
+            data: &'a [u8],
+            cancelled: &'a std::cell::Cell<bool>,
+        }
+        impl Read for CancelAtEof<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                let n = self.data.read(buf)?;
+                if n == 0 {
+                    self.cancelled.set(true);
+                }
+                Ok(n)
+            }
+        }
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        let cancelled = std::cell::Cell::new(false);
+        let reader = CancelAtEof {
+            data: b"abc",
+            cancelled: &cancelled,
+        };
+        let err = install_translation_stream(reader, &tmp, &dest, (3, ABC_SHA256), None, &|| {
+            cancelled.get()
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("translation.cancelled"));
+        assert!(!tmp.exists());
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn translation_download_read_failure_removes_partial_and_preserves_cache() {
+        struct FailsAfterChunk(bool);
+        impl Read for FailsAfterChunk {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.0 {
+                    return Err(std::io::Error::other("broken stream"));
+                }
+                self.0 = true;
+                buf[0] = b'a';
+                Ok(1)
+            }
+        }
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&dest, b"existing").unwrap();
+        let err = install_translation_stream(
+            FailsAfterChunk(false),
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("broken stream"));
+        assert_eq!(fs::read(&dest).unwrap(), b"existing");
+        assert!(!tmp.exists());
+    }
+
+    #[test]
+    fn translation_download_does_not_delete_another_downloads_partial() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&tmp, b"other download").unwrap();
+        assert!(install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| false
+        )
+        .is_err());
+        assert_eq!(fs::read(&tmp).unwrap(), b"other download");
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn translation_download_precancelled_does_not_touch_files() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        assert!(install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| true
+        )
+        .is_err());
+        assert!(translation_cache_valid(&dest, 3, ABC_SHA256, &|| true).is_err());
+        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn translation_download_failed_install_removes_verified_partial() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("model.part");
+        let dest = dir.0.join("model.gguf");
+        fs::create_dir(&dest).unwrap();
+        assert!(install_translation_stream(
+            &b"abc"[..],
+            &tmp,
+            &dest,
+            (3, ABC_SHA256),
+            None,
+            &|| false
+        )
+        .is_err());
+        assert!(!tmp.exists());
+        assert!(dest.is_dir());
+    }
 
     /// 証明書の失敗を接続の失敗と区別する。**Issue #31 で実際に報告された文字列**を固定する。
     /// 分けないと「ネットワーク接続を確認してください」と出て、利用者は正常な回線を疑う。

@@ -21,6 +21,14 @@
   （[ADR-0022](./docs/decisions/ADR-0022_AppleDeveloperID署名とnotarization.md)）。
 - ランディングのソースは [`landing/`](./landing/)（Astro / Cloudflare Workers 静的アセット）。
 
+## Live translation preview
+
+During a meeting, choose Japanese or English in the right panel and click **Translate**.
+The original live transcript stays visible. Translation requires at least 16 GB of RAM;
+first use downloads a separate 5.68 GB model. Captions are temporary and can contain errors.
+Turn translation off without stopping recording. Details and measured limits are in
+[ADR-0037](./docs/decisions/ADR-0037_Optional_local_live_translation.md).
+
 ## アーキテクチャ（案B: Rust 単一ランタイム）
 
 - **デスクトップ**: Tauri v2（[ADR-0002](./docs/decisions/ADR-0002_デスクトップ基盤にTauri-v2を採用.md)）
