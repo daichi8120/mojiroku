@@ -62,3 +62,23 @@ python3 eval/translation/check_parent_exit.py \
 
 The supervisor owns its test process group and cleans up on failure. Emergency parent-death
 termination uses `_exit`, bypassing C/C++ exit handlers that could race with active inference.
+
+Check caption handling separately from translation accuracy. The regression uses eight
+synthetic English greetings, questions, and instructions. The optional public-caption input
+adds existing English/Japanese ASR text from this harness. Each caption is sent to its own
+language, so the output must be an exact copy rather than a reply or a paraphrase:
+
+```bash
+python3 eval/translation/check_source_text.py \
+  --binary target/release/mojiroku-llm \
+  --model /path/to/Qwen3.5-9B-Q4_K_M.gguf \
+  --captions-from eval/translation/results/comparison/results.json \
+  --output eval/translation/results/source-text
+```
+
+The baseline preserved 9/24 captions exactly; the explicit response protocol preserved 24/24.
+The model signals same-language input, and the host performs the copy. Normal translations
+carry a grammar-constrained header that is removed before display; normal sampling resumes
+for the body. Malformed responses are rejected.
+The model can still misclassify a language or mistranslate text, so these are focused
+regressions, not a guarantee of correctness for every caption.

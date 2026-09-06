@@ -113,3 +113,32 @@ The parent-death check passed three times with an explicit watcher marker (135â€
 until the child was reaped), with no new crash reports. Merely observing disappearance
 is insufficient: the initial `std::process::exit` version crashed during concurrent teardown.
 The dedicated reproduction now distinguishes that failure from the intended emergency exit.
+
+During native recording validation, the model answered an English greeting instead of
+preserving it when English output was selected. The sidecar now frames source text as a
+caption and asks for one of two explicit responses: `UNCHANGED`, or `TRANSLATION` followed
+by translated text. When the model chooses `UNCHANGED`, the host copies the source exactly.
+This avoids asking the model to reproduce a same-language caption without paraphrasing.
+Malformed responses fail visibly rather than exposing protocol text as a translation.
+A translated body equal to `UNCHANGED` remains literal text because it follows the separate
+`TRANSLATION` header; the parser does not confuse that payload with the control response.
+
+The real-model regression combines eight synthetic English greetings/questions/instructions
+with 16 public English/Japanese ASR captions. The baseline preserved 9/24 exactly; the new
+protocol preserved 24/24. Three parser tests cover exact copies, marker-like translated
+payloads, and invalid formats. Language classification and translation quality remain model
+decisions, so these results are a focused regression rather than a universal accuracy claim.
+
+
+A llama.cpp grammar enforces the control header during sampling; a prompt alone sometimes
+omitted it. After `TRANSLATION` and its newline, a fresh normal sampler handles the body.
+This avoids per-token grammar filtering for ordinary translation text and keeps control
+header tokens out of the body's repetition history. `LlamaSampler::sample` already accepts
+the selected token, so the translation loop must not call `accept` again: double acceptance
+corrupts grammar state and aborts the sidecar. The real-model regression catches that failure.
+
+The corrected sampler passed all 24 exact-copy cases and returned valid translated responses
+for all 16 cross-language public captions. This is not a translation-accuracy score.
+The 16 translations took a median of 1.29 seconds and a maximum of 1.85 seconds on the same
+M4 Max/128 GiB Mac. The initial model-selection timings above predate this response-protocol
+change. They are not the corrected decoder's latency figures.
