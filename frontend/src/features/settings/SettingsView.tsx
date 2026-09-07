@@ -216,7 +216,7 @@ export function SettingsView() {
           {/* ── モデル ── */}
           <section ref={refs.models} className="scroll-mt-6">
             <div className={SECTION_TITLE}>{t.settings.nav.models}</div>
-            <div className={SECTION_DESC}>Download models before your meeting. Downloads continue when you switch pages.</div>
+            <div className={SECTION_DESC}>{t.settings.models.desc}</div>
             {downloadError && <p role="alert" className="mt-2 text-[12px] text-red">{translateError(downloadError, t)}</p>}
             <div className="mt-3.5 overflow-hidden rounded-card border border-border bg-surface">
               <ModelRow
@@ -243,9 +243,9 @@ export function SettingsView() {
                   />
                   {(!isDownloaded(LIVE_MODEL_FILE, transcriptionModel.live_ready) || !isDownloaded(VAD_MODEL_FILE, transcriptionModel.live_ready)) && (
                     <div className="border-b border-line px-4 py-3">
-                      <p className="mb-2 text-[11.5px] text-muted">Live captions also use Whisper turbo and speech detection.</p>
+                      <p className="mb-2 text-[11.5px] text-muted">{t.settings.models.liveModelMissing}</p>
                       {!isDownloaded(LIVE_MODEL_FILE) && <div className="mb-2 flex items-center justify-between gap-3 text-[11.5px] text-sub"><span>Whisper turbo · 574 MB</span>{downloadControl(LIVE_MODEL_FILE)}</div>}
-                      {!isDownloaded(VAD_MODEL_FILE) && <div className="flex items-center justify-between gap-3 text-[11.5px] text-sub"><span>Speech detection · 0.89 MB</span>{downloadControl(VAD_MODEL_FILE)}</div>}
+                      {!isDownloaded(VAD_MODEL_FILE) && <div className="flex items-center justify-between gap-3 text-[11.5px] text-sub"><span>Silero VAD · 0.89 MB</span>{downloadControl(VAD_MODEL_FILE)}</div>}
                     </div>
                   )}
                 </>
@@ -262,7 +262,7 @@ export function SettingsView() {
               <ModelRow
                 icon={<MessageIcon size={17} />}
                 tint="bg-brand/15 text-brand-light"
-                name="Live translation"
+                name={t.meeting.translation.title}
                 model="Qwen3.5-9B"
                 size="5.68 GB"
                 status={isDownloaded(TRANSLATION_MODEL_FILE) ? "saved" : "ondemand"}
@@ -618,11 +618,11 @@ function ModelRow({
   );
 }
 
-function DownloadControl({ model }: { model: ModelDownload | undefined }) {
+export function DownloadControl({ model }: { model: ModelDownload | undefined }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { t } = useI18n();
-  if (!model) return <span className="text-[11px] text-muted">Checking…</span>;
+  if (!model) return <span className="text-[11px] text-muted">{t.common.loading}</span>;
   if (model.status === "ready") return null;
   const busy = starting || model.status === "downloading";
   const percent = Math.min(100, Math.floor(model.downloaded_bytes * 100 / model.size_bytes));
@@ -634,8 +634,8 @@ function DownloadControl({ model }: { model: ModelDownload | undefined }) {
     finally { setStarting(false); }
   };
   return <div className="max-w-[220px] text-right">
-    <Button size="sm" aria-label={`Download ${model.file}`} disabled={busy} onClick={() => void start()}>
-      {busy ? `Downloading · ${percent}%` : model.downloaded_bytes > 0 ? "Resume download" : "Download"}
+    <Button size="sm" aria-label={`${t.settings.models.fetch} ${model.file}`} disabled={busy} onClick={() => void start()}>
+      {busy ? `${t.job.stages.download} · ${percent}%` : model.downloaded_bytes > 0 ? t.common.retry : t.settings.models.fetch}
     </Button>
     {(error || model.error) && <p role="alert" className="mt-1 text-[11px] text-red">{translateError(error || model.error || "", t)}</p>}
   </div>;
