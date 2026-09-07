@@ -72,8 +72,11 @@ pub(crate) async fn stop_mic_recording(
     if let Some(e) = &info.spool_error {
         eprintln!("マイク録音の書き出しで一部エラー（部分保存で続行）: {e}");
     }
-    let duration_ms =
-        mic::duration_ms(info.samples_written as usize, info.channels, info.sample_rate);
+    let duration_ms = mic::duration_ms(
+        info.samples_written as usize,
+        info.channels,
+        info.sample_rate,
+    );
     let sample_rate = info.sample_rate;
 
     // 2) recordings/<id>.wav へ rename して確定（id は Recording.id と共用。同一ボリューム）。
@@ -179,6 +182,7 @@ pub(crate) fn cancel_meeting_recording(
 /// ワーカーへ委譲する。両トラックとも無音なら録音行を作る前に明示エラー（whisper の無音ハルシネーション
 /// 回避・orphan 防止）。system（相手）は STT＋話者分離、mic（自分）はソース帰属（mic=あなた・ADR-0017）。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn stop_meeting_recording(
     app: AppHandle,
     store: State<'_, SqliteStore>,
@@ -188,7 +192,12 @@ pub(crate) async fn stop_meeting_recording(
     queue: State<'_, JobQueue>,
     // 「記録を準備」（カレンダー連携）由来の予定タイトル。未指定/空なら既定の「会議」。
     title: Option<String>,
+    translations: Option<Vec<mojiroku_core::store::SavedLiveTranslation>>,
 ) -> Result<StartJobResult, String> {
+    let translations = translations.unwrap_or_default();
+    mojiroku_core::store::validate_live_translations(&translations)
+        .map_err(|e| format!("translation.history_invalid: {e}"))?;
+
     // 0) ライブワーカーを止めて join する（共有バッファを解放し、本番文字起こしが whisper を
     //    ロードする前に Metal/メモリの競合を避ける。advisor）。
     live_stt::stop(&live);
@@ -333,7 +342,7 @@ pub(crate) async fn stop_meeting_recording(
         created_at: chrono::Utc::now().to_rfc3339(),
     };
     // 会議は「音声だけ保存」トグルの対象外（常に文字起こしまで積む）ので record_only=false。
-    insert_recording_and_maybe_enqueue(
+    insert_recording_and_maybe_enqueue_with_translations(
         &app,
         &store,
         &queue,
@@ -341,5 +350,6 @@ pub(crate) async fn stop_meeting_recording(
         false,
         false,
         mic_offset_ms,
+        &translations,
     )
 }

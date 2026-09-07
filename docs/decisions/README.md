@@ -58,3 +58,7 @@
 - [`ADR-0034_Offer_full_Whisper_large_v3_for_offline_transcription.md`](ADR-0034_Offer_full_Whisper_large_v3_for_offline_transcription.md) — Offer full large-v3 q5_0 as an explicit offline choice; keep turbo for defaults and live transcription. Snapshot model selection in queued jobs and compare both models with the public FLEURS harness.
 
 - [`ADR-0037_Optional_local_live_translation.md`](ADR-0037_Optional_local_live_translation.md) — Opt-in Japanese/English translation with an isolated 9B sidecar, bounded caption work, session cancellation, and shared ML scheduling.
+
+- [ADR-0038: Background model downloads and saved live translations](ADR-0038_Background_model_downloads_and_saved_live_translations.md)
+- [ADR-0039: Japanese/English automatic recognition](ADR-0039_Restrict_automatic_recognition_to_Japanese_and_English.md)
+- [ADR-0040: Preserve brief speakers during cleanup](ADR-0040_Preserve_brief_speakers_during_cleanup.md)

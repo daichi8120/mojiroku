@@ -18,6 +18,8 @@ import {
   stopMeetingRecording,
   useJobUpdate,
   useMeetingStarting,
+  useMeetingLiveSnapshot,
+  type LiveSnapshot,
 } from "@/lib/tauri";
 import { elapsedSeconds, formatTimestamp, type Recording, type StartingMeeting } from "@/lib/types";
 import { Sidebar } from "@/components/Sidebar";
@@ -32,6 +34,8 @@ import { MeetingView } from "@/features/meeting/MeetingView";
 import { SpeakersView } from "@/features/speakers/SpeakersView";
 import { IntegrationsView } from "@/features/integrations/IntegrationsView";
 import { DigestView } from "@/features/digest/DigestView";
+import { useLiveTranslation } from "@/lib/useLiveTranslation";
+import type { TranslationTarget } from "@/lib/liveTranslation";
 import { UpdateBanner } from "@/features/update/UpdateBanner";
 
 interface ToastItem {
@@ -52,6 +56,12 @@ function App() {
   const t = dicts[lang];
   // 会議録音はアプリ全体の状態（録音実体はバックエンドに常駐し、画面遷移で消えない）。
   const [meeting, setMeeting] = useState<MeetingState>({ status: "idle", startedAt: null, title: null });
+  const [liveSnapshot, setLiveSnapshot] = useState<LiveSnapshot | null>(null);
+  const [translationTarget, setTranslationTarget] = useState<TranslationTarget>(lang);
+  const translation = useLiveTranslation(meeting.status === "capturing", liveSnapshot);
+  useMeetingLiveSnapshot((snapshot) => {
+    if (meetingRef.current.status === "capturing") setLiveSnapshot(snapshot);
+  });
   const meetingRef = useRef(meeting);
   meetingRef.current = meeting;
   // 開始処理は許可確認→開始の間に await を挟むので、status が capturing になる前に
@@ -215,6 +225,8 @@ function App() {
         }
       }
       await startMeetingRecording();
+      translation.reset();
+      setLiveSnapshot(null);
       setMeeting({ status: "capturing", startedAt: Date.now(), title: resolved });
       if (resolved !== null) {
         // 予定を消費したのでプロンプトを畳む（recordPendingMeeting と同じ扱い）。
@@ -235,13 +247,23 @@ function App() {
   // 会議録音: 停止 → デュアルトラック文字起こし保存 → 詳細へ。
   const stopMeeting = useCallback(async () => {
     if (meetingRef.current.status !== "capturing") return;
-    setMeeting({ status: "stopping", startedAt: meetingRef.current.startedAt, title: meetingRef.current.title });
+    translation.stop();
+    const translations = translation.completed();
+    meetingRef.current = { ...meetingRef.current, status: "stopping" };
+    setMeeting(meetingRef.current);
     try {
-      const res = await stopMeetingRecording(meetingRef.current.title);
+      const res = await stopMeetingRecording(meetingRef.current.title, translations);
       setMeeting({ status: "idle", startedAt: null, title: null });
       refreshRecents();
       navigate({ view: "detail", id: res.recording_id });
     } catch (e) {
+      if (String(e).startsWith("translation.history_invalid:")) {
+        meetingRef.current = { ...meetingRef.current, status: "capturing" };
+        setMeeting(meetingRef.current);
+        toast(t.meeting.translation.saveInvalid, "error");
+        navigate({ view: "meeting" });
+        return;
+      }
       toast(translateError(e, t), "error");
       setMeeting({ status: "idle", startedAt: null, title: null });
       navigate({ view: "home" });
@@ -251,6 +273,8 @@ function App() {
   // 会議録音: 破棄（保存しない）。誤開始のやり直し用。
   const discardMeeting = useCallback(async () => {
     if (meetingRef.current.status === "idle") return;
+    translation.reset();
+    setLiveSnapshot(null);
     setMeeting({ status: "idle", startedAt: null, title: null });
     try {
       await cancelMeetingRecording();
@@ -312,7 +336,7 @@ function App() {
   return (
     <I18nCtx.Provider value={{ lang, t: dicts[lang], setLang }}>
     <AppCtx.Provider
-      value={{ route, navigate, toast, refreshRecents, meeting, startMeeting, stopMeeting, discardMeeting }}
+      value={{ route, navigate, toast, refreshRecents, meeting, startMeeting, stopMeeting, discardMeeting, liveSnapshot, translation, translationTarget, setTranslationTarget }}
     >
       <div className="flex h-screen w-screen overflow-hidden bg-bg text-body">
         <Sidebar recents={recents} activeJobIds={activeJobIds} />

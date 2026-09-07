@@ -130,3 +130,22 @@ cd /tmp/purity-ab
 
 `results/`（推論結果）・`vad.json`・`metrics.json`・音声・モデルは**リポジトリに置かない**。
 測定結果そのものは ADR-0028 の「検証」節が正本である。
+
+
+## Public brief-speaker regression
+
+`check_brief_speakers.py` checks four checksum-pinned WAVs from the provider's
+[speaker-segmentation release](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-segmentation-models):
+`0-four-speakers-zh.wav` and `1-two-speakers-en.wav` through `3-two-speakers-en.wav`.
+Download them into an untracked directory; audio is not bundled in this repository.
+The harness derives single-speaker and unequal-participation controls, executes
+one product CLI at a time, and records binary/model/audio hashes. Speaker counts
+are a focused retention gate, not independent diarization error rates (ADR-0040).
+
+```sh
+cargo build --release -p mojiroku-core --example diarize_cli
+python3 eval/diarization/check_brief_speakers.py \
+  --audio-dir /path/to/provider-wavs --models /path/to/models \
+  --binary target/release/examples/diarize_cli \
+  --baseline /path/to/previous/diarize_cli --output /tmp/brief-speaker-results
+```

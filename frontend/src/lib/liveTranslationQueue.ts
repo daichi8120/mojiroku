@@ -8,6 +8,7 @@ export type TranslationRowStatus = "queued" | "translating" | "ready" | "error" 
 
 export interface TranslationRow {
   sourceId: number;
+  target?: "ja" | "en";
   sourceText: string;
   committed: boolean;
   status: TranslationRowStatus;
@@ -46,6 +47,18 @@ export class LiveTranslationQueue {
     const pending = this.rows.filter((row) => row.status === "queued");
     for (const row of pending.slice(0, Math.max(0, pending.length - MAX_PENDING))) {
       row.status = "skipped";
+    }
+  }
+
+  restore(completed: readonly { source_id: number; source_text: string; translation: string }[]): void {
+    const saved = new Map(completed.map((row) => [row.source_id, row]));
+    for (const row of this.rows) {
+      const previous = saved.get(row.sourceId);
+      if (previous?.source_text === row.sourceText) {
+        row.translation = previous.translation;
+        row.status = "ready";
+        row.error = null;
+      }
     }
   }
 

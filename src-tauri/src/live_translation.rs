@@ -347,37 +347,16 @@ pub(crate) async fn translate_live_line(
     let model_path = if verified {
         path
     } else {
-        progress(
+        let path = crate::model_downloads::ensure_download(
             &app,
-            &event,
-            "download",
-            0,
-            Some(mojiroku_core::models::TRANSLATION_MODEL_BYTES),
-        );
-        let app_copy = app.clone();
-        let event_copy = event.clone();
-        let token = activity.cancel.clone();
-        // Keep the single-flight lock until this blocking download exits, even after cancellation.
-        // Caption revisions cancel only inference; disabling translation cancels the download too.
-        let result = tauri::async_runtime::spawn_blocking(move || {
-            let last_report = Mutex::new(Instant::now());
-            let report = |done, total| {
-                let mut last = last_report.lock().unwrap();
-                if Some(done) == total || last.elapsed() >= Duration::from_millis(100) {
-                    progress(&app_copy, &event_copy, "download", done, total);
-                    *last = Instant::now();
-                }
-            };
-            mojiroku_core::models::ensure_translation_model(&models, Some(&report), &|| {
-                token.is_cancelled()
-            })
-        })
-        .await
-        .map_err(|_| "translation.download_failed")?;
+            mojiroku_core::models::TRANSLATION_MODEL_FILE,
+            &cancel,
+            |done, total| progress(&app, &event, "download", done, total),
+        )
+        .await?;
         if activity.cancel.is_cancelled() {
             return Err("translation.cancelled".into());
         }
-        let path = result.map_err(crate::commands::core_err)?;
         *state.verified_model.lock().unwrap() = model_stamp(&path);
         path
     };

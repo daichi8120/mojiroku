@@ -11,11 +11,13 @@ mod jobs;
 mod live_stt;
 mod live_translation;
 mod mic;
+mod model_downloads;
 mod oauth;
 mod scheduler;
 mod secrets;
 mod settings;
 mod system_audio;
+mod translation_history;
 mod tray;
 
 use mojiroku_core::store::SqliteStore;
@@ -57,6 +59,7 @@ pub fn run() {
             app.manage(system_audio::SystemAudioState::new());
             app.manage(live_stt::LiveSttState::new());
             app.manage(live_translation::LiveTranslationState::default());
+            app.manage(model_downloads::ModelDownloadsState::default());
             // バックグラウンドジョブ基盤（ADR-0024）: enqueue 通知チャネルを管理し、ワーカーを起動する。
             // ワーカーは起動時に中断された running を pending へ戻し（再起動継続）、以後 pending を
             // 1 本ずつ直列処理する。キャプチャは permit を取らないので並行録音は常に開始できる。
@@ -82,6 +85,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            model_downloads::list_model_downloads,
+            model_downloads::start_model_download,
+            translation_history::list_live_translations,
             live_translation::begin_live_translation,
             live_translation::end_live_translation,
             live_translation::cancel_live_translation_request,

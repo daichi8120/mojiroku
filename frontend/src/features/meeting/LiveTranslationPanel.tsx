@@ -25,10 +25,13 @@ export function LiveTranslationPanel({ translation, target, setTarget, capturing
     <aside aria-label={copy.title} className="flex min-w-0 flex-1 flex-col bg-surface">
       <div className="flex flex-wrap items-center gap-2 px-[18px] pb-2.5 pt-3.5">
         <h2 className="text-[12px] font-bold text-ink">{copy.title}</h2>
-        <span className="rounded bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand-light">{copy.preview}</span>
+        <details className="text-[11px] text-muted">
+          <summary className="cursor-pointer">{copy.about}</summary>
+          <p className="max-w-64 py-2">{copy.downloadHint} {copy.retained}</p>
+        </details>
         <label className="ml-auto text-[11px] text-muted">
           <span className="sr-only">{copy.target}</span>
-          <select aria-label={copy.target} value={target} disabled={!capturing || translation.starting || translation.unavailable}
+          <select aria-label={copy.target} value={target} disabled={!capturing || translation.starting || translation.unavailable || translation.historyFull}
             onChange={(e) => {
               const next = e.target.value as TranslationTarget;
               setTarget(next);
@@ -40,18 +43,15 @@ export function LiveTranslationPanel({ translation, target, setTarget, capturing
           </select>
         </label>
         <Button size="sm" variant={translation.enabled ? "secondary" : "primary"}
-          disabled={!capturing} onClick={() => translation.enabled ? translation.stop() : translation.start(target)}>
+          disabled={!capturing || translation.historyFull} onClick={() => translation.enabled ? translation.stop() : translation.start(target)}>
           {translation.enabled ? copy.disable : copy.enable}
         </Button>
       </div>
-      {!translation.enabled ? (
-        <div className="px-[18px] py-3 text-[12px] leading-relaxed text-muted">
-          <p>{copy.description}</p>
-          <p className="mt-3">{copy.downloadHint}</p>
-          <p className="mt-3">{copy.temporary}</p>
-        </div>
-      ) : (
-        <>
+      {!translation.enabled && translation.rows.length === 0 && (
+        <p className="px-[18px] py-3 text-[12px] text-muted">{copy.description}</p>
+      )}
+      {translation.historyFull && <p role="status" className="px-[18px] pb-2 text-[11px] text-amber">{copy.historyFull}</p>}
+      {translation.enabled && <>
           <div role="status" className="px-[18px] pb-2 text-[11px] text-muted">
             {translation.unavailable ? copy.unavailable : translation.failed ? copy.failed : status}
             {!translation.failed && translation.pending > 0 && ` · ${translation.pending} ${copy.pending}`}
@@ -60,8 +60,10 @@ export function LiveTranslationPanel({ translation, target, setTarget, capturing
             <Button size="sm" variant="secondary" disabled={!capturing} onClick={() => translation.retry(target)}>{copy.retry}</Button>
           </div>}
           {translation.skipped > 0 && <p className="mx-[18px] mb-2 rounded border border-amber/30 bg-amber/10 px-2 py-1.5 text-[11px] text-amber">{copy.skipped}</p>}
+      </>}
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto px-[18px] pb-4" aria-label={copy.results}>
-            {translation.rows.map((row) => <div key={row.sourceId} className="border-b border-line py-2.5">
+            {translation.rows.map((row) => <div key={`${row.sourceId}:${row.target}`} className="border-b border-line py-2.5">
+              <span className="text-[10px] text-faint">{row.target === "en" ? copy.english : copy.japanese}</span>
               <p className="mb-1 text-[10.5px] leading-relaxed text-faint">{row.sourceText}</p>
               <p className={cx("text-[13.5px] leading-[1.7]", row.committed ? "text-speech" : "text-muted")}>
                 {row.translation ?? (row.status === "error" ? row.error === "input_too_long" ? copy.tooLong : copy.rowFailed
@@ -70,10 +72,6 @@ export function LiveTranslationPanel({ translation, target, setTarget, capturing
               </p>
             </div>)}
           </div>
-          <p className="border-t border-line px-[18px] py-2 text-[11px] leading-relaxed text-faint">{copy.temporary}</p>
-        </>
-      )}
-      <p className="border-t border-line px-[18px] py-2 text-[11px] text-faint">{t.meeting.live.aiNotesDetail}</p>
     </aside>
   );
 }

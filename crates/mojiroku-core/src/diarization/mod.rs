@@ -28,6 +28,9 @@ pub const DEFAULT_THRESHOLD: f32 = 0.80;
 /// （既知の限界・ADR-0009）。
 const ANCHOR_MIN_SECONDS: f32 = 15.0;
 const ANCHOR_MIN_FRACTION: f32 = 0.06;
+// Duration seeds stable groups; shorter distinct voices are retained below.
+// A merge needs positive voice evidence, not merely a nearest available group.
+const MIN_MERGE_COSINE: f32 = 0.65;
 
 /// 埋め込み抽出に必要な最小窓（これ未満の turn は窓を広げて抽出を試みる）。
 const EMBED_MIN_SECONDS: f32 = 0.3;
@@ -188,7 +191,9 @@ impl Diarizer for SherpaDiarizer {
         // FFI 例外シールド: onnxruntime の C++ 例外（メモリ枯渇の bad_alloc 等）を Err に変換。
         // シールド無しだと例外が tokio の catch_unwind に達してプロセスごと abort する
         // （docs/error.md の実クラッシュ）。
-        crate::ffi_guard::guard("話者分離 (sherpa-onnx)", || self.diarize_inner(pcm, sample_rate))?
+        crate::ffi_guard::guard("話者分離 (sherpa-onnx)", || {
+            self.diarize_inner(pcm, sample_rate)
+        })?
     }
 }
 
@@ -282,11 +287,14 @@ fn consolidate(
     let mut centroid: BTreeMap<i32, Vec<f32>> = BTreeMap::new();
     for (c, mut v) in acc {
         l2_normalize(&mut v);
-        centroid.insert(c, v);
+        if valid_embedding(&v) {
+            centroid.insert(c, v);
+        }
     }
 
     // anchor: 尺 >= max(絶対, 相対) かつ centroid を持つクラスタ（尺降順）。
-    let anchors = select_anchors(&centroid, &dur);
+    let anchors = select_supported_anchors(&centroid, &dur);
+
     if anchors.is_empty() {
         // 全 turn の埋め込みに失敗し centroid が空 → anchor を採れない。ここで空へ graceful
         // degrade する（`raw.is_empty()` の早期 return と同じ「話者未割当 transcript」経路に
@@ -298,19 +306,19 @@ fn consolidate(
     }
 
     // 各 turn を最近接 anchor へ再割当。
-    let largest_anchor = anchors[0];
+
     let out: Vec<Reassigned> = raw
         .iter()
         .zip(embs.iter())
         .map(|(s, e)| {
             let label = match e {
                 // 自前の埋め込みがあれば最近接 anchor centroid。
-                Some(emb) => nearest_anchor(emb, &anchors, &centroid).unwrap_or(largest_anchor),
+                Some(emb) => supported_assignment(emb, s.speaker, &anchors, &centroid),
                 // 短すぎて埋め込めない turn は元クラスタの centroid で代替、無ければ最大 anchor。
                 None => centroid
                     .get(&s.speaker)
-                    .and_then(|c| nearest_anchor(c, &anchors, &centroid))
-                    .unwrap_or(largest_anchor),
+                    .map(|c| supported_assignment(c, s.speaker, &anchors, &centroid))
+                    .unwrap_or(s.speaker),
             };
             Reassigned {
                 start: s.start,
@@ -364,11 +372,48 @@ fn select_anchors(centroid: &BTreeMap<i32, Vec<f32>>, dur: &BTreeMap<i32, f32>) 
     anchors
 }
 
+/// Retain short clusters whose voices are not sufficiently similar to an existing anchor.
+/// Original long-duration groups remain anchor candidates.
+fn select_supported_anchors(centroid: &ClusterEmbeddings, dur: &BTreeMap<i32, f32>) -> Vec<i32> {
+    let mut anchors: Vec<_> = select_anchors(centroid, dur)
+        .into_iter()
+        .filter(|id| valid_embedding(&centroid[id]))
+        .collect();
+    let mut candidates: Vec<_> = centroid
+        .iter()
+        .filter(|(_, v)| valid_embedding(v))
+        .map(|(id, _)| *id)
+        .collect();
+    candidates.sort_by(|a, b| cmp_f32(dur[b], dur[a]).then(a.cmp(b)));
+    for candidate in candidates {
+        if !anchors.contains(&candidate)
+            && !anchors
+                .iter()
+                .any(|anchor| dot(&centroid[&candidate], &centroid[anchor]) >= MIN_MERGE_COSINE)
+        {
+            anchors.push(candidate);
+        }
+    }
+    anchors
+}
+
+fn supported_assignment(
+    emb: &[f32],
+    original: i32,
+    anchors: &[i32],
+    centroids: &ClusterEmbeddings,
+) -> i32 {
+    nearest_anchor(emb, anchors, centroids)
+        .filter(|nearest| dot(emb, &centroids[nearest]) >= MIN_MERGE_COSINE)
+        .unwrap_or(original)
+}
+
 /// `emb`（L2 正規化済み）に最も近い anchor を cosine（= 内積）で選ぶ。
 fn nearest_anchor(emb: &[f32], anchors: &[i32], centroid: &BTreeMap<i32, Vec<f32>>) -> Option<i32> {
     anchors
         .iter()
         .filter_map(|c| centroid.get(c).map(|v| (*c, dot(emb, v))))
+        .filter(|(_, score)| score.is_finite())
         .max_by(|a, b| cmp_f32(a.1, b.1))
         .map(|(c, _)| c)
 }
@@ -398,7 +443,7 @@ fn embed_segment(
     .flatten();
     let mut emb = emb?;
     l2_normalize(&mut emb);
-    Some(emb)
+    valid_embedding(&emb).then_some(emb)
 }
 
 /// 埋め込み用の PCM 窓 `[a, b)` を決める純関数。`EMBED_MIN_SECONDS` 未満は中心から広げ、
@@ -433,13 +478,18 @@ fn l2_normalize(v: &mut [f32]) {
     }
 }
 
+fn valid_embedding(vector: &[f32]) -> bool {
+    !vector.is_empty() && vector.iter().all(|v| v.is_finite()) && vector.iter().any(|v| *v != 0.0)
+}
+
 fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(x, y)| x * y).sum()
 }
 
 /// f32 の全順序比較（尺/類似度/時刻の整列に使う）。値は有限前提のため NaN は想定外＝panic。
 fn cmp_f32(a: f32, b: f32) -> std::cmp::Ordering {
-    a.partial_cmp(&b).expect("finite f32 in diarization ordering")
+    a.partial_cmp(&b)
+        .expect("finite f32 in diarization ordering")
 }
 
 /// 再割当後の turn を `DiarizationResult` へ。anchor を尺降順に S1.. へ採番し、隣接同話者を結合。
@@ -517,15 +567,25 @@ mod tests {
     use super::*;
 
     fn spk(id: &str, name: Option<&str>) -> Speaker {
-        Speaker { id: id.into(), label: format!("話者{id}"), display_name: name.map(Into::into) }
+        Speaker {
+            id: id.into(),
+            label: format!("話者{id}"),
+            display_name: name.map(Into::into),
+        }
     }
 
     #[test]
     fn carry_display_names_matches_by_voiceprint() {
         // 旧: S1=[1,0]（田中）, S2=[0,1]（改名なし）。新: N1=[0,1], N2=[1,0]（順序入替）。
         // 声紋一致で N2←S1（田中）、N1←S2（None）。
-        let old = vec![(spk("S1", Some("田中")), vec![1.0, 0.0]), (spk("S2", None), vec![0.0, 1.0])];
-        let new = vec![(spk("N1", None), vec![0.0, 1.0]), (spk("N2", None), vec![1.0, 0.0])];
+        let old = vec![
+            (spk("S1", Some("田中")), vec![1.0, 0.0]),
+            (spk("S2", None), vec![0.0, 1.0]),
+        ];
+        let new = vec![
+            (spk("N1", None), vec![0.0, 1.0]),
+            (spk("N2", None), vec![1.0, 0.0]),
+        ];
         let out = carry_display_names(&old, &new, 0.7);
         let n1 = out.iter().find(|(id, _)| id == "N1").unwrap();
         let n2 = out.iter().find(|(id, _)| id == "N2").unwrap();
@@ -537,10 +597,16 @@ mod tests {
     fn carry_display_names_drops_below_threshold_and_handles_count_change() {
         // 旧 1 人（田中）、新 2 人。片方だけ一致、もう片方は min_cos 未満で引き継がない。
         let old = vec![(spk("S1", Some("田中")), vec![1.0, 0.0])];
-        let new = vec![(spk("N1", None), vec![0.99, 0.14]), (spk("N2", None), vec![0.0, 1.0])];
+        let new = vec![
+            (spk("N1", None), vec![0.99, 0.14]),
+            (spk("N2", None), vec![0.0, 1.0]),
+        ];
         let out = carry_display_names(&old, &new, 0.9);
         assert_eq!(out.len(), 2);
-        assert_eq!(out.iter().find(|(id, _)| id == "N1").unwrap().1.as_deref(), Some("田中"));
+        assert_eq!(
+            out.iter().find(|(id, _)| id == "N1").unwrap().1.as_deref(),
+            Some("田中")
+        );
         assert!(out.iter().find(|(id, _)| id == "N2").unwrap().1.is_none());
         // 空入力は空を返す。
         assert!(carry_display_names(&[], &[], 0.5).is_empty());
@@ -550,8 +616,16 @@ mod tests {
     fn build_result_exposes_per_speaker_embeddings() {
         // anchor 0（尺大）と anchor 1。各 centroid を付与 → S-id へ正しく写るか。
         let turns = vec![
-            Reassigned { start: 0.0, end: 10.0, label: 0 },
-            Reassigned { start: 10.0, end: 14.0, label: 1 },
+            Reassigned {
+                start: 0.0,
+                end: 10.0,
+                label: 0,
+            },
+            Reassigned {
+                start: 10.0,
+                end: 14.0,
+                label: 1,
+            },
         ];
         let mut centroids = BTreeMap::new();
         centroids.insert(0, vec![1.0, 0.0]);
@@ -575,8 +649,16 @@ mod tests {
     #[test]
     fn build_result_labels_follow_lang() {
         let turns = vec![
-            Reassigned { start: 0.0, end: 10.0, label: 0 },
-            Reassigned { start: 10.0, end: 14.0, label: 1 },
+            Reassigned {
+                start: 0.0,
+                end: 10.0,
+                label: 0,
+            },
+            Reassigned {
+                start: 10.0,
+                end: 14.0,
+                label: 1,
+            },
         ];
         let r = build_result(turns, BTreeMap::new(), Lang::En);
         assert_eq!(r.speakers[0].label, "Speaker 1");
@@ -605,6 +687,44 @@ mod tests {
         dur.insert(0, 1.0); // 両方 ANCHOR_MIN_SECONDS(15s) 未満
         dur.insert(1, 3.0);
         assert_eq!(select_anchors(&centroid, &dur), vec![1]); // 最大尺の 1 のみ
+    }
+
+    #[test]
+    fn invalid_short_centroids_do_not_poison_valid_anchors() {
+        let voices = BTreeMap::from([
+            (0, vec![1.0, 0.0]),
+            (1, vec![f32::NAN, 0.0]),
+            (2, vec![0.0, 0.0]),
+        ]);
+        let durations = BTreeMap::from([(0, 60.0), (1, 1.0), (2, 1.0)]);
+        let anchors = select_supported_anchors(&voices, &durations);
+        assert_eq!(anchors, vec![0]);
+        assert_eq!(supported_assignment(&[1.0, 0.0], 0, &anchors, &voices), 0);
+        assert_eq!(nearest_anchor(&[1.0, 0.0], &[0, 1], &voices), Some(0));
+    }
+
+    #[test]
+    fn short_distinct_voices_survive_duration_cleanup() {
+        let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.0, 1.0])]);
+        for durations in [
+            BTreeMap::from([(0, 60.0), (1, 10.0)]),
+            BTreeMap::from([(0, 600.0), (1, 30.0)]),
+            BTreeMap::from([(0, 3.0), (1, 1.0)]),
+        ] {
+            let anchors = select_supported_anchors(&voices, &durations);
+            assert_eq!(anchors.len(), 2);
+            assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 1);
+        }
+    }
+
+    #[test]
+    fn similar_short_fragments_merge_but_unsupported_turns_keep_their_group() {
+        let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.8, 0.6])]);
+        let durations = BTreeMap::from([(0, 60.0), (1, 2.0)]);
+        let anchors = select_supported_anchors(&voices, &durations);
+        assert_eq!(anchors, vec![0]);
+        assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 0);
+        assert_eq!(supported_assignment(&[0.0, 1.0], 2, &anchors, &voices), 2);
     }
 
     /// 普通の尺の turn は窓をそのまま使う。

@@ -9,7 +9,7 @@ import { useApp } from "@/lib/app";
 import { translateError, useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { openFeedbackForm } from "@/lib/feedback";
-import { byokKeyName, type Progress, type Settings } from "@/lib/types";
+import { byokKeyName, type Settings } from "@/lib/types";
 import {
   deleteSecret,
   getSettings,
@@ -17,11 +17,10 @@ import {
   setSecret,
   summaryModelInfo,
   transcriptionModelInfo,
-  downloadLiveTranscriptionModels,
   type SummaryModelInfo,
   type TranscriptionModelInfo,
-  useTauriEvent,
 } from "@/lib/tauri";
+import { useModelDownloads, startModelDownload, TRANSLATION_MODEL_FILE, LIVE_MODEL_FILE, VAD_MODEL_FILE, type ModelDownload } from "@/lib/modelDownloads";
 import { useSettingsPatch } from "@/lib/useSettingsPatch";
 import { Button, StatusBadge, Toggle } from "@/components/ui";
 import { BrandMark, ChevronDownIcon, LayersIcon, MessageIcon, MicIcon, ShieldIcon, UsersIcon } from "@/components/icons";
@@ -63,11 +62,7 @@ export function SettingsView() {
   // 取得に失敗したら行は出すが型名は空にする（嘘の型名を出すより無いほうがよい）。
   const [summaryModel, setSummaryModel] = useState<SummaryModelInfo | null>(null);
   const [transcriptionModel, setTranscriptionModel] = useState<TranscriptionModelInfo | null>(null);
-  const [liveModelBusy, setLiveModelBusy] = useState(false);
-  const [liveModelProgress, setLiveModelProgress] = useState<Progress | null>(null);
-  useTauriEvent<Progress>("model://progress", (progress) => {
-    if (liveModelBusy) setLiveModelProgress(progress);
-  });
+  const { downloads, error: downloadError } = useModelDownloads();
   useEffect(() => {
     transcriptionModelInfo().then(setTranscriptionModel).catch(() => {});
   }, []);
@@ -105,19 +100,9 @@ export function SettingsView() {
     (model) => model.file === cfg?.transcription_model.trim(),
   ) ?? transcriptionModel?.choices.find((model) => model.file === transcriptionModel.default_file);
 
-  const downloadLiveModels = async () => {
-    if (liveModelBusy) return;
-    setLiveModelBusy(true);
-    setLiveModelProgress(null);
-    try {
-      await downloadLiveTranscriptionModels();
-      setTranscriptionModel(await transcriptionModelInfo());
-    } catch (error) {
-      toast(translateError(error, t), "error");
-    } finally {
-      setLiveModelBusy(false);
-    }
-  };
+  const isDownloaded = (file: string | undefined, fallback = false) =>
+    file && downloads[file] ? downloads[file].status === "ready" : fallback;
+  const downloadControl = (file: string | undefined) => file ? <DownloadControl model={downloads[file]} /> : null;
 
   // 入力中の API キー（平文。保存後は state に残さない）と、キーチェーン保存済みフラグ。
   const [apiKey, setApiKey] = useState("");
@@ -231,7 +216,8 @@ export function SettingsView() {
           {/* ── モデル ── */}
           <section ref={refs.models} className="scroll-mt-6">
             <div className={SECTION_TITLE}>{t.settings.nav.models}</div>
-            <div className={SECTION_DESC}>{t.settings.models.desc}</div>
+            <div className={SECTION_DESC}>Download models before your meeting. Downloads continue when you switch pages.</div>
+            {downloadError && <p role="alert" className="mt-2 text-[12px] text-red">{translateError(downloadError, t)}</p>}
             <div className="mt-3.5 overflow-hidden rounded-card border border-border bg-surface">
               <ModelRow
                 icon={<MicIcon size={17} />}
@@ -239,9 +225,8 @@ export function SettingsView() {
                 name={t.settings.models.stt}
                 model={shownTranscriptionModel?.label ?? ""}
                 size={shownTranscriptionModel?.size ?? ""}
-                status={shownTranscriptionModel?.downloaded ? "saved" : "ondemand"}
-                action={t.settings.models.manage}
-                onAction={notYet}
+                status={isDownloaded(shownTranscriptionModel?.file, shownTranscriptionModel?.downloaded) ? "saved" : "ondemand"}
+                download={isDownloaded(shownTranscriptionModel?.file, shownTranscriptionModel?.downloaded) ? undefined : downloadControl(shownTranscriptionModel?.file)}
               />
               {transcriptionModel && shownTranscriptionModel && (
                 <>
@@ -253,24 +238,14 @@ export function SettingsView() {
                     onChange={(value) => patch({ transcription_model: value })}
                     options={transcriptionModel.choices.map((model) => ({
                       value: model.file,
-                      label: `${model.label} · ${model.size}${model.downloaded ? "" : ` · ${t.settings.models.needsDownload}`}`,
+                      label: `${model.label} · ${model.size}${isDownloaded(model.file, model.downloaded) ? "" : ` · ${t.settings.models.needsDownload}`}`,
                     }))}
                   />
-                  {!shownTranscriptionModel.downloaded && (
-                    <p className="border-b border-line px-4 py-2.5 text-[11.5px] text-muted">
-                      {t.settings.models.transcriptionWillDownload(shownTranscriptionModel.size)}
-                    </p>
-                  )}
-                  {!transcriptionModel.live_ready && (
+                  {(!isDownloaded(LIVE_MODEL_FILE, transcriptionModel.live_ready) || !isDownloaded(VAD_MODEL_FILE, transcriptionModel.live_ready)) && (
                     <div className="border-b border-line px-4 py-3">
-                      <p className="mb-2 text-[11.5px] text-muted">{t.settings.models.liveModelMissing}</p>
-                      <Button size="sm" disabled={liveModelBusy} onClick={() => void downloadLiveModels()}>
-                        {liveModelBusy
-                          ? liveModelProgress?.stage === "queued"
-                            ? t.job.queued
-                            : `${t.job.stages.download}${liveModelProgress?.total ? ` · ${Math.round(100 * liveModelProgress.done / liveModelProgress.total)}%` : "…"}`
-                          : t.settings.models.downloadLiveModel}
-                      </Button>
+                      <p className="mb-2 text-[11.5px] text-muted">Live captions also use Whisper turbo and speech detection.</p>
+                      {!isDownloaded(LIVE_MODEL_FILE) && <div className="mb-2 flex items-center justify-between gap-3 text-[11.5px] text-sub"><span>Whisper turbo · 574 MB</span>{downloadControl(LIVE_MODEL_FILE)}</div>}
+                      {!isDownloaded(VAD_MODEL_FILE) && <div className="flex items-center justify-between gap-3 text-[11.5px] text-sub"><span>Speech detection · 0.89 MB</span>{downloadControl(VAD_MODEL_FILE)}</div>}
                     </div>
                   )}
                 </>
@@ -281,9 +256,17 @@ export function SettingsView() {
                 name={t.settings.models.summarize}
                 model={shownSummaryModel?.label ?? ""}
                 size={shownSummaryModel?.size ?? ""}
-                status={shownSummaryModel?.downloaded ? "saved" : "ondemand"}
-                action={t.settings.models.manage}
-                onAction={notYet}
+                status={isDownloaded(shownSummaryModel?.file, shownSummaryModel?.downloaded) ? "saved" : "ondemand"}
+                download={isDownloaded(shownSummaryModel?.file, shownSummaryModel?.downloaded) ? undefined : downloadControl(shownSummaryModel?.file)}
+              />
+              <ModelRow
+                icon={<MessageIcon size={17} />}
+                tint="bg-brand/15 text-brand-light"
+                name="Live translation"
+                model="Qwen3.5-9B"
+                size="5.68 GB"
+                status={isDownloaded(TRANSLATION_MODEL_FILE) ? "saved" : "ondemand"}
+                download={downloadControl(TRANSLATION_MODEL_FILE)}
               />
               <ModelRow
                 icon={<UsersIcon size={17} />}
@@ -298,8 +281,7 @@ export function SettingsView() {
               />
               {/* Explicit summary-model switch (ADR-0030). "" = automatic. Only adopted models
                   are offered; a choice above this Mac's tier stays selectable but is warned
-                  about (Issue #30). The download happens at the next summary, through the
-                  existing progress flow, never here. */}
+                  about (Issue #30). Download is an explicit action independent of selection. */}
               {summaryModel && (
                 <>
                   <SelectRow
@@ -311,18 +293,15 @@ export function SettingsView() {
                       { value: "", label: t.settings.models.auto(summaryModel.auto.label) },
                       ...summaryModel.choices.map((c) => ({
                         value: c.file,
-                        label: c.downloaded
+                        label: isDownloaded(c.file, c.downloaded)
                           ? `${c.label} · ${c.size}`
                           : `${c.label} · ${c.size} · ${t.settings.models.needsDownload}`,
                       })),
                     ]}
                     last
                   />
-                  {summaryChoice && (!summaryChoice.downloaded || summaryChoice.exceeds_tier) && (
+                  {summaryChoice?.exceeds_tier && (
                     <div className="border-t border-line px-4 py-2.5 text-[11.5px]">
-                      {!summaryChoice.downloaded && (
-                        <p className="text-muted">{t.settings.models.willDownload(summaryChoice.size)}</p>
-                      )}
                       {summaryChoice.exceeds_tier && (
                         <p className="text-amber">{t.settings.models.exceedsTier}</p>
                       )}
@@ -522,7 +501,7 @@ export function SettingsView() {
                 }
                 onChange={(v) => patch({ transcribe_language: v as Settings["transcribe_language"] })}
                 options={[
-                  { value: "auto", label: t.settings.language.auto },
+                  { value: "auto", label: t.settings.language.autoJaEn },
                   { value: "mixed", label: t.settings.language.mixed },
                   { value: "ja", label: t.settings.language.names.ja },
                   { value: "en", label: t.settings.language.names.en },
@@ -594,6 +573,7 @@ function ModelRow({
   status,
   action,
   onAction,
+  download,
   last,
 }: {
   icon: ReactNode;
@@ -602,8 +582,9 @@ function ModelRow({
   model: string;
   size: string;
   status: "saved" | "ondemand";
-  action: string;
-  onAction: () => void;
+  action?: string;
+  onAction?: () => void;
+  download?: ReactNode;
   last?: boolean;
 }) {
   const { t } = useI18n();
@@ -622,19 +603,42 @@ function ModelRow({
         <span className="rounded-md border border-green/25 bg-green/10 px-2.5 py-1 text-[11px] text-green">
           {t.settings.models.savedBadge}
         </span>
-      ) : (
+      ) : !download ? (
         <span className="rounded-md border border-border-2 bg-surface-2 px-2.5 py-1 text-[11px] text-sub">
           {t.settings.models.onDemandBadge}
         </span>
-      )}
-      <button
+      ) : null}
+      {download ?? (action && <button
         onClick={onAction}
         className="text-[11.5px] text-sub transition-colors hover:text-ink"
       >
         {action}
-      </button>
+      </button>)}
     </div>
   );
+}
+
+function DownloadControl({ model }: { model: ModelDownload | undefined }) {
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { t } = useI18n();
+  if (!model) return <span className="text-[11px] text-muted">Checking…</span>;
+  if (model.status === "ready") return null;
+  const busy = starting || model.status === "downloading";
+  const percent = Math.min(100, Math.floor(model.downloaded_bytes * 100 / model.size_bytes));
+  const start = async () => {
+    setStarting(true);
+    setError(null);
+    try { await startModelDownload(model.file); }
+    catch (reason) { setError(String(reason)); }
+    finally { setStarting(false); }
+  };
+  return <div className="max-w-[220px] text-right">
+    <Button size="sm" aria-label={`Download ${model.file}`} disabled={busy} onClick={() => void start()}>
+      {busy ? `Downloading · ${percent}%` : model.downloaded_bytes > 0 ? "Resume download" : "Download"}
+    </Button>
+    {(error || model.error) && <p role="alert" className="mt-1 text-[11px] text-red">{translateError(error || model.error || "", t)}</p>}
+  </div>;
 }
 
 // ── 要約エンジンのラジオカード ──

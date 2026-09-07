@@ -1,6 +1,12 @@
 import { LiveTranslationQueue, type TranslationRow, type TranslationSource } from "./liveTranslationQueue";
 
 export type TranslationTarget = "ja" | "en";
+export interface SavedLiveTranslation {
+  source_id: number;
+  source_text: string;
+  target: TranslationTarget;
+  translation: string;
+}
 export interface TranslationSession { epoch: number; session_id: string; model_bytes: number }
 export interface TranslationProgress { stage: string; done: number; total: number | null }
 export interface TranslationResult { epoch: number; request_id: number; text: string; elapsed_ms: number }
@@ -20,28 +26,41 @@ export interface TranslationView {
   unavailable: boolean;
   pending: number;
   skipped: number;
+  historyFull: boolean;
 }
-interface Activity { session: TranslationSession; queue: LiveTranslationQueue; pumping: boolean; cancelledRequests: Set<number>; unlisten?: () => void }
-const emptyView = (): TranslationView => ({ enabled: false, starting: false, rows: [], progress: null, failed: false, unavailable: false, pending: 0, skipped: 0 });
+interface Activity { target: TranslationTarget; session: TranslationSession; queue: LiveTranslationQueue; pumping: boolean; cancelledRequests: Set<number>; unlisten?: () => void }
+const emptyView = (): TranslationView => ({ enabled: false, starting: false, rows: [], progress: null, failed: false, unavailable: false, pending: 0, skipped: 0, historyFull: false });
 
-/** Owns one screen's temporary translations; every asynchronous callback is activity-scoped. */
+/** Owned by the app for the whole meeting; callbacks remain activity-scoped. */
 export class LiveTranslationController {
   private generation = 0;
+  private archiveBytes = 0;
+  private historyFull = false;
+  private archive = new Map<string, SavedLiveTranslation>();
   private activity: Activity | null = null;
   private source: { sessionId: string; lines: readonly TranslationSource[] } | null = null;
   private view = emptyView();
-  constructor(private transport: TranslationTransport, private changed: (view: TranslationView) => void) {}
+  constructor(private transport: TranslationTransport, private changed: (view: TranslationView) => void,
+    private limits = { maxRows: 20_000, maxBytes: 32 * 1024 * 1024 }) {}
 
   private publish(): void {
-    if (this.activity) {
-      this.view.rows = this.activity.queue.snapshot();
-      this.view.pending = this.activity.queue.pendingCount();
-      this.view.skipped = this.activity.queue.skippedCount();
-    }
+    const activeRows = this.activity?.queue.snapshot() ?? [];
+    const target = this.activity?.target;
+    const visibleKeys = new Set(activeRows.map((row) => `${row.sourceId}:${target}`));
+    const retained = [...this.archive.values()].filter((row) => !visibleKeys.has(`${row.source_id}:${row.target}`));
+    this.view.rows = [
+      ...retained.map((row) => ({ sourceId: row.source_id, sourceText: row.source_text, target: row.target,
+        translation: row.translation, status: "ready" as const, committed: true, error: null })),
+      ...activeRows.map((row) => ({ ...row, target })),
+    ].sort((a, b) => a.sourceId - b.sourceId);
+    this.view.pending = this.activity?.queue.pendingCount() ?? 0;
+    this.view.skipped = this.activity?.queue.skippedCount() ?? 0;
+    this.view.historyFull = this.historyFull;
     this.changed({ ...this.view });
   }
 
   async start(target: TranslationTarget): Promise<void> {
+    if (this.historyFull) return;
     this.stop();
     const generation = this.generation;
     this.view = { ...emptyView(), enabled: true, starting: true };
@@ -52,9 +71,10 @@ export class LiveTranslationController {
         void this.transport.end(session.epoch).catch(() => {});
         return;
       }
-      this.activity = { session, queue: new LiveTranslationQueue(), pumping: false, cancelledRequests: new Set() };
+      this.activity = { target, session, queue: new LiveTranslationQueue(), pumping: false, cancelledRequests: new Set() };
       this.view.starting = false;
       if (this.source?.sessionId === session.session_id) this.activity.queue.update(this.source.lines);
+      this.activity.queue.restore(this.completed().filter((row) => row.target === target));
       this.publish();
       void this.pump(this.activity);
     } catch (error) {
@@ -89,6 +109,17 @@ export class LiveTranslationController {
       void this.transport.end(active.session.epoch).catch(() => {});
     }
     this.view = emptyView();
+    this.publish();
+  }
+
+  completed(): SavedLiveTranslation[] { return [...this.archive.values()].map((row) => ({ ...row })); }
+
+  reset(): void {
+    this.stop();
+    this.archive.clear();
+    this.archiveBytes = 0;
+    this.historyFull = false;
+    this.source = null;
     this.publish();
   }
 
@@ -132,7 +163,30 @@ export class LiveTranslationController {
           if (result.epoch !== active.session.epoch || result.request_id !== request.requestId) {
             throw new Error("Mismatched translation response");
           }
-          active.queue.finish(request, result.text);
+          if (!active.queue.isCurrent(request)) {
+            active.queue.finish(request, null);
+            continue;
+          }
+          // The native transport enforces this too; keep persisted history valid at its boundary.
+          const bytes = (text: string) => new TextEncoder().encode(text).length;
+          if (!result.text.trim() || bytes(result.text) > 16_384) {
+            throw new Error("Invalid translation output");
+          }
+          const key = `${request.sourceId}:${active.target}`;
+          const previous = this.archive.get(key);
+          const total = this.archiveBytes + bytes(request.text) + bytes(result.text)
+            - (previous ? bytes(previous.source_text) + bytes(previous.translation) : 0);
+          if ((!previous && this.archive.size >= this.limits.maxRows) || total > this.limits.maxBytes) {
+            this.historyFull = true;
+            this.stop();
+            break;
+          }
+          if (active.queue.finish(request, result.text)) {
+            this.archive.set(key, {
+              source_id: request.sourceId, source_text: request.text, target: active.target, translation: result.text,
+            });
+            this.archiveBytes = total;
+          }
         } catch (error) {
           if (active !== this.activity) return;
           const current = active.queue.isCurrent(request);
