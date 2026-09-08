@@ -68,9 +68,13 @@ def main():
         turns = [(float(a), float(b), c) for a, b, c in re.findall(r'^\s*(\d+\.\d+) --\s*(\d+\.\d+)\s+(S\d+)\s*$', output, re.MULTILINE)]
         report[label] = score(turns, intervals)
         report[label]['binary_sha256'] = hashlib.sha256(binary.read_bytes()).hexdigest()
+    # Every reference speaker needs actual baseline assignments. Empty, unparsed,
+    # or out-of-reference output cannot establish a coverage regression baseline.
+    report['baseline_usable'] = all(row['coverage'] > 0 for row in report['baseline']['speakers'].values())
     # A candidate must not appear more consistent by dropping difficult speech.
-    report['coverage_preserved'] = all(row['coverage'] >= report['baseline']['speakers'][speaker]['coverage'] - 0.01
-                                       for speaker, row in report['candidate']['speakers'].items())
+    report['coverage_preserved'] = report['baseline_usable'] and all(
+        row['coverage'] >= report['baseline']['speakers'][speaker]['coverage'] - 0.01
+        for speaker, row in report['candidate']['speakers'].items())
     report['pass'] = report['candidate']['pass'] and report['coverage_preserved']
     (args.output / 'results.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report, indent=2))
