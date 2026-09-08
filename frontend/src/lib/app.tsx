@@ -1,5 +1,8 @@
 // アプリ横断の状態（ルーティング + トースト）を提供するコンテキスト。
 // 値は App.tsx が供給する。各ビューは useApp() で navigate / toast を得る。
+import type { LiveSnapshot } from "./tauri";
+import type { useLiveTranslation } from "./useLiveTranslation";
+import type { TranslationTarget } from "./liveTranslation";
 import { createContext, useContext } from "react";
 
 export type ViewKind =
@@ -57,6 +60,10 @@ export interface AppApi {
   refreshRecents: () => void;
   /** 会議モードの録音状態（idle/capturing/stopping）。 */
   meeting: MeetingState;
+  liveSnapshot: LiveSnapshot | null;
+  translation: ReturnType<typeof useLiveTranslation>;
+  translationTarget: TranslationTarget;
+  setTranslationTarget: (target: TranslationTarget) => void;
   /** 許可確認 → システム音声＋マイクのキャプチャ開始。画面遷移はしない。 */
   /** title を渡すとその名前で保存する（未指定なら既定の「会議」）。 */
   startMeeting: (title?: string | null) => Promise<MeetingStartResult>;

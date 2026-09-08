@@ -38,11 +38,18 @@ mojiroku の開発で Claude Code / 将来のセッションが参照するガ�
   The live worker skips only all-zero tails when a VAD model is present so quiet speech can reach that preparation; without VAD it retains the RMS 0.001 guard.
   A configured live VAD is mandatory for each inference call (`with_required_vad`): a failed or removed model skips that preview attempt instead of decoding raw audio. Recording continues.
 - Transcription language `"mixed"` opts into language re-detection at speech pauses (ADR-0036). It is consumed by the core before Whisper parameters are built; never send this application marker directly to Whisper. The existing `stt_lang` job snapshot carries it through all offline routes, and the meeting-start snapshot carries it to live preview. Auto, turbo, and greedy remain defaults. Mixed mode requires successful VAD and offsets both timestamps and progress across windows.
-- Live translation is an opt-in, temporary meeting preview (ADR-0037), using the separate
+  Auto and mixed windows now choose between Japanese and English language probabilities
+  before decoding (ADR-0039). Explicit language choices still bypass detection.
+- Speaker cleanup uses duration to seed anchor groups, then preserves shorter distinct voices
+  and requires voice similarity before reassignment (ADR-0040). Do not restore unconditional
+  nearest-anchor assignment: it collapsed the provider's four-speaker fixture into one speaker.
+- Live translation is an opt-in meeting feature (ADR-0037, updated by ADR-0038), using the separate
   `mojiroku-llm --translate` path with Qwen3.5-9B and `--no-think`. It requires at least 16 GiB
   of detected RAM and its own 5.68 GB cache file; downloading it must not change summary
-  selection. Keep session/epoch/request checks, bounded pending work, and cancellation on
-  stop/disable. Live Whisper now reserves the shared heavy-job semaphore atomically;
+  selection. Downloads now belong to the app and resume verified partial files (ADR-0038).
+  Completed source/translation pairs survive navigation and are saved atomically with the
+  recording in SQLite schema v7; final STT does not overwrite them. Keep session/epoch/request
+  checks, bounded pending work, and inference cancellation on stop/disable. Live Whisper now reserves the shared heavy-job semaphore atomically;
   release translation's permit only after its child has terminated and been reaped.
 - LLM プロンプトは **n_batch(2048) ごとに分割して decode** する（長尺会議で `GGML_ASSERT(n_tokens_all <= n_batch)` を踏まないため）。
 - whisper の**逐トークンログ flood** がタイムスタンプ的に長尺会議を停滞させる → `WhisperStt::load()` 先頭で `whisper_rs::install_logging_hooks()` を呼んで抑制（ADR-0009）。話者分離のスケーリングは線形（~0.5xRT）。

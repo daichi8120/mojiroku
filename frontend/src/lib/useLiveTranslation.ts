@@ -13,7 +13,7 @@ const transport: TranslationTransport = {
 };
 
 export function useLiveTranslation(capturing: boolean, snapshot: LiveSnapshot | null) {
-  const [view, setView] = useState<TranslationView>({ enabled: false, starting: false, rows: [], progress: null, failed: false, unavailable: false, pending: 0, skipped: 0 });
+  const [view, setView] = useState<TranslationView>({ enabled: false, starting: false, rows: [], progress: null, failed: false, unavailable: false, pending: 0, skipped: 0, historyFull: false });
   const controller = useMemo(() => new LiveTranslationController(transport, setView), []);
   useEffect(() => () => controller.stop(), [controller]);
   useEffect(() => {
@@ -26,6 +26,8 @@ export function useLiveTranslation(capturing: boolean, snapshot: LiveSnapshot | 
     ...view,
     start: (target: TranslationTarget) => { if (capturing) void controller.start(target); },
     stop: () => controller.stop(),
+    completed: () => controller.completed(),
+    reset: () => controller.reset(),
     retry: (target: TranslationTarget) => { if (capturing) controller.retry(target); },
   };
 }

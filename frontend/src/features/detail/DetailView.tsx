@@ -47,6 +47,7 @@ import { SpeakerPanel } from "./SpeakerPanel";
 import { SharePopover } from "./SharePopover";
 import { TemplateModal } from "./TemplateModal";
 import { AskDrawer } from "./AskDrawer";
+import { SavedTranslations } from "./SavedTranslations";
 import { AudioPlayer } from "./AudioPlayer";
 
 // チャプターはモック（トピック自動分割は未実装・Studio 15）。
@@ -91,7 +92,7 @@ export function DetailView({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<"transcript" | "chapters">("transcript");
+  const [tab, setTab] = useState<"transcript" | "chapters" | "translations">("transcript");
   const [translateOn, setTranslateOn] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [presetTemplate, setPresetTemplate] = useState("minutes");
@@ -791,6 +792,9 @@ export function DetailView({ id }: { id: string }) {
             <TabButton active={tab === "transcript"} onClick={() => setTab("transcript")}>
               {t.detail.tabs.transcript}
             </TabButton>
+            <TabButton active={tab === "translations"} onClick={() => setTab("translations")}>
+              {t.meeting.translation.savedTitle}
+            </TabButton>
             {/* チャプター/翻訳はモック（未実装）。配布時(MOCK_PREVIEW=false)は丸ごと隠し、
                 実録音に固定ダミーが出ないようにする。 */}
             {MOCK_PREVIEW && (
@@ -811,7 +815,7 @@ export function DetailView({ id }: { id: string }) {
             )}
           </div>
 
-          {tab === "chapters" && MOCK_PREVIEW ? (
+          {tab === "translations" ? <SavedTranslations key={id} id={id} /> : tab === "chapters" && MOCK_PREVIEW ? (
             <div>
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">

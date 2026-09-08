@@ -4,6 +4,8 @@
 - Status: Accepted for the v0.6.0 preview
 - Issue: [#85](https://github.com/daichi8120/mojiroku/issues/85)
 
+> Lifecycle and persistence are superseded by [ADR-0038](ADR-0038_Background_model_downloads_and_saved_live_translations.md). The measurements below describe v0.6.0 unless stated otherwise.
+
 ## Context
 
 Meeting mode needs English/Japanese translation beside its original live captions.

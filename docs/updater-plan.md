@@ -117,3 +117,26 @@
 - オフライン時にチェックが静かに失敗し UI を邪魔しないこと（Worker 503 時も同挙動）。
 - ✅ `curl -IL https://github.com/daichi8120/mojiroku-releases/releases/latest/download/mojiroku-macos-aarch64.app.tar.gz` が最後まで 200、
   `curl -s https://mojiroku.com/updater/latest.json | jq .version` が `0.3.0`。
+
+
+## Release verification (2026-09-06, v0.5.7 to v0.6.0)
+
+[v0.6.0](https://github.com/daichi8120/mojiroku-releases/releases/tag/v0.6.0) was
+published from source commit `9338e8bbcc56d51bf3517c2be580cfae1cbfa64e` by
+[release run 34030466995](https://github.com/daichi8120/mojiroku/actions/runs/34030466995).
+The main merge tree matched the locally validated and signed dry-run source tree.
+
+| Check | Result |
+|---|---|
+| Public app archive and DMG | Digests match GitHub assets; Apple signatures, notarization and Gatekeeper checks pass |
+| Public updater endpoint | Serves 0.6.0; manifest matches the release asset; updater signature verifies against the embedded public key |
+| In-app update | Published v0.5.7 copy detected 0.6.0, downloaded, installed and relaunched; About shows 0.6.0 |
+| Fresh DMG installation | Copied to a separate location and launched on the same Mac with the existing profile |
+| Installed executables | App and both sidecars match the published updater archive through both installation paths |
+| Existing data | Recordings, transcript segments and jobs unchanged against a pre-launch SQLite backup |
+
+![About window after the public v0.5.7 to v0.6.0 update](images/v0.6.0-update-confirmation.png)
+
+Application copies were used for validation; this was not a new macOS user profile.
+The original missing-text report in #87 remains open for confirmation through real
+meeting use after release. It is not claimed fully resolved by these installation checks.
