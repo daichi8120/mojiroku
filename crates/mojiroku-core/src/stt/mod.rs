@@ -39,8 +39,38 @@ pub const FILE_DECODING: DecodingStrategy = DecodingStrategy::Greedy;
 /// Opt-in language selection stored by Settings and queued jobs, never sent to Whisper.
 pub const MIXED_LANGUAGE_MODE: &str = "mixed";
 
-fn configure_decoder<'a, 'b>(params: &mut FullParams<'a, 'b>, language: Option<&'a str>) {
-    params.set_language(language);
+/// Resolve automatic mode before constructing decoder parameters so Whisper cannot
+/// select an unsupported language. Explicit language choices do not run detection.
+fn resolve_language(
+    language: Option<&str>,
+    detect: impl FnOnce() -> Result<Vec<f32>>,
+) -> Result<&str> {
+    match language {
+        None | Some("" | "auto") => select_meeting_language(&detect()?),
+        Some(language) => Ok(language),
+    }
+}
+
+fn select_meeting_language(probabilities: &[f32]) -> Result<&'static str> {
+    let probability = |language| {
+        whisper_rs::get_lang_id(language)
+            .and_then(|id| probabilities.get(id as usize))
+            .copied()
+            .filter(|p| p.is_finite() && *p >= 0.0 && *p <= 1.0)
+            .ok_or_else(|| CoreError::Model("Invalid speech language probabilities".into()))
+    };
+    let japanese = probability("ja")?;
+    let english = probability("en")?;
+    if japanese == 0.0 && english == 0.0 {
+        return Err(CoreError::Model(
+            "No Japanese or English language evidence".into(),
+        ));
+    }
+    Ok(if japanese > english { "ja" } else { "en" })
+}
+
+fn configure_decoder<'a, 'b>(params: &mut FullParams<'a, 'b>, language: &'a str) {
+    params.set_language(Some(language));
     // no_context clears history only when full() starts. The bundled whisper.cpp still
     // feeds decoded text into subsequent audio windows, allowing a mistaken phrase to
     // reinforce itself for the rest of a recording. Disable that rolling prompt too.
@@ -294,10 +324,25 @@ impl WhisperStt {
             None => (Cow::Borrowed(pcm16k_mono), None),
         };
 
+        let selected_language = resolve_language(language, || {
+            // Match Whisper's default thread cap. Native Auto already runs this encoder
+            // pass; using its probability vector lets us restrict the winning language.
+            let threads = std::thread::available_parallelism()
+                .map(|count| count.get().min(4))
+                .unwrap_or(1);
+            // Detection consumes the first 30 seconds. Bound the extra mel preparation:
+            // whisper-rs full() requires nonempty PCM and recomputes mel internally.
+            let detection_pcm = &pcm[..pcm.len().min(30 * 16_000)];
+            state
+                .pcm_to_mel(detection_pcm, threads)
+                .map_err(|e| CoreError::Model(format!("language mel: {e:?}")))?;
+            let (_, probabilities) = state
+                .lang_detect(0, threads)
+                .map_err(|e| CoreError::Model(format!("language detection: {e:?}")))?;
+            Ok(probabilities)
+        })?;
         let mut params = FullParams::new(decoding.sampling());
-        // FullParams defaults to English. Calling set_language(None) is therefore required for
-        // Whisper's language auto-detection; merely omitting this call silently forces English.
-        configure_decoder(&mut params, language);
+        configure_decoder(&mut params, selected_language);
         params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);
@@ -352,7 +397,7 @@ impl WhisperStt {
         }
 
         Ok(Transcript {
-            language: language.map(|s| s.to_string()),
+            language: Some(selected_language.to_string()),
             segments,
         })
     }
@@ -792,7 +837,7 @@ mod tests {
     fn decoder_disables_rolling_text_history() {
         // no_context alone only clears history at the start of full(), not between its
         // audio windows. Pin the separate history budget against dependency defaults.
-        for language in [None, Some("ja"), Some("en")] {
+        for language in ["ja", "en"] {
             for decoding in [DecodingStrategy::Greedy, DecodingStrategy::BeamSearch5] {
                 let mut params = FullParams::new(decoding.sampling());
                 configure_decoder(&mut params, language);
@@ -815,22 +860,93 @@ mod tests {
         assert!(beam.contains("beam_size: 5"), "{beam}");
     }
 
+    /// This short public Japanese excerpt makes unrestricted detection select Chinese.
+    /// Restricting candidates does not promise that an ambiguous excerpt selects Japanese.
     #[test]
-    fn auto_language_clears_whisper_english_default() {
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        configure_decoder(&mut params, None);
+    #[ignore = "requires pinned public short-tail WAV and local GPU/models; see ADR-0039"]
+    fn auto_language_restricts_an_ambiguous_public_tail() {
+        use sha2::{Digest, Sha256};
+        let audio = std::env::var("MOJIROKU_TEST_LANGUAGE_WAV").unwrap();
+        let bytes = std::fs::read(&audio).unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(bytes)),
+            "9273720d8c41f5f49729aee40551d5d5a3643bd98fed5e4dea68d14c1f48f50c"
+        );
+        let pcm = crate::audio::decode_to_pcm16k_mono(&audio).unwrap();
+        let tail = &pcm[101_760..117_760];
+        let models = PathBuf::from(std::env::var("MOJIROKU_TEST_MODELS").unwrap());
+        let vad = models.join(crate::models::DEFAULT_VAD_MODEL);
+        let engine = WhisperStt::load(
+            models.join(crate::models::DEFAULT_WHISPER_MODEL),
+            Some(vad.clone()),
+        )
+        .unwrap()
+        .with_required_vad();
+        crate::ffi_guard::guard("public short-language detection", || {
+            let (filtered, _) = vad_filter(&vad.to_string_lossy(), tail).unwrap();
+            assert!(!filtered.is_empty());
+            let mut state = engine.ctx.create_state().unwrap();
+            state.pcm_to_mel(&filtered, 4).unwrap();
+            let (unrestricted, _) = state.lang_detect(0, 4).unwrap();
+            assert_eq!(whisper_rs::get_lang_str(unrestricted), Some("zh"));
+        })
+        .unwrap();
+        let transcript = engine.transcribe(tail, None).unwrap();
+        assert!(matches!(transcript.language.as_deref(), Some("ja" | "en")));
+    }
 
-        let debug = format!("{params:?}");
-        assert!(debug.contains("language: 0x0"), "{debug}");
+    fn language_probabilities(japanese: f32, english: f32) -> Vec<f32> {
+        let mut probabilities = vec![0.0; whisper_rs::get_lang_max_id() as usize + 1];
+        probabilities[whisper_rs::get_lang_id("ja").unwrap() as usize] = japanese;
+        probabilities[whisper_rs::get_lang_id("en").unwrap() as usize] = english;
+        probabilities
     }
 
     #[test]
-    fn explicit_language_keeps_a_non_null_language_pointer() {
-        let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        configure_decoder(&mut params, Some("ja"));
+    fn auto_language_ignores_higher_unsupported_language_probabilities() {
+        for unsupported in ["ko", "zh"] {
+            for (ja, en, expected) in [(0.08, 0.02, "ja"), (0.02, 0.08, "en")] {
+                let mut probabilities = language_probabilities(ja, en);
+                probabilities[whisper_rs::get_lang_id(unsupported).unwrap() as usize] = 0.9;
+                for automatic in [None, Some("auto"), Some("")] {
+                    let language =
+                        resolve_language(automatic, || Ok(probabilities.clone())).unwrap();
+                    assert_eq!(language, expected);
+                    let mut params = FullParams::new(DecodingStrategy::Greedy.sampling());
+                    configure_decoder(&mut params, language);
+                    assert!(!format!("{params:?}").contains("language: 0x0"));
+                }
+            }
+        }
+    }
 
-        let debug = format!("{params:?}");
-        assert!(!debug.contains("language: 0x0"), "{debug}");
+    #[test]
+    fn explicit_language_does_not_detect_or_override_the_choice() {
+        for language in ["ja", "en"] {
+            assert_eq!(
+                resolve_language(Some(language), || panic!("must not detect")).unwrap(),
+                language
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_language_evidence_fails_without_unconstrained_fallback() {
+        assert!(select_meeting_language(&[]).is_err());
+        for (ja, en) in [
+            (0.0, 0.0),
+            (f32::NAN, 0.4),
+            (0.4, f32::INFINITY),
+            (-0.1, 0.4),
+            (0.4, 1.1),
+        ] {
+            assert!(select_meeting_language(&language_probabilities(ja, en)).is_err());
+        }
+        assert!(resolve_language(None, || Err(CoreError::Model("detect failed".into()))).is_err());
+        assert_eq!(
+            select_meeting_language(&language_probabilities(0.5, 0.5)).unwrap(),
+            "en"
+        );
     }
 
     /// filtered 0-2000ms→orig 1000-3000ms、filtered 2000-3500ms→orig 8000-9500ms。

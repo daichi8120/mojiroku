@@ -6,8 +6,6 @@ import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/lib/app";
 import {
   checkSystemAudioPermission,
-  type LiveSnapshot,
-  useMeetingLiveSnapshot,
 } from "@/lib/tauri";
 import { cx } from "@/lib/cx";
 import { useI18n } from "@/i18n";
@@ -16,16 +14,14 @@ import { Button, ConfirmDialog } from "@/components/ui";
 import { PrivacyBar } from "@/components/composite";
 import { ShieldIcon, StopIcon, VideoIcon } from "@/components/icons";
 
-import { useLiveTranslation } from "@/lib/useLiveTranslation";
-import type { TranslationTarget } from "@/lib/liveTranslation";
 import { LiveTranslationPanel } from "./LiveTranslationPanel";
 
 // システム音声 + マイクのレベルメータ（小さな縦バー）。
 const METER_BARS = [6, 11, 8, 13, 5];
 
 export function MeetingView() {
-  const { meeting, startMeeting, stopMeeting, discardMeeting } = useApp();
-  const { t, lang } = useI18n();
+  const { meeting, startMeeting, stopMeeting, discardMeeting, liveSnapshot, translation, translationTarget, setTranslationTarget } = useApp();
+  const { t } = useI18n();
   const capturing = meeting.status === "capturing";
   const stopping = meeting.status === "stopping";
 
@@ -35,15 +31,9 @@ export function MeetingView() {
 
   // ライブ文字起こし（増分C）。確定行＋未確定 tail の現在ビュー全体が毎 tick 届く。使い捨て。
   // 画面に戻った直後は空だが、次の tick で現在ビュー一式が再配信されるので自然に復元する。
-  const [liveSnapshot, setLiveSnapshot] = useState<LiveSnapshot | null>(null);
+  // App now retains this snapshot across navigation; no next-tick wait is needed.
   const liveLines = liveSnapshot?.lines ?? [];
-  const [translationTarget, setTranslationTarget] = useState<TranslationTarget>(lang);
-  const translation = useLiveTranslation(capturing, liveSnapshot);
   const liveScrollRef = useRef<HTMLDivElement | null>(null);
-  useMeetingLiveSnapshot((snapshot) => {
-    if (capturing) setLiveSnapshot(snapshot);
-  });
-  useEffect(() => { setLiveSnapshot(null); }, [meeting.startedAt]);
 
   // idle のときだけ許可状態を確認して開始ボタン/誘導の出し分けに使う。
   useEffect(() => {

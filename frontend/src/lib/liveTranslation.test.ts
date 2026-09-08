@@ -10,7 +10,7 @@ function deferred<T>() {
 async function flush() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
 const session = (epoch = 1): TranslationSession => ({ epoch, session_id: "meeting-a", model_bytes: 100 });
 const line = (text = "source caption") => ({ id: 1, text, committed: false });
-function setup() {
+function setup(limits?: { maxRows: number; maxBytes: number }) {
   const calls: { epoch: number; requestId: number; text: string; result: ReturnType<typeof deferred<TranslationResult>> }[] = [];
   const listeners = new Map<string, (progress: TranslationProgress) => void>();
   const unlisten = vi.fn();
@@ -28,7 +28,7 @@ function setup() {
     }),
   };
   let view!: TranslationView;
-  const controller = new LiveTranslationController(transport, (next) => { view = next; });
+  const controller = new LiveTranslationController(transport, (next) => { view = next; }, limits);
   const complete = (index: number, text: string) => {
     const call = calls[index];
     call.result.resolve({ epoch: call.epoch, request_id: call.requestId, text, elapsed_ms: 10 });
@@ -37,6 +37,87 @@ function setup() {
 }
 
 describe("live translation lifecycle", () => {
+  it("rejects malformed output without putting an unsaveable row in history", async () => {
+    for (const text of ["   ", "x".repeat(16_385), "\u3042".repeat(6000)]) {
+      const x = setup();
+      x.controller.update("meeting-a", [line()]);
+      await x.controller.start("ja"); await flush();
+      x.complete(0, text); await flush();
+      expect(x.controller.completed()).toEqual([]);
+      expect(x.view().failed).toBe(true);
+      x.controller.stop();
+      expect(x.controller.completed()).toEqual([]);
+    }
+  });
+
+  it("pauses translation before its history would exceed the save budget", async () => {
+    for (const limits of [{ maxRows: 1, maxBytes: 1000 }, { maxRows: 10, maxBytes: 4 }]) {
+      const x = setup(limits);
+      x.controller.update("meeting-a", [line("a")]);
+      await x.controller.start("ja"); await flush();
+      x.complete(0, "b"); await flush();
+      x.controller.update("meeting-a", [{ id: 2, text: "cc", committed: true }]);
+      await flush(); x.complete(1, "dd"); await flush();
+      expect(x.view().historyFull).toBe(true);
+      expect(x.view().enabled).toBe(false);
+      expect(x.controller.completed()).toEqual([{ source_id: 1, source_text: "a", target: "ja", translation: "b" }]);
+      x.controller.stop();
+      expect(x.controller.completed()).toHaveLength(1);
+      await x.controller.start("ja");
+      expect(x.transport.begin).toHaveBeenCalledTimes(1);
+      x.controller.reset();
+      expect(x.view().historyFull).toBe(false);
+    }
+  });
+
+  it("retains completed captions after disable, target change, and queue eviction", async () => {
+    const x = setup();
+    x.controller.update("meeting-a", [line()]);
+    await x.controller.start("ja");
+    await flush();
+    x.complete(0, "completed Japanese caption");
+    await flush();
+    x.controller.update("meeting-a", [{ id: 90, text: "later caption", committed: true }]);
+    x.controller.stop();
+    expect(x.controller.completed()).toEqual([{ source_id: 1, source_text: "source caption", target: "ja", translation: "completed Japanese caption" }]);
+    expect(x.view().rows[0].translation).toBe("completed Japanese caption");
+    x.transport.begin = async () => session(2);
+    await x.controller.start("en");
+    await flush();
+    x.complete(x.calls.length - 1, "completed English caption");
+    await flush();
+    expect(x.controller.completed()).toHaveLength(2);
+    x.controller.reset();
+    expect(x.controller.completed()).toEqual([]);
+    expect(x.view().rows).toEqual([]);
+  });
+
+  it("reuses saved captions when translation is turned back on", async () => {
+    const x = setup();
+    x.controller.update("meeting-a", [line()]);
+    await x.controller.start("en");
+    await flush();
+    x.complete(0, "saved caption");
+    await flush();
+    x.controller.stop();
+    x.transport.begin = async () => session(2);
+    await x.controller.start("en");
+    await flush();
+    expect(x.calls).toHaveLength(1);
+    expect(x.view().rows[0].translation).toBe("saved caption");
+  });
+
+  it("does not save a late completion after Stop", async () => {
+    const x = setup();
+    x.controller.update("meeting-a", [line()]);
+    await x.controller.start("ja");
+    await flush();
+    x.controller.stop();
+    x.complete(0, "late result");
+    await flush();
+    expect(x.controller.completed()).toEqual([]);
+  });
+
   it("ends a late begin response after the screen stopped", async () => {
     const x = setup();
     const begin = deferred<TranslationSession>();

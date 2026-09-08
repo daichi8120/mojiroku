@@ -1,3 +1,4 @@
+import type { SavedLiveTranslation } from "./liveTranslation";
 // Tauri コマンド/イベントの型付きラッパー。UI からはここだけを経由する。
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -322,8 +323,11 @@ export const cancelMeetingRecording = () => invoke<void>("cancel_meeting_recordi
  * system（相手）は STT＋話者分離、mic（自分）は STT のみ、ソースで合成（mic=あなた）。
  * title はカレンダー由来の予定タイトル。両トラック無音ならコマンドが誘導エラーを返す。
  */
-export const stopMeetingRecording = (title?: string | null) =>
-  invoke<StartJobResult>("stop_meeting_recording", { title: title ?? null });
+export const stopMeetingRecording = (title?: string | null, translations: SavedLiveTranslation[] = []) =>
+  invoke<StartJobResult>("stop_meeting_recording", { title: title ?? null, translations });
+
+export const listLiveTranslations = (id: string) =>
+  invoke<SavedLiveTranslation[]>("list_live_translations", { id });
 
 // ── イベント ───────────────────────────────────────────────────────────
 

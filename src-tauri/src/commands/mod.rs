@@ -216,8 +216,31 @@ pub(crate) fn insert_recording_and_maybe_enqueue(
     // job is enqueued because the worker may pick the job up immediately.
     mic_offset_ms: Option<i64>,
 ) -> Result<StartJobResult, String> {
+    insert_recording_and_maybe_enqueue_with_translations(
+        app,
+        store,
+        queue,
+        recording,
+        diarize,
+        record_only,
+        mic_offset_ms,
+        &[],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn insert_recording_and_maybe_enqueue_with_translations(
+    app: &AppHandle,
+    store: &SqliteStore,
+    queue: &crate::jobs::JobQueue,
+    recording: &mojiroku_core::Recording,
+    diarize: bool,
+    record_only: bool,
+    mic_offset_ms: Option<i64>,
+    translations: &[mojiroku_core::store::SavedLiveTranslation],
+) -> Result<StartJobResult, String> {
     store
-        .insert_recording_only(recording)
+        .insert_recording_with_translations(recording, translations)
         .map_err(|e| e.to_string())?;
     if let Some(offset) = mic_offset_ms {
         store

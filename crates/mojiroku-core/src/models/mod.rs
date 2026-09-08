@@ -72,6 +72,7 @@ pub const DEFAULT_SUMMARY_MODEL: &str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
 
 /// VAD モデル（Silero, ggml）。whisper の無音ハルシネーション対策（spec の VAD 段）。
 pub const DEFAULT_VAD_MODEL: &str = "ggml-silero-v5.1.2.bin";
+pub const VAD_MODEL_BYTES: u64 = 885_098;
 
 /// 話者分離 segmentation（pyannote segmentation-3.0, ONNX, 約 6MB, MIT）。展開後のローカル名。
 /// ADR-0009 は reverb-diarization-v1 を採っていたが、ライセンス（Rev Model Non-Production）が
@@ -383,6 +384,8 @@ pub fn ensure_translation_model(
     on_progress: Option<&ProgressFn<'_>>,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<PathBuf> {
+    let lock = model_download_lock(&models_dir.join(TRANSLATION_MODEL_FILE));
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     translation_check_cancel(cancelled)?;
     fs::create_dir_all(models_dir).map_err(|e| CoreError::Io(e.to_string()))?;
     let dest = models_dir.join(TRANSLATION_MODEL_FILE);
@@ -394,29 +397,141 @@ pub fn ensure_translation_model(
     )? {
         return Ok(dest);
     }
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| CoreError::Io(e.to_string()))?
-        .as_nanos();
-    let tmp = models_dir.join(format!("translation-{}-{stamp}.part", std::process::id()));
-    translation_check_cancel(cancelled)?;
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .timeout_read(std::time::Duration::from_secs(5))
-        .build();
-    let response = agent
-        .get(TRANSLATION_MODEL_URL)
-        .call()
-        .map_err(|e| CoreError::Model(download_error_key("translation model", &e.to_string())))?;
-    install_translation_stream(
-        response.into_reader(),
-        &tmp,
+    download_resumable(
+        TRANSLATION_MODEL_URL,
+        &dest.with_extension("part"),
         &dest,
-        (TRANSLATION_MODEL_BYTES, TRANSLATION_MODEL_SHA256),
+        TRANSLATION_MODEL_BYTES,
+        TRANSLATION_MODEL_SHA256,
         on_progress,
         cancelled,
     )?;
     Ok(dest)
+}
+
+// All download callers share ownership of each cache path, including background jobs.
+fn model_download_lock(path: &Path) -> std::sync::Arc<std::sync::Mutex<()>> {
+    use std::sync::{Arc, Mutex, OnceLock, Weak};
+    type LockMap = std::collections::HashMap<PathBuf, Weak<Mutex<()>>>;
+    static LOCKS: OnceLock<Mutex<LockMap>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(path).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(path.to_owned(), Arc::downgrade(&lock));
+    lock
+}
+
+// Only resume against the pinned model URL; validate the full digest before installation.
+fn download_resumable(
+    url: &str,
+    tmp: &Path,
+    dest: &Path,
+    expected_bytes: u64,
+    expected_hash: &str,
+    on_progress: Option<&ProgressFn<'_>>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<()> {
+    translation_check_cancel(cancelled)?;
+    let mut offset = fs::metadata(tmp).map(|m| m.len()).unwrap_or(0);
+    if offset == expected_bytes
+        && translation_cache_valid(tmp, expected_bytes, expected_hash, cancelled)?
+    {
+        fs::rename(tmp, dest).map_err(|e| CoreError::Io(e.to_string()))?;
+        return Ok(());
+    }
+    if offset >= expected_bytes {
+        fs::remove_file(tmp).map_err(|e| CoreError::Io(e.to_string()))?;
+        offset = 0;
+    }
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(30))
+        .build();
+    let mut request = agent.get(url).set("Accept-Encoding", "identity");
+    if offset > 0 {
+        request = request.set("Range", &format!("bytes={offset}-"));
+    }
+    let response = request
+        .call()
+        .map_err(|e| CoreError::Model(download_error_key("model", &e.to_string())))?;
+    match response.status() {
+        200 => offset = 0, // A server may ignore Range. Never append its complete response.
+        206 => {
+            let expected = format!("bytes {offset}-{}/{expected_bytes}", expected_bytes - 1);
+            if response.header("Content-Range") != Some(expected.as_str()) {
+                return Err(CoreError::Model(
+                    "invalid model download Content-Range".into(),
+                ));
+            }
+        }
+        _ => {
+            return Err(CoreError::Model(
+                "unexpected model download response".into(),
+            ))
+        }
+    }
+    if let Some(length) = response.header("Content-Length") {
+        if length.parse::<u64>().ok() != Some(expected_bytes - offset) {
+            return Err(CoreError::Model(
+                "invalid model download Content-Length".into(),
+            ));
+        }
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(offset == 0)
+        .append(offset > 0)
+        .open(tmp)
+        .map_err(|e| CoreError::Io(e.to_string()))?;
+    let mut reader = response.into_reader();
+    let mut downloaded = offset;
+    if let Some(report) = on_progress {
+        report(downloaded, Some(expected_bytes));
+    }
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        translation_check_cancel(cancelled)?;
+        let n = match reader.read(&mut buffer) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => result.map_err(|e| CoreError::Io(e.to_string()))?,
+        };
+        translation_check_cancel(cancelled)?;
+        if n == 0 {
+            break;
+        }
+        if n as u64 > expected_bytes.saturating_sub(downloaded) {
+            drop(file);
+            let _ = fs::remove_file(tmp);
+            return Err(CoreError::Model(
+                "translation model exceeds expected size".into(),
+            ));
+        }
+        file.write_all(&buffer[..n])
+            .map_err(|e| CoreError::Io(e.to_string()))?;
+        downloaded += n as u64;
+        if let Some(report) = on_progress {
+            report(downloaded, Some(expected_bytes));
+        }
+    }
+    file.sync_all().map_err(|e| CoreError::Io(e.to_string()))?;
+    drop(file);
+    if downloaded != expected_bytes {
+        return Err(CoreError::Model("error.model.download_incomplete".into()));
+    }
+    if !translation_cache_valid(tmp, expected_bytes, expected_hash, cancelled)? {
+        let _ = fs::remove_file(tmp);
+        return Err(CoreError::Model("error.model.checksum_mismatch".into()));
+    }
+    translation_check_cancel(cancelled)?;
+    fs::rename(tmp, dest).map_err(|e| CoreError::Io(e.to_string()))?;
+    Ok(())
 }
 
 fn translation_check_cancel(cancelled: &dyn Fn() -> bool) -> Result<()> {
@@ -453,47 +568,6 @@ fn translation_cache_valid(
         cancelled,
     )?;
     Ok(bytes == expected_bytes && hash.eq_ignore_ascii_case(expected_sha256))
-}
-
-/// Only an owned temporary file is removed, including on early return or panic.
-struct TranslationPartial(PathBuf);
-
-impl Drop for TranslationPartial {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-fn install_translation_stream(
-    mut reader: impl Read,
-    tmp: &Path,
-    dest: &Path,
-    expected: (u64, &str),
-    on_progress: Option<&ProgressFn<'_>>,
-    cancelled: &dyn Fn() -> bool,
-) -> Result<()> {
-    translation_check_cancel(cancelled)?;
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(tmp)
-        .map_err(|e| CoreError::Io(e.to_string()))?;
-    let _partial = TranslationPartial(tmp.to_path_buf());
-    let (bytes, hash) =
-        copy_translation_stream(&mut reader, &mut file, expected.0, on_progress, cancelled)?;
-    file.flush().map_err(|e| CoreError::Io(e.to_string()))?;
-    drop(file);
-    verify_download(
-        tmp,
-        bytes,
-        Some(expected.0),
-        &hash,
-        Some(expected.1),
-        "translation model",
-    )?;
-    translation_check_cancel(cancelled)?;
-    fs::rename(tmp, dest).map_err(|e| CoreError::Io(e.to_string()))?;
-    Ok(())
 }
 
 fn copy_translation_stream(
@@ -667,18 +741,27 @@ pub fn ensure_model(
     models_dir: &Path,
     on_progress: Option<&ProgressFn<'_>>,
 ) -> Result<PathBuf> {
+    let lock = model_download_lock(&models_dir.join(model_file));
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
     fs::create_dir_all(models_dir).map_err(|e| CoreError::Io(e.to_string()))?;
     let dest = models_dir.join(model_file);
-    let downloaded = WHISPER_MODELS
+    let catalog_bytes = WHISPER_MODELS
         .iter()
         .find(|model| model.file == model_file)
-        .map(|model| whisper_model_downloaded(model, models_dir))
+        .map(|model| model.size_bytes)
+        .or_else(|| summary_model(model_file).map(|model| model.size_bytes))
+        .or_else(|| (model_file == DEFAULT_VAD_MODEL).then_some(VAD_MODEL_BYTES));
+    let downloaded = catalog_bytes
+        .map(|size| fs::metadata(&dest).is_ok_and(|m| m.is_file() && m.len() == size))
         .unwrap_or_else(|| cached(&dest));
     if downloaded {
         return Ok(dest);
     }
-
     let tmp = dest.with_extension("part");
+    if let (Some(bytes), Some(hash)) = (catalog_bytes, expected_sha256(model_file)) {
+        download_resumable(url, &tmp, &dest, bytes, hash, on_progress, &|| false)?;
+        return Ok(dest);
+    }
     download_to_file(
         url,
         &tmp,
@@ -775,188 +858,161 @@ mod tests {
     }
 
     #[test]
-    fn translation_download_installs_only_verified_content() {
+    fn translation_cache_checks_size_and_digest() {
         let dir = TranslationTestDir::new();
-        let tmp = dir.0.join("model.part");
         let dest = dir.0.join("model.gguf");
-        fs::write(&dest, b"old").unwrap();
-        let progress = std::cell::RefCell::new(Vec::new());
-        install_translation_stream(
-            &b"abc"[..],
-            &tmp,
-            &dest,
-            (3, ABC_SHA256),
-            Some(&|bytes, total| progress.borrow_mut().push((bytes, total))),
-            &|| false,
-        )
-        .unwrap();
-        assert_eq!(fs::read(&dest).unwrap(), b"abc");
-        assert_eq!(*progress.borrow(), [(3, Some(3))]);
-        assert!(!tmp.exists());
+        fs::write(&dest, b"abc").unwrap();
         assert!(translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
         fs::write(&dest, b"bad").unwrap();
         assert!(!translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
         fs::write(&dest, b"a").unwrap();
         assert!(!translation_cache_valid(&dest, 3, ABC_SHA256, &|| false).unwrap());
+        assert!(translation_cache_valid(&dest, 3, ABC_SHA256, &|| true).is_err());
+    }
+
+    fn http_fixture(response: String) -> (String, std::thread::JoinHandle<String>) {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/model", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                assert_eq!(stream.read(&mut byte).unwrap(), 1);
+                request.push(byte[0]);
+            }
+            stream.write_all(response.as_bytes()).unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        (url, handle)
     }
 
     #[test]
-    fn translation_download_rejects_corrupt_sizes_and_hash_without_replacing_cache() {
-        for (data, error) in [
-            (&b"ab"[..], "download_incomplete"),
-            (&b"abcd"[..], "exceeds expected size"),
-            (&b"bad"[..], "checksum_mismatch"),
-        ] {
-            let dir = TranslationTestDir::new();
-            let tmp = dir.0.join("model.part");
-            let dest = dir.0.join("model.gguf");
-            fs::write(&dest, b"existing").unwrap();
-            let err =
-                install_translation_stream(data, &tmp, &dest, (3, ABC_SHA256), None, &|| false)
-                    .unwrap_err();
-            assert!(err.to_string().contains(error), "{err}");
-            assert_eq!(fs::read(&dest).unwrap(), b"existing");
-            assert!(!tmp.exists());
+    fn interrupted_model_download_resumes_only_the_missing_bytes() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("resume.part");
+        let dest = dir.0.join("model.gguf");
+        let hash = format!("{:x}", Sha256::digest(b"abcdef"));
+        let (url, server) = http_fixture(
+            "HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\nabc".into(),
+        );
+        assert!(download_resumable(&url, &tmp, &dest, 6, &hash, None, &|| false).is_err());
+        assert!(!server.join().unwrap().to_lowercase().contains("range:"));
+        assert_eq!(fs::read(&tmp).unwrap(), b"abc");
+        assert!(!dest.exists());
+        let (url, server) = http_fixture("HTTP/1.1 206 Partial Content\r\nContent-Length: 3\r\nContent-Range: bytes 3-5/6\r\nConnection: close\r\n\r\ndef".into());
+        download_resumable(&url, &tmp, &dest, 6, &hash, None, &|| false).unwrap();
+        assert!(server
+            .join()
+            .unwrap()
+            .to_lowercase()
+            .contains("range: bytes=3-"));
+        assert_eq!(fs::read(dest).unwrap(), b"abcdef");
+        assert!(!tmp.exists());
+    }
+
+    #[test]
+    fn ignored_range_restarts_cleanly_without_appending_the_full_response() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("resume.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&tmp, b"x").unwrap();
+        let (url, server) = http_fixture(
+            "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc".into(),
+        );
+        download_resumable(&url, &tmp, &dest, 3, ABC_SHA256, None, &|| false).unwrap();
+        assert!(server
+            .join()
+            .unwrap()
+            .to_lowercase()
+            .contains("range: bytes=1-"));
+        assert_eq!(fs::read(dest).unwrap(), b"abc");
+    }
+
+    #[test]
+    fn malformed_range_preserves_partial_and_never_installs() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("resume.part");
+        let dest = dir.0.join("model.gguf");
+        for range in ["bytes 0-1/3", "bytes 1-2/4", "bytes 1-1/3", "nonsense"] {
+            fs::write(&tmp, b"a").unwrap();
+            let (url, server) = http_fixture(format!("HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: {range}\r\nConnection: close\r\n\r\nbc"));
+            assert!(download_resumable(&url, &tmp, &dest, 3, ABC_SHA256, None, &|| false).is_err());
+            server.join().unwrap();
+            assert_eq!(fs::read(&tmp).unwrap(), b"a");
+            assert!(!dest.exists());
         }
     }
 
     #[test]
-    fn translation_download_cancelled_after_progress_removes_partial() {
+    fn resumed_corrupt_prefix_fails_full_integrity_and_discards_partial() {
         let dir = TranslationTestDir::new();
-        let tmp = dir.0.join("model.part");
+        let tmp = dir.0.join("resume.part");
+        let dest = dir.0.join("model.gguf");
+        fs::write(&tmp, b"x").unwrap();
+        fs::write(&dest, b"previous cache").unwrap();
+        let (url, server) = http_fixture("HTTP/1.1 206 Partial Content\r\nContent-Length: 2\r\nContent-Range: bytes 1-2/3\r\nConnection: close\r\n\r\nbc".into());
+        assert!(
+            download_resumable(&url, &tmp, &dest, 3, ABC_SHA256, None, &|| false)
+                .unwrap_err()
+                .to_string()
+                .contains("checksum_mismatch")
+        );
+        server.join().unwrap();
+        assert!(!tmp.exists());
+        assert_eq!(fs::read(dest).unwrap(), b"previous cache");
+    }
+
+    #[test]
+    fn cancellation_preserves_partial_for_the_next_application_run() {
+        let dir = TranslationTestDir::new();
+        let tmp = dir.0.join("resume.part");
         let dest = dir.0.join("model.gguf");
         let cancelled = std::cell::Cell::new(false);
-        let err = install_translation_stream(
-            &b"abc"[..],
+        let (url, server) = http_fixture(
+            "HTTP/1.1 200 OK\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc".into(),
+        );
+        assert!(download_resumable(
+            &url,
             &tmp,
             &dest,
-            (3, ABC_SHA256),
-            Some(&|_, _| cancelled.set(true)),
-            &|| cancelled.get(),
+            3,
+            ABC_SHA256,
+            Some(&|done, _| if done > 0 {
+                cancelled.set(true);
+            }),
+            &|| cancelled.get()
         )
-        .unwrap_err();
-        assert!(err.to_string().contains("translation.cancelled"));
-        assert!(!tmp.exists());
+        .is_err());
+        server.join().unwrap();
+        assert_eq!(fs::read(&tmp).unwrap(), b"abc");
         assert!(!dest.exists());
-    }
-
-    #[test]
-    fn translation_download_cancellation_during_eof_never_installs() {
-        struct CancelAtEof<'a> {
-            data: &'a [u8],
-            cancelled: &'a std::cell::Cell<bool>,
-        }
-        impl Read for CancelAtEof<'_> {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                let n = self.data.read(buf)?;
-                if n == 0 {
-                    self.cancelled.set(true);
-                }
-                Ok(n)
-            }
-        }
-        let dir = TranslationTestDir::new();
-        let tmp = dir.0.join("model.part");
-        let dest = dir.0.join("model.gguf");
-        let cancelled = std::cell::Cell::new(false);
-        let reader = CancelAtEof {
-            data: b"abc",
-            cancelled: &cancelled,
-        };
-        let err = install_translation_stream(reader, &tmp, &dest, (3, ABC_SHA256), None, &|| {
-            cancelled.get()
-        })
-        .unwrap_err();
-        assert!(err.to_string().contains("translation.cancelled"));
-        assert!(!tmp.exists());
-        assert!(!dest.exists());
-    }
-
-    #[test]
-    fn translation_download_read_failure_removes_partial_and_preserves_cache() {
-        struct FailsAfterChunk(bool);
-        impl Read for FailsAfterChunk {
-            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                if self.0 {
-                    return Err(std::io::Error::other("broken stream"));
-                }
-                self.0 = true;
-                buf[0] = b'a';
-                Ok(1)
-            }
-        }
-        let dir = TranslationTestDir::new();
-        let tmp = dir.0.join("model.part");
-        let dest = dir.0.join("model.gguf");
-        fs::write(&dest, b"existing").unwrap();
-        let err = install_translation_stream(
-            FailsAfterChunk(false),
+        // A complete retained partial is verified and installed without an HTTP request.
+        download_resumable(
+            "http://127.0.0.1:0",
             &tmp,
             &dest,
-            (3, ABC_SHA256),
+            3,
+            ABC_SHA256,
             None,
             &|| false,
         )
-        .unwrap_err();
-        assert!(err.to_string().contains("broken stream"));
-        assert_eq!(fs::read(&dest).unwrap(), b"existing");
-        assert!(!tmp.exists());
+        .unwrap();
+        assert_eq!(fs::read(dest).unwrap(), b"abc");
     }
 
     #[test]
-    fn translation_download_does_not_delete_another_downloads_partial() {
-        let dir = TranslationTestDir::new();
-        let tmp = dir.0.join("model.part");
-        let dest = dir.0.join("model.gguf");
-        fs::write(&tmp, b"other download").unwrap();
-        assert!(install_translation_stream(
-            &b"abc"[..],
-            &tmp,
-            &dest,
-            (3, ABC_SHA256),
-            None,
-            &|| false
-        )
-        .is_err());
-        assert_eq!(fs::read(&tmp).unwrap(), b"other download");
-        assert!(!dest.exists());
-    }
-
-    #[test]
-    fn translation_download_precancelled_does_not_touch_files() {
-        let dir = TranslationTestDir::new();
-        let tmp = dir.0.join("model.part");
-        let dest = dir.0.join("model.gguf");
-        assert!(install_translation_stream(
-            &b"abc"[..],
-            &tmp,
-            &dest,
-            (3, ABC_SHA256),
-            None,
-            &|| true
-        )
-        .is_err());
-        assert!(translation_cache_valid(&dest, 3, ABC_SHA256, &|| true).is_err());
-        assert_eq!(fs::read_dir(&dir.0).unwrap().count(), 0);
-    }
-
-    #[test]
-    fn translation_download_failed_install_removes_verified_partial() {
-        let dir = TranslationTestDir::new();
-        let tmp = dir.0.join("model.part");
-        let dest = dir.0.join("model.gguf");
-        fs::create_dir(&dest).unwrap();
-        assert!(install_translation_stream(
-            &b"abc"[..],
-            &tmp,
-            &dest,
-            (3, ABC_SHA256),
-            None,
-            &|| false
-        )
-        .is_err());
-        assert!(!tmp.exists());
-        assert!(dest.is_dir());
+    fn all_callers_for_a_model_share_the_same_download_lock() {
+        let a = model_download_lock(Path::new("same-model"));
+        let b = model_download_lock(Path::new("same-model"));
+        let other = model_download_lock(Path::new("other-model"));
+        let _guard = a.lock().unwrap();
+        assert!(b.try_lock().is_err());
+        assert!(other.try_lock().is_ok());
     }
 
     /// 証明書の失敗を接続の失敗と区別する。**Issue #31 で実際に報告された文字列**を固定する。

@@ -20,6 +20,8 @@ mod job;
 mod speaker;
 mod search;
 mod recording;
+mod translation;
+pub use translation::{validate_live_translations, SavedLiveTranslation};
 use embedding::{blob_to_f32, dot, f32_to_blob, l2_mean};
 
 /// 履歴詳細。`Transcript`/`Summary` に `recording_id` を足さず集約だけ持つ DTO。
@@ -115,7 +117,7 @@ pub struct SqliteStore {
     conn: Mutex<Connection>,
 }
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 /// 最小エンロール尺（ms）。これ未満の話者は声紋が不安定で照合/登録の対象外（ADR-0018, 暫定）。
 /// スパイクで「短い音声では同一人物でも一致が崩れる」ことを観測したため尺でゲートする。
@@ -346,6 +348,11 @@ fn migrate(conn: &Connection) -> Result<()> {
     // rows and single-track recordings. ADD COLUMN is not idempotent, so check first (as v5).
     if version < 6 && !column_exists(conn, "recordings", "mic_offset_ms")? {
         conn.execute_batch("ALTER TABLE recordings ADD COLUMN mic_offset_ms INTEGER")?;
+    }
+
+    // v7: saved live-caption translations, separate from the final transcript.
+    if version < 7 {
+        conn.execute_batch(translation::DDL)?;
     }
 
     // 全段階の後ろで一括 bump。途中失敗時は version<2 のまま再実行され、
