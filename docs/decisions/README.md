@@ -62,3 +62,5 @@
 - [ADR-0038: Background model downloads and saved live translations](ADR-0038_Background_model_downloads_and_saved_live_translations.md)
 - [ADR-0039: Japanese/English automatic recognition](ADR-0039_Restrict_automatic_recognition_to_Japanese_and_English.md)
 - [ADR-0040: Preserve brief speakers during cleanup](ADR-0040_Preserve_brief_speakers_during_cleanup.md)
+
+- [ADR-0041: Control speaker fragmentation](ADR-0041_Control_speaker_fragmentation.md)

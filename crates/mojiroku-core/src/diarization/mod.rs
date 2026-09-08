@@ -31,6 +31,10 @@ const ANCHOR_MIN_FRACTION: f32 = 0.06;
 // Duration seeds stable groups; shorter distinct voices are retained below.
 // A merge needs positive voice evidence, not merely a nearest available group.
 const MIN_MERGE_COSINE: f32 = 0.65;
+// A weak match is not enough evidence to create another speaker. Require both
+// sustained speech and clear separation from the existing group centroids.
+const NEW_SPEAKER_MIN_SECONDS: f32 = 1.0;
+const NEW_SPEAKER_MAX_COSINE: f32 = 0.40;
 
 /// 埋め込み抽出に必要な最小窓（これ未満の turn は窓を広げて抽出を試みる）。
 const EMBED_MIN_SECONDS: f32 = 0.3;
@@ -387,9 +391,10 @@ fn select_supported_anchors(centroid: &ClusterEmbeddings, dur: &BTreeMap<i32, f3
     candidates.sort_by(|a, b| cmp_f32(dur[b], dur[a]).then(a.cmp(b)));
     for candidate in candidates {
         if !anchors.contains(&candidate)
+            && dur[&candidate] >= NEW_SPEAKER_MIN_SECONDS
             && !anchors
                 .iter()
-                .any(|anchor| dot(&centroid[&candidate], &centroid[anchor]) >= MIN_MERGE_COSINE)
+                .any(|anchor| dot(&centroid[&candidate], &centroid[anchor]) >= NEW_SPEAKER_MAX_COSINE)
         {
             anchors.push(candidate);
         }
@@ -405,6 +410,13 @@ fn supported_assignment(
 ) -> i32 {
     nearest_anchor(emb, anchors, centroids)
         .filter(|nearest| dot(emb, &centroids[nearest]) >= MIN_MERGE_COSINE)
+        // Short or noisy utterances must not resurrect discarded raw labels.
+        // Their aggregate cluster voice is more stable than one weak embedding.
+        .or_else(|| {
+            centroids
+                .get(&original)
+                .and_then(|voice| nearest_anchor(voice, anchors, centroids))
+        })
         .unwrap_or(original)
 }
 
@@ -715,6 +727,46 @@ mod tests {
             assert_eq!(anchors.len(), 2);
             assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 1);
         }
+    }
+
+    #[test]
+    fn short_voice_variations_do_not_create_extra_speakers() {
+        let voices = BTreeMap::from([
+            (0, vec![1.0, 0.0, 0.0]),
+            (1, vec![0.48, 0.8772685, 0.0]),
+            (2, vec![0.43, 0.0, 0.9028289]),
+            (3, vec![0.2, 0.0, -0.9797959]),
+        ]);
+        let durations = BTreeMap::from([(0, 60.0), (1, 2.4), (2, 1.7), (3, 0.6)]);
+        let anchors = select_supported_anchors(&voices, &durations);
+        assert_eq!(anchors, vec![0]);
+        for (id, voice) in &voices {
+            assert_eq!(supported_assignment(voice, *id, &anchors, &voices), 0);
+        }
+    }
+
+    #[test]
+    fn clearly_distinct_brief_voice_survives_without_splitting_established_voice() {
+        let voices = BTreeMap::from([
+            (0, vec![1.0, 0.0, 0.0]),
+            (1, vec![0.48, 0.8772685, 0.0]),
+            (2, vec![0.0, 0.0, 1.0]),
+        ]);
+        let durations = BTreeMap::from([(0, 60.0), (1, 2.4), (2, 2.5)]);
+        let anchors = select_supported_anchors(&voices, &durations);
+        assert_eq!(anchors, vec![0, 2]);
+        assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 0);
+        assert_eq!(supported_assignment(&voices[&2], 2, &anchors, &voices), 2);
+    }
+
+    #[test]
+    fn weak_turn_does_not_resurrect_a_merged_fragment() {
+        let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.8, 0.6])]);
+        let durations = BTreeMap::from([(0, 60.0), (1, 2.0)]);
+        let anchors = select_supported_anchors(&voices, &durations);
+        assert_eq!(anchors, vec![0]);
+        // The cluster has a supported identity even when this short turn does not.
+        assert_eq!(supported_assignment(&[0.1, 0.9949874], 1, &anchors, &voices), 0);
     }
 
     #[test]

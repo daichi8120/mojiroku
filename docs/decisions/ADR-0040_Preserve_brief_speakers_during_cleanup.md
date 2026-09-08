@@ -1,7 +1,7 @@
 # ADR-0040: Preserve brief speakers during cleanup
 
 - Date: 2026-09-07
-- Status: Accepted
+- Status: Superseded in part by [ADR-0041](ADR-0041_Control_speaker_fragmentation.md)
 - Context: v0.6.0 feedback reports distinct remote participants receiving one label.
 
 ## Cause and decision
