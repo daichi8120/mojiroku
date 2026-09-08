@@ -149,3 +149,25 @@ python3 eval/diarization/check_brief_speakers.py \
   --binary target/release/examples/diarize_cli \
   --baseline /path/to/previous/diarize_cli --output /tmp/brief-speaker-results
 ```
+
+## Speaker consistency regression
+
+Use `check_consistency.py` for annotated recordings so a correct total speaker count
+cannot hide one voice split across labels or multiple voices merged together.
+The reference JSON contains `audio_sha256` and `intervals`, a list of
+`[start_seconds, end_seconds, anonymous_speaker]`. Keep private recordings and their
+references outside tracked files. The existing 600-second fixture and `GT` intervals
+above can be used without collecting new annotations.
+
+```sh
+python3 eval/diarization/check_consistency.py \
+  --audio /path/to/fixture.wav --reference /path/to/reference.json \
+  --models /path/to/models --baseline /path/to/v0.6.1-diarize_cli \
+  --binary /path/to/candidate-diarize_cli --output /tmp/consistency-results
+python3 -B -m unittest discover -s eval/diarization -p 'test_*.py'
+```
+
+The gate requires at least 95% dominant-label share within assigned frames for each
+annotated speaker, different dominant labels across speakers, and coverage no more
+than one percentage point below baseline. Coarse time annotations are not a complete
+DER benchmark. See ADR-0041 for the cleanup policy and its limitations.

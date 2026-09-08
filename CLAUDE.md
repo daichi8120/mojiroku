@@ -40,9 +40,11 @@ mojiroku の開発で Claude Code / 将来のセッションが参照するガ�
 - Transcription language `"mixed"` opts into language re-detection at speech pauses (ADR-0036). It is consumed by the core before Whisper parameters are built; never send this application marker directly to Whisper. The existing `stt_lang` job snapshot carries it through all offline routes, and the meeting-start snapshot carries it to live preview. Auto, turbo, and greedy remain defaults. Mixed mode requires successful VAD and offsets both timestamps and progress across windows.
   Auto and mixed windows now choose between Japanese and English language probabilities
   before decoding (ADR-0039). Explicit language choices still bypass detection.
-- Speaker cleanup uses duration to seed anchor groups, then preserves shorter distinct voices
-  and requires voice similarity before reassignment (ADR-0040). Do not restore unconditional
-  nearest-anchor assignment: it collapsed the provider's four-speaker fixture into one speaker.
+- Speaker cleanup uses duration to seed anchor groups, then requires at least one second
+  of speech and clear voice separation to retain additional brief speakers (ADR-0041).
+  Weak individual turns inherit their aggregate cluster's anchor rather than resurrecting
+  raw labels. Check both within-speaker consistency and the public brief-speaker suite;
+  speaker count alone missed the v0.6.1 fragmentation regression.
 - Live translation is an opt-in meeting feature (ADR-0037, updated by ADR-0038), using the separate
   `mojiroku-llm --translate` path with Qwen3.5-9B and `--no-think`. It requires at least 16 GiB
   of detected RAM and its own 5.68 GB cache file; downloading it must not change summary
