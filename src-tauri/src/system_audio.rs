@@ -125,7 +125,12 @@ pub fn mix_mono(a: &[f32], b: &[f32]) -> Vec<f32> {
 /// 再生用ミックスのため、**所有**の PCM を mono・指定レートへ変換する。既に mono かつ同レートなら
 /// 一切複製せず元 Vec をそのまま返し、中間複製を作らない（mic/system は実測 48k mono なので通常は
 /// 複製ゼロ）。長尺会議の停止時に生 Vec＋mono 化＋resample＋mixed が同時に乗るメモリピークを抑える。
-pub fn to_playback_mono(samples: Vec<f32>, channels: u16, from_rate: u32, to_rate: u32) -> Vec<f32> {
+pub fn to_playback_mono(
+    samples: Vec<f32>,
+    channels: u16,
+    from_rate: u32,
+    to_rate: u32,
+) -> Vec<f32> {
     // mono 化（既に mono なら所有のまま素通し）。2ch 以上のときのみ新 Vec を作り、元 samples は drop。
     let mono = if channels <= 1 {
         samples
@@ -400,7 +405,9 @@ pub fn start(state: &SystemAudioState, spool_path: PathBuf) -> Result<(), String
 /// `SharedPcm::snapshot_from` の絶対 index で追従する（`live_stt::take_new`）。
 pub fn live_handle(state: &SystemAudioState) -> Option<(Arc<SharedPcm>, u32)> {
     let guard = state.0.lock().unwrap();
-    guard.as_ref().map(|s| (Arc::clone(&s.samples), s.sample_rate))
+    guard
+        .as_ref()
+        .map(|s| (Arc::clone(&s.samples), s.sample_rate))
 }
 
 /// キャプチャ停止。spool WAV を finalize し、パス・サンプル総数・sample_rate・
@@ -503,7 +510,10 @@ mod tests {
     #[test]
     fn interleaved_to_mono_averages_channels() {
         // 2ch: [L0,R0, L1,R1] → 平均
-        assert_eq!(interleaved_to_mono(&[1.0, -1.0, 0.5, 0.5], 2), vec![0.0, 0.5]);
+        assert_eq!(
+            interleaved_to_mono(&[1.0, -1.0, 0.5, 0.5], 2),
+            vec![0.0, 0.5]
+        );
         // mono はそのまま
         assert_eq!(interleaved_to_mono(&[0.1, 0.2], 1), vec![0.1, 0.2]);
     }
@@ -511,12 +521,15 @@ mod tests {
     #[test]
     fn resample_linear_mono_basics() {
         // 同レートはそのまま。
-        assert_eq!(resample_linear_mono(&[0.1, 0.2, 0.3], 48_000, 48_000), vec![0.1, 0.2, 0.3]);
+        assert_eq!(
+            resample_linear_mono(&[0.1, 0.2, 0.3], 48_000, 48_000),
+            vec![0.1, 0.2, 0.3]
+        );
         // 2 倍アップサンプルは概ね 2 倍の長さ。
         let up = resample_linear_mono(&[0.0, 1.0], 1, 2);
         assert_eq!(up.len(), 4);
         assert_eq!(up[0], 0.0); // 先頭は原点
-        // 半分ダウンサンプルは概ね半分。
+                                // 半分ダウンサンプルは概ね半分。
         assert_eq!(resample_linear_mono(&[0.0, 1.0, 0.0, 1.0], 2, 1).len(), 2);
         // 空はそのまま空。
         assert!(resample_linear_mono(&[], 48_000, 16_000).is_empty());
@@ -525,7 +538,10 @@ mod tests {
     #[test]
     fn mix_mono_sums_and_clamps() {
         // 加算してクランプ。長さは max。
-        assert_eq!(mix_mono(&[0.5, 0.5], &[0.5, -0.5, 0.2]), vec![1.0, 0.0, 0.2]);
+        assert_eq!(
+            mix_mono(&[0.5, 0.5], &[0.5, -0.5, 0.2]),
+            vec![1.0, 0.0, 0.2]
+        );
         // 片側空は他方そのまま。
         assert_eq!(mix_mono(&[0.3, 0.4], &[]), vec![0.3, 0.4]);
     }

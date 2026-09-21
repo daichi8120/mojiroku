@@ -99,7 +99,11 @@ fn split_property(line: &str) -> Option<(String, String, String)> {
         Some(p) => (&head[..p], &head[p + 1..]),
         None => (head, ""),
     };
-    Some((name.to_ascii_uppercase(), params.to_string(), value.to_string()))
+    Some((
+        name.to_ascii_uppercase(),
+        params.to_string(),
+        value.to_string(),
+    ))
 }
 
 /// TEXT 値のアンエスケープ（`\n`/`\N`→改行, `\,`→`,`, `\;`→`;`, `\\`→`\`）。
@@ -131,7 +135,9 @@ fn parse_dt_value(value: &str) -> Option<DtValue> {
     }
     // 全日（YYYYMMDD）。
     if v.len() == 8 && v.bytes().all(|b| b.is_ascii_digit()) {
-        return NaiveDate::parse_from_str(v, "%Y%m%d").ok().map(DtValue::Date);
+        return NaiveDate::parse_from_str(v, "%Y%m%d")
+            .ok()
+            .map(DtValue::Date);
     }
     if let Some(core) = v.strip_suffix('Z') {
         return NaiveDateTime::parse_from_str(core, "%Y%m%dT%H%M%S")
@@ -183,7 +189,14 @@ fn parse_rrule(value: &str) -> RRule {
                     _ => Freq::Other,
                 }
             }
-            "INTERVAL" => interval = v.trim().parse::<i64>().ok().filter(|n| *n >= 1).unwrap_or(1),
+            "INTERVAL" => {
+                interval = v
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+                    .filter(|n| *n >= 1)
+                    .unwrap_or(1)
+            }
             "COUNT" => count = v.trim().parse::<u32>().ok(),
             "UNTIL" => until = parse_dt_value(v.trim()),
             "BYDAY" => byday = v.split(',').filter_map(parse_weekday).collect(),
@@ -354,7 +367,9 @@ fn expand_recurrence(
                     None => break,
                 };
                 for wd in &bydays {
-                    let date = match monday.checked_add_days(Days::new(wd.num_days_from_monday() as u64)) {
+                    let date = match monday
+                        .checked_add_days(Days::new(wd.num_days_from_monday() as u64))
+                    {
                         Some(d) => d,
                         None => continue,
                     };
@@ -512,7 +527,8 @@ mod tests {
     #[test]
     fn utc_time_converts_to_local() {
         // 06:00Z → JST 15:00。
-        let ics = wrap("BEGIN:VEVENT\r\nUID:a\r\nSUMMARY:朝会\r\nDTSTART:20260115T060000Z\r\nEND:VEVENT");
+        let ics =
+            wrap("BEGIN:VEVENT\r\nUID:a\r\nSUMMARY:朝会\r\nDTSTART:20260115T060000Z\r\nEND:VEVENT");
         let ev = parse_and_expand(&ics, jst(2026, 1, 15, 0, 0), 14, 20);
         assert_eq!(ev.len(), 1);
         assert_eq!(ev[0].title, "朝会");
@@ -521,7 +537,9 @@ mod tests {
 
     #[test]
     fn all_day_event_is_excluded() {
-        let ics = wrap("BEGIN:VEVENT\r\nUID:a\r\nSUMMARY:休暇\r\nDTSTART;VALUE=DATE:20260116\r\nEND:VEVENT");
+        let ics = wrap(
+            "BEGIN:VEVENT\r\nUID:a\r\nSUMMARY:休暇\r\nDTSTART;VALUE=DATE:20260116\r\nEND:VEVENT",
+        );
         let ev = parse_and_expand(&ics, jst(2026, 1, 15, 0, 0), 14, 20);
         assert!(ev.is_empty());
     }

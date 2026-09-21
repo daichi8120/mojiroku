@@ -72,8 +72,11 @@ pub(crate) async fn stop_mic_recording(
     if let Some(e) = &info.spool_error {
         eprintln!("マイク録音の書き出しで一部エラー（部分保存で続行）: {e}");
     }
-    let duration_ms =
-        mic::duration_ms(info.samples_written as usize, info.channels, info.sample_rate);
+    let duration_ms = mic::duration_ms(
+        info.samples_written as usize,
+        info.channels,
+        info.sample_rate,
+    );
     let sample_rate = info.sample_rate;
 
     // 2) recordings/<id>.wav へ rename して確定（id は Recording.id と共用。同一ボリューム）。

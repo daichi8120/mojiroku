@@ -5,7 +5,9 @@ use tauri::State;
 
 /// 履歴一覧（created_at 降順）。
 #[tauri::command]
-pub(crate) fn list_recordings(store: State<'_, SqliteStore>) -> Result<Vec<mojiroku_core::Recording>, String> {
+pub(crate) fn list_recordings(
+    store: State<'_, SqliteStore>,
+) -> Result<Vec<mojiroku_core::Recording>, String> {
     store.list_recordings().map_err(|e| e.to_string())
 }
 

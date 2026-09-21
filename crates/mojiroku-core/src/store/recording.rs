@@ -31,7 +31,10 @@ fn replace_speakers_rows(
     recording_id: &str,
     speakers: &[Speaker],
 ) -> Result<()> {
-    tx.execute("DELETE FROM speakers WHERE recording_id = ?1", params![recording_id])?;
+    tx.execute(
+        "DELETE FROM speakers WHERE recording_id = ?1",
+        params![recording_id],
+    )?;
     let mut stmt = tx.prepare(
         "INSERT INTO speakers (recording_id, speaker_id, label, display_name)
          VALUES (?1, ?2, ?3, ?4)",
@@ -123,7 +126,10 @@ impl SqliteStore {
     ) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
-        tx.execute("DELETE FROM segments WHERE recording_id = ?1", params![recording_id])?;
+        tx.execute(
+            "DELETE FROM segments WHERE recording_id = ?1",
+            params![recording_id],
+        )?;
         insert_segments(&tx, recording_id, transcript)?;
         replace_speakers_rows(&tx, recording_id, speakers)?;
         let duration_ms = transcript.segments.last().map(|s| s.end_ms).unwrap_or(0) as i64;
@@ -201,9 +207,7 @@ impl SqliteStore {
                 |r| r.get(0),
             )
             .optional()?
-            .ok_or_else(|| {
-                crate::error::CoreError::Db("error.segment.not_found".to_string())
-            })?;
+            .ok_or_else(|| crate::error::CoreError::Db("error.segment.not_found".to_string()))?;
 
         // 同じ話者を選び直しただけなら何もしない。要約を stale にすると 7B モデルでの
         // 作り直しが分単位で走るため、内容が変わっていないのに促すのは害。
@@ -241,13 +245,22 @@ impl SqliteStore {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
         // 1) segments の speaker_id を更新（text は不変なので rec_fts は触らない）。
-        tx.execute("DELETE FROM segments WHERE recording_id = ?1", params![recording_id])?;
+        tx.execute(
+            "DELETE FROM segments WHERE recording_id = ?1",
+            params![recording_id],
+        )?;
         insert_segments(&tx, recording_id, transcript)?;
         // 2) speakers を差し替え、remap の display_name を反映（引き継ぎ）。
         let remap_name = |id: &str| -> Option<String> {
-            remap.iter().find(|(sid, _)| sid == id).and_then(|(_, name)| name.clone())
+            remap
+                .iter()
+                .find(|(sid, _)| sid == id)
+                .and_then(|(_, name)| name.clone())
         };
-        tx.execute("DELETE FROM speakers WHERE recording_id = ?1", params![recording_id])?;
+        tx.execute(
+            "DELETE FROM speakers WHERE recording_id = ?1",
+            params![recording_id],
+        )?;
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO speakers (recording_id, speaker_id, label, display_name)
@@ -303,7 +316,10 @@ impl SqliteStore {
         )?;
         let rows = stmt
             .query_map(params![recording_id], |r| {
-                Ok((r.get::<_, String>(0)?, blob_to_f32(&r.get::<_, Vec<u8>>(1)?)))
+                Ok((
+                    r.get::<_, String>(0)?,
+                    blob_to_f32(&r.get::<_, Vec<u8>>(1)?),
+                ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
@@ -326,7 +342,13 @@ impl SqliteStore {
                  VALUES (?1, ?2, ?3, ?4, ?5)",
             )?;
             for (i, item) in summary.action_items.iter().enumerate() {
-                stmt.execute(params![summary_id, i as i64, item.text, item.assignee, item.due])?;
+                stmt.execute(params![
+                    summary_id,
+                    i as i64,
+                    item.text,
+                    item.assignee,
+                    item.due
+                ])?;
             }
         }
         tx.commit()?;
@@ -417,7 +439,11 @@ impl SqliteStore {
         let sum_rows = {
             // stale 列は v5 で追加。open_readonly で未 migrate の旧 DB（MCP リーダー）を読む場合は
             // 列が無いので、存在しなければ `0`（=false）を選ぶ（speakers 表の有無チェックと同思想）。
-            let stale_col = if column_exists(&conn, "summaries", "stale")? { "stale" } else { "0" };
+            let stale_col = if column_exists(&conn, "summaries", "stale")? {
+                "stale"
+            } else {
+                "0"
+            };
             let mut stmt = conn.prepare(&format!(
                 "SELECT id, template_id, content, {stale_col} FROM summaries
                  WHERE recording_id = ?1 ORDER BY created_at ASC, id ASC"
@@ -544,8 +570,14 @@ impl SqliteStore {
     pub fn delete_recording(&self, recording_id: &str) -> Result<()> {
         let conn = self.conn();
         let tx = conn.unchecked_transaction()?;
-        tx.execute("DELETE FROM rec_fts WHERE recording_id = ?1", params![recording_id])?;
-        tx.execute("DELETE FROM recordings WHERE id = ?1", params![recording_id])?;
+        tx.execute(
+            "DELETE FROM rec_fts WHERE recording_id = ?1",
+            params![recording_id],
+        )?;
+        tx.execute(
+            "DELETE FROM recordings WHERE id = ?1",
+            params![recording_id],
+        )?;
         tx.commit()?;
         Ok(())
     }

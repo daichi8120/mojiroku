@@ -76,7 +76,9 @@ impl ChunkResampler {
         }
         // 消費済みプレフィックスを解放（次に必要な i0 以降だけ残す）。
         let need = (self.next_out as f64 / ratio).floor() as u64;
-        let drop_n = need.saturating_sub(self.in_base).min(self.pending.len() as u64);
+        let drop_n = need
+            .saturating_sub(self.in_base)
+            .min(self.pending.len() as u64);
         self.pending.drain(..drop_n as usize);
         self.in_base += drop_n;
         out
@@ -202,8 +204,12 @@ pub fn write_mixed_wav(
     out_rate: u32,
     mic_offset_ms: i64,
 ) -> Result<(), String> {
-    let mut a = mic.map(|p| MonoTrackReader::open(p, out_rate)).transpose()?;
-    let mut b = system.map(|p| MonoTrackReader::open(p, out_rate)).transpose()?;
+    let mut a = mic
+        .map(|p| MonoTrackReader::open(p, out_rate))
+        .transpose()?;
+    let mut b = system
+        .map(|p| MonoTrackReader::open(p, out_rate))
+        .transpose()?;
     if a.is_none() && b.is_none() {
         return Err("mix: no input tracks".into());
     }
@@ -282,7 +288,12 @@ mod tests {
 
     #[test]
     fn resampler_matches_batch_various_rates_and_chunks() {
-        for (from, to) in [(48_000u32, 16_000u32), (44_100, 48_000), (48_000, 48_000), (16_000, 48_000)] {
+        for (from, to) in [
+            (48_000u32, 16_000u32),
+            (44_100, 48_000),
+            (48_000, 48_000),
+            (16_000, 48_000),
+        ] {
             let input = wave(4321, from);
             let batch = resample_linear_mono(&input, from, to);
             for chunks in [&[1usize][..], &[7, 3][..], &[1000][..], &[4321][..]] {

@@ -188,7 +188,9 @@ impl Diarizer for SherpaDiarizer {
         // FFI 例外シールド: onnxruntime の C++ 例外（メモリ枯渇の bad_alloc 等）を Err に変換。
         // シールド無しだと例外が tokio の catch_unwind に達してプロセスごと abort する
         // （docs/error.md の実クラッシュ）。
-        crate::ffi_guard::guard("話者分離 (sherpa-onnx)", || self.diarize_inner(pcm, sample_rate))?
+        crate::ffi_guard::guard("話者分離 (sherpa-onnx)", || {
+            self.diarize_inner(pcm, sample_rate)
+        })?
     }
 }
 
@@ -439,7 +441,8 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
 
 /// f32 の全順序比較（尺/類似度/時刻の整列に使う）。値は有限前提のため NaN は想定外＝panic。
 fn cmp_f32(a: f32, b: f32) -> std::cmp::Ordering {
-    a.partial_cmp(&b).expect("finite f32 in diarization ordering")
+    a.partial_cmp(&b)
+        .expect("finite f32 in diarization ordering")
 }
 
 /// 再割当後の turn を `DiarizationResult` へ。anchor を尺降順に S1.. へ採番し、隣接同話者を結合。
@@ -517,15 +520,25 @@ mod tests {
     use super::*;
 
     fn spk(id: &str, name: Option<&str>) -> Speaker {
-        Speaker { id: id.into(), label: format!("話者{id}"), display_name: name.map(Into::into) }
+        Speaker {
+            id: id.into(),
+            label: format!("話者{id}"),
+            display_name: name.map(Into::into),
+        }
     }
 
     #[test]
     fn carry_display_names_matches_by_voiceprint() {
         // 旧: S1=[1,0]（田中）, S2=[0,1]（改名なし）。新: N1=[0,1], N2=[1,0]（順序入替）。
         // 声紋一致で N2←S1（田中）、N1←S2（None）。
-        let old = vec![(spk("S1", Some("田中")), vec![1.0, 0.0]), (spk("S2", None), vec![0.0, 1.0])];
-        let new = vec![(spk("N1", None), vec![0.0, 1.0]), (spk("N2", None), vec![1.0, 0.0])];
+        let old = vec![
+            (spk("S1", Some("田中")), vec![1.0, 0.0]),
+            (spk("S2", None), vec![0.0, 1.0]),
+        ];
+        let new = vec![
+            (spk("N1", None), vec![0.0, 1.0]),
+            (spk("N2", None), vec![1.0, 0.0]),
+        ];
         let out = carry_display_names(&old, &new, 0.7);
         let n1 = out.iter().find(|(id, _)| id == "N1").unwrap();
         let n2 = out.iter().find(|(id, _)| id == "N2").unwrap();
@@ -537,10 +550,16 @@ mod tests {
     fn carry_display_names_drops_below_threshold_and_handles_count_change() {
         // 旧 1 人（田中）、新 2 人。片方だけ一致、もう片方は min_cos 未満で引き継がない。
         let old = vec![(spk("S1", Some("田中")), vec![1.0, 0.0])];
-        let new = vec![(spk("N1", None), vec![0.99, 0.14]), (spk("N2", None), vec![0.0, 1.0])];
+        let new = vec![
+            (spk("N1", None), vec![0.99, 0.14]),
+            (spk("N2", None), vec![0.0, 1.0]),
+        ];
         let out = carry_display_names(&old, &new, 0.9);
         assert_eq!(out.len(), 2);
-        assert_eq!(out.iter().find(|(id, _)| id == "N1").unwrap().1.as_deref(), Some("田中"));
+        assert_eq!(
+            out.iter().find(|(id, _)| id == "N1").unwrap().1.as_deref(),
+            Some("田中")
+        );
         assert!(out.iter().find(|(id, _)| id == "N2").unwrap().1.is_none());
         // 空入力は空を返す。
         assert!(carry_display_names(&[], &[], 0.5).is_empty());
@@ -550,8 +569,16 @@ mod tests {
     fn build_result_exposes_per_speaker_embeddings() {
         // anchor 0（尺大）と anchor 1。各 centroid を付与 → S-id へ正しく写るか。
         let turns = vec![
-            Reassigned { start: 0.0, end: 10.0, label: 0 },
-            Reassigned { start: 10.0, end: 14.0, label: 1 },
+            Reassigned {
+                start: 0.0,
+                end: 10.0,
+                label: 0,
+            },
+            Reassigned {
+                start: 10.0,
+                end: 14.0,
+                label: 1,
+            },
         ];
         let mut centroids = BTreeMap::new();
         centroids.insert(0, vec![1.0, 0.0]);
@@ -575,8 +602,16 @@ mod tests {
     #[test]
     fn build_result_labels_follow_lang() {
         let turns = vec![
-            Reassigned { start: 0.0, end: 10.0, label: 0 },
-            Reassigned { start: 10.0, end: 14.0, label: 1 },
+            Reassigned {
+                start: 0.0,
+                end: 10.0,
+                label: 0,
+            },
+            Reassigned {
+                start: 10.0,
+                end: 14.0,
+                label: 1,
+            },
         ];
         let r = build_result(turns, BTreeMap::new(), Lang::En);
         assert_eq!(r.speakers[0].label, "Speaker 1");

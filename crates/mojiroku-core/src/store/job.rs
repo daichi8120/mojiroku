@@ -197,7 +197,12 @@ mod tests {
     }
 
     fn params() -> JobParams {
-        JobParams { diarize: true, stt_lang: Some("ja".into()), transcription_model: String::new(), lang: "ja".into() }
+        JobParams {
+            diarize: true,
+            stt_lang: Some("ja".into()),
+            transcription_model: String::new(),
+            lang: "ja".into(),
+        }
     }
 
     #[test]
@@ -252,7 +257,7 @@ mod tests {
         s.enqueue_job("j1", "r1", "transcribe", &params()).unwrap();
         assert!(s.cancel_job("j1").unwrap()); // pending → canceled
         assert!(!s.cancel_job("j1").unwrap()); // 既に canceled は false
-        // running はキャンセル不可。
+                                               // running はキャンセル不可。
         s.enqueue_job("j2", "r1", "transcribe", &params()).unwrap();
         s.set_job_running("j2").unwrap();
         assert!(!s.cancel_job("j2").unwrap());
@@ -279,7 +284,10 @@ mod tests {
         s.enqueue_job("j1", "r1", "transcribe", &params()).unwrap();
         s.delete_recording("r1").unwrap();
         // FK CASCADE でジョブ行も消える。
-        assert!(s.list_jobs(&["pending", "running", "done", "failed"]).unwrap().is_empty());
+        assert!(s
+            .list_jobs(&["pending", "running", "done", "failed"])
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -287,7 +295,12 @@ mod tests {
         let s = SqliteStore::open_in_memory().unwrap();
         s.insert_recording_only(&rec("r1")).unwrap();
         // ジョブ無し → active_job は None。
-        assert!(s.get_recording_detail("r1").unwrap().unwrap().active_job.is_none());
+        assert!(s
+            .get_recording_detail("r1")
+            .unwrap()
+            .unwrap()
+            .active_job
+            .is_none());
         // pending を積むと詳細に同梱される（詳細ビューを「処理中」で開くため）。
         s.enqueue_job("j1", "r1", "transcribe", &params()).unwrap();
         let d = s.get_recording_detail("r1").unwrap().unwrap();
@@ -296,14 +309,24 @@ mod tests {
         // 完了すると active（pending|running）ではなくなる。
         s.set_job_running("j1").unwrap();
         s.set_job_done("j1").unwrap();
-        assert!(s.get_recording_detail("r1").unwrap().unwrap().active_job.is_none());
+        assert!(s
+            .get_recording_detail("r1")
+            .unwrap()
+            .unwrap()
+            .active_job
+            .is_none());
     }
 
     #[test]
     fn params_json_roundtrip_with_defaults() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.insert_recording_only(&rec("r1")).unwrap();
-        let p = JobParams { diarize: false, stt_lang: None, transcription_model: String::new(), lang: "en".into() };
+        let p = JobParams {
+            diarize: false,
+            stt_lang: None,
+            transcription_model: String::new(),
+            lang: "en".into(),
+        };
         s.enqueue_job("j1", "r1", "diarize", &p).unwrap();
         let j = s.next_pending_job().unwrap().unwrap();
         assert!(!j.params.diarize);
@@ -315,12 +338,17 @@ mod tests {
     fn old_jobs_default_to_turbo_and_new_jobs_keep_their_model() {
         use crate::models::{select_whisper_model, DEFAULT_WHISPER_MODEL, FULL_WHISPER_MODEL};
         let old: JobParams = serde_json::from_str(r#"{"lang":"en"}"#).unwrap();
-        assert_eq!(select_whisper_model(Some(&old.transcription_model)).file, DEFAULT_WHISPER_MODEL);
+        assert_eq!(
+            select_whisper_model(Some(&old.transcription_model)).file,
+            DEFAULT_WHISPER_MODEL
+        );
         let store = SqliteStore::open_in_memory().unwrap();
         store.insert_recording_only(&rec("model-test")).unwrap();
         let mut chosen = old;
         chosen.transcription_model = FULL_WHISPER_MODEL.to_string();
-        store.enqueue_job("model-job", "model-test", "transcribe", &chosen).unwrap();
+        store
+            .enqueue_job("model-job", "model-test", "transcribe", &chosen)
+            .unwrap();
         store.set_job_running("model-job").unwrap();
         store.requeue_running_jobs().unwrap();
         let restored = store.next_pending_job().unwrap().unwrap();

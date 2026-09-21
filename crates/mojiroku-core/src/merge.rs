@@ -74,8 +74,7 @@ pub fn merge_tracks(
         (mic, shift_transcript(system, mic_offset_ms.unsigned_abs()))
     };
 
-    let mut segments: Vec<Segment> =
-        Vec::with_capacity(mic.segments.len() + system.segments.len());
+    let mut segments: Vec<Segment> = Vec::with_capacity(mic.segments.len() + system.segments.len());
     // マイク = 自分（単一話者に固定）。
     for mut s in mic.segments {
         s.speaker_id = Some(SELF_SPEAKER_ID.to_string());
@@ -240,9 +239,15 @@ mod tests {
         let texts: Vec<&str> = merged.segments.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(texts, vec!["sys-a", "mic-a", "sys-b", "mic-b"]);
         // マイク由来は self。
-        assert_eq!(merged.segments[1].speaker_id.as_deref(), Some(SELF_SPEAKER_ID)); // mic-a
-        assert_eq!(merged.segments[3].speaker_id.as_deref(), Some(SELF_SPEAKER_ID)); // mic-b
-        // 話者は「あなた」先頭 + システム話者（id 不変・ラベルは「相手N」に再ラベル）。
+        assert_eq!(
+            merged.segments[1].speaker_id.as_deref(),
+            Some(SELF_SPEAKER_ID)
+        ); // mic-a
+        assert_eq!(
+            merged.segments[3].speaker_id.as_deref(),
+            Some(SELF_SPEAKER_ID)
+        ); // mic-b
+           // 話者は「あなた」先頭 + システム話者（id 不変・ラベルは「相手N」に再ラベル）。
         assert_eq!(speakers.len(), 2);
         assert_eq!(speakers[0].id, SELF_SPEAKER_ID);
         assert_eq!(speakers[0].label, "あなた");

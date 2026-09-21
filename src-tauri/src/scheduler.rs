@@ -95,8 +95,13 @@ pub(crate) fn resolve_meeting_title(state: tauri::State<'_, SchedulerState>) -> 
         .as_deref()
         .and_then(|e| NaiveDateTime::parse_from_str(e, WALL_FMT).ok());
     let now = Local::now().naive_local();
-    still_running(now, start, end, ChronoDuration::minutes(ASSUMED_MEETING_MIN))
-        .then_some(pending.title)
+    still_running(
+        now,
+        start,
+        end,
+        ChronoDuration::minutes(ASSUMED_MEETING_MIN),
+    )
+    .then_some(pending.title)
 }
 
 /// 常駐スケジューラを起動する（setup から一度だけ）。
@@ -251,13 +256,38 @@ mod tests {
         let end = Some(dt("2026-07-18T10:30:00"));
 
         // 開始直後・終了直前 → まだ進行中。
-        assert!(still_running(dt("2026-07-18T10:00:00"), start, end, assumed));
-        assert!(still_running(dt("2026-07-18T10:29:59"), start, end, assumed));
+        assert!(still_running(
+            dt("2026-07-18T10:00:00"),
+            start,
+            end,
+            assumed
+        ));
+        assert!(still_running(
+            dt("2026-07-18T10:29:59"),
+            start,
+            end,
+            assumed
+        ));
         // 終了ちょうど・終了後 → 進行中でない（題名を流用しない）。
-        assert!(!still_running(dt("2026-07-18T10:30:00"), start, end, assumed));
-        assert!(!still_running(dt("2026-07-18T11:00:00"), start, end, assumed));
+        assert!(!still_running(
+            dt("2026-07-18T10:30:00"),
+            start,
+            end,
+            assumed
+        ));
+        assert!(!still_running(
+            dt("2026-07-18T11:00:00"),
+            start,
+            end,
+            assumed
+        ));
         // 開始前 → 進行中でない。
-        assert!(!still_running(dt("2026-07-18T09:59:59"), start, end, assumed));
+        assert!(!still_running(
+            dt("2026-07-18T09:59:59"),
+            start,
+            end,
+            assumed
+        ));
     }
 
     #[test]
@@ -266,12 +296,27 @@ mod tests {
         let start = dt("2026-07-18T10:00:00");
 
         // 終了時刻が無い予定は「開始から 60 分」を仮定する。
-        assert!(still_running(dt("2026-07-18T10:59:59"), start, None, assumed));
-        assert!(!still_running(dt("2026-07-18T11:00:00"), start, None, assumed));
+        assert!(still_running(
+            dt("2026-07-18T10:59:59"),
+            start,
+            None,
+            assumed
+        ));
+        assert!(!still_running(
+            dt("2026-07-18T11:00:00"),
+            start,
+            None,
+            assumed
+        ));
 
         // 発火の猶予（5 分）より長いことを固定する。通知に気づいて 6 分後に
         // 録音を始めた人がタイトルを貰えない、という退行を防ぐ。
-        assert!(still_running(dt("2026-07-18T10:06:00"), start, None, assumed));
+        assert!(still_running(
+            dt("2026-07-18T10:06:00"),
+            start,
+            None,
+            assumed
+        ));
         assert!(!started_within(
             dt("2026-07-18T10:06:00"),
             start,
@@ -287,7 +332,17 @@ mod tests {
         // 壊れた 1 件のせいで題名が付かなくなる。長さ不明として仮定へ倒す。
         let broken = Some(dt("2026-07-18T09:00:00"));
 
-        assert!(still_running(dt("2026-07-18T10:30:00"), start, broken, assumed));
-        assert!(!still_running(dt("2026-07-18T11:30:00"), start, broken, assumed));
+        assert!(still_running(
+            dt("2026-07-18T10:30:00"),
+            start,
+            broken,
+            assumed
+        ));
+        assert!(!still_running(
+            dt("2026-07-18T11:30:00"),
+            start,
+            broken,
+            assumed
+        ));
     }
 }

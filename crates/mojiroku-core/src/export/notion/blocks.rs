@@ -273,20 +273,40 @@ mod tests {
         let blocks = build_blocks(&detail, Lang::Ja);
         assert_eq!(blocks.len(), 7);
         assert_eq!(blocks[0]["type"], "heading_2"); // "議事録"
-        assert_eq!(blocks[0]["heading_2"]["rich_text"][0]["text"]["content"], "議事録");
-        assert_eq!(blocks[4]["heading_2"]["rich_text"][0]["text"]["content"], "文字起こし");
+        assert_eq!(
+            blocks[0]["heading_2"]["rich_text"][0]["text"]["content"],
+            "議事録"
+        );
+        assert_eq!(
+            blocks[4]["heading_2"]["rich_text"][0]["text"]["content"],
+            "文字起こし"
+        );
         assert_eq!(blocks[1]["type"], "heading_1"); // 本文 md の "# 見出し"
-        // 表示名は描画時に解決される（s1 → "田中"）。
-        assert_eq!(blocks[6]["paragraph"]["rich_text"][0]["text"]["content"], "話者2: う");
-        assert_eq!(blocks[5]["paragraph"]["rich_text"][0]["text"]["content"], "田中: あ い");
+                                                    // 表示名は描画時に解決される（s1 → "田中"）。
+        assert_eq!(
+            blocks[6]["paragraph"]["rich_text"][0]["text"]["content"],
+            "話者2: う"
+        );
+        assert_eq!(
+            blocks[5]["paragraph"]["rich_text"][0]["text"]["content"],
+            "田中: あ い"
+        );
     }
 
     /// #5: 別 speaker_id が同じ表示名（両方「田中」）でも、連続マージで 1 ターンに潰れない。
     #[test]
     fn different_speakers_same_display_name_stay_separate() {
         let speakers = vec![
-            Speaker { id: "s1".into(), label: "話者1".into(), display_name: Some("田中".into()) },
-            Speaker { id: "s2".into(), label: "話者2".into(), display_name: Some("田中".into()) },
+            Speaker {
+                id: "s1".into(),
+                label: "話者1".into(),
+                display_name: Some("田中".into()),
+            },
+            Speaker {
+                id: "s2".into(),
+                label: "話者2".into(),
+                display_name: Some("田中".into()),
+            },
         ];
         let detail = detail_with(
             vec![seg("あ", Some("s1")), seg("い", Some("s2"))],
@@ -295,7 +315,7 @@ mod tests {
         );
         let turns = merged_turns(&detail);
         assert_eq!(turns.len(), 2); // speaker_id が違うので別ターン
-        // 文字起こしブロックは 2 段落（同名でも分かれる）。
+                                    // 文字起こしブロックは 2 段落（同名でも分かれる）。
         let blocks = build_blocks(&detail, Lang::Ja);
         let paras: Vec<_> = blocks.iter().filter(|b| b["type"] == "paragraph").collect();
         assert_eq!(paras.len(), 2);
@@ -315,13 +335,22 @@ mod tests {
             }],
         );
         let blocks = build_blocks(&detail, Lang::En);
-        assert_eq!(blocks[0]["heading_2"]["rich_text"][0]["text"]["content"], "Minutes");
-        assert_eq!(blocks[3]["heading_2"]["rich_text"][0]["text"]["content"], "Transcript");
+        assert_eq!(
+            blocks[0]["heading_2"]["rich_text"][0]["text"]["content"],
+            "Minutes"
+        );
+        assert_eq!(
+            blocks[3]["heading_2"]["rich_text"][0]["text"]["content"],
+            "Transcript"
+        );
 
         // 中身が何も無ければ "(empty)" 段落 1 つだけ。
         let empty = build_blocks(&detail_with(vec![], vec![], vec![]), Lang::En);
         assert_eq!(empty.len(), 1);
-        assert_eq!(empty[0]["paragraph"]["rich_text"][0]["text"]["content"], "(empty)");
+        assert_eq!(
+            empty[0]["paragraph"]["rich_text"][0]["text"]["content"],
+            "(empty)"
+        );
     }
 
     /// #6: 空テキストのセグメントは段落を生まない。文字起こしが空ターンのみなら見出しも出さない。
@@ -329,13 +358,20 @@ mod tests {
     fn empty_text_segments_produce_no_blocks() {
         let detail = detail_with(
             vec![seg("   ", Some("s1")), seg("", None)],
-            vec![Speaker { id: "s1".into(), label: "話者1".into(), display_name: None }],
+            vec![Speaker {
+                id: "s1".into(),
+                label: "話者1".into(),
+                display_name: None,
+            }],
             vec![],
         );
         let blocks = build_blocks(&detail, Lang::Ja);
         // 要約も無いので「（内容なし）」段落 1 つだけ（divider/文字起こし見出しは出ない）。
         assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0]["paragraph"]["rich_text"][0]["text"]["content"], "（内容なし）");
+        assert_eq!(
+            blocks[0]["paragraph"]["rich_text"][0]["text"]["content"],
+            "（内容なし）"
+        );
     }
 
     /// #4: 1 ターンが長大でも PARAGRAPH_CHAR_LIMIT ごとに複数段落へ分割される（壁テキスト回避）。
@@ -346,7 +382,7 @@ mod tests {
         let blocks = build_blocks(&detail, Lang::Ja);
         let paras: Vec<_> = blocks.iter().filter(|b| b["type"] == "paragraph").collect();
         assert_eq!(paras.len(), 3); // 1800 + 1800 + 10
-        // 各段落の rich_text は 1 要素（PARAGRAPH_CHAR_LIMIT < 2000 のため）。
+                                    // 各段落の rich_text は 1 要素（PARAGRAPH_CHAR_LIMIT < 2000 のため）。
         for p in paras {
             assert_eq!(p["paragraph"]["rich_text"].as_array().unwrap().len(), 1);
         }
@@ -366,7 +402,10 @@ mod tests {
                 sample_rate: 16000,
                 created_at: "2026-06-27T00:00:00Z".into(),
             },
-            transcript: Transcript { language: None, segments },
+            transcript: Transcript {
+                language: None,
+                segments,
+            },
             summaries,
             speakers,
             active_job: None,

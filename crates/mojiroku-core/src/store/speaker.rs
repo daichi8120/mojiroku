@@ -157,8 +157,9 @@ impl SqliteStore {
 
         // 既存の確定リンク（speaker_id -> library_id）。
         let linked: HashMap<String, String> = {
-            let mut stmt = conn
-                .prepare("SELECT speaker_id, library_id FROM speaker_matches WHERE recording_id = ?1")?;
+            let mut stmt = conn.prepare(
+                "SELECT speaker_id, library_id FROM speaker_matches WHERE recording_id = ?1",
+            )?;
             let rows = stmt
                 .query_map(params![recording_id], |r| {
                     Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
@@ -187,7 +188,11 @@ impl SqliteStore {
             })?;
             for row in rows {
                 let (lib_id, name, vec) = row?;
-                lib_vecs.entry(lib_id).or_insert_with(|| (name, Vec::new())).1.push(vec);
+                lib_vecs
+                    .entry(lib_id)
+                    .or_insert_with(|| (name, Vec::new()))
+                    .1
+                    .push(vec);
             }
         }
         // 人物ごとに重心（平均 → L2）。

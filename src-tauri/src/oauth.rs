@@ -213,8 +213,8 @@ pub fn authorize_and_exchange(
     let state = gen_state();
 
     // authorize URL を組み立て（パラメータは url crate が percent-encode する）。
-    let mut auth_url = url::Url::parse(&flow.auth_endpoint)
-        .map_err(|e| format!("authorize URL: {e}"))?;
+    let mut auth_url =
+        url::Url::parse(&flow.auth_endpoint).map_err(|e| format!("authorize URL: {e}"))?;
     {
         let mut q = auth_url.query_pairs_mut();
         q.append_pair("client_id", &flow.client_id);
@@ -239,8 +239,13 @@ pub fn authorize_and_exchange(
         params.keys().collect::<Vec<_>>()
     );
     if let Some(err) = params.get("error") {
-        let desc = params.get("error_description").map(String::as_str).unwrap_or("");
-        return Err(format!("error.oauth.denied: {err} {desc}").trim_end().to_string());
+        let desc = params
+            .get("error_description")
+            .map(String::as_str)
+            .unwrap_or("");
+        return Err(format!("error.oauth.denied: {err} {desc}")
+            .trim_end()
+            .to_string());
     }
     if params.get("state").map(String::as_str) != Some(state.as_str()) {
         // state 不一致（CSRF 防止）。
@@ -402,7 +407,8 @@ pub async fn connect_notion(app: AppHandle) -> Result<(), String> {
                 result_key: "notion",
                 missing_msg: "Notion の応答にトークンがありません。",
                 secrets_key: crate::secrets::NOTION_TOKEN_KEY,
-                success_log: "[oauth/notion] トークンを受領しキーチェーンへ保存しました（連携完了）",
+                success_log:
+                    "[oauth/notion] トークンを受領しキーチェーンへ保存しました（連携完了）",
             },
         )
     })
@@ -421,7 +427,8 @@ pub async fn connect_notion(app: AppHandle) -> Result<(), String> {
 /// 2. 下の GOOGLE_CLIENT_SECRET を新しい値に差し替えてリリース
 /// 3. 旧シークレットを無効化（再発行時に選択可）。旧バイナリの連携は新規接続のみ失敗し、
 ///    保存済み refresh_token はそのまま使える
-const GOOGLE_CLIENT_ID: &str = "346232126917-hr9l0f8cun26n8e9h53d97hcls2rmff3.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID: &str =
+    "346232126917-hr9l0f8cun26n8e9h53d97hcls2rmff3.apps.googleusercontent.com";
 const GOOGLE_CLIENT_SECRET: &str = "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";
 /// 予定の読み取りのみ（最小権限）。
 const GOOGLE_SCOPE: &str = "https://www.googleapis.com/auth/calendar.events.readonly";
@@ -437,7 +444,8 @@ pub const GOOGLE_EXPIRY_KEY: &str = "google_token_expiry";
 pub async fn connect_google(app: AppHandle) -> Result<(), String> {
     if GOOGLE_CLIENT_ID.is_empty() {
         return Err(
-            "Google の Client ID が未設定です（src-tauri/src/oauth.rs の GOOGLE_CLIENT_ID）。".into(),
+            "Google の Client ID が未設定です（src-tauri/src/oauth.rs の GOOGLE_CLIENT_ID）。"
+                .into(),
         );
     }
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
@@ -512,7 +520,10 @@ fn refresh_google(refresh_token: &str) -> Result<String, String> {
         .get("access_token")
         .and_then(|v| v.as_str())
         .ok_or("Google refresh 応答に access_token がありません。")?;
-    let expires_in = json.get("expires_in").and_then(|v| v.as_i64()).unwrap_or(3600);
+    let expires_in = json
+        .get("expires_in")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(3600);
     // refresh_token は通常再発行されないので据え置き（access と expiry のみ更新）。
     store_google_tokens(access, None, expires_in)?;
     Ok(access.to_string())
@@ -543,7 +554,11 @@ mod tests {
     #[test]
     fn verifier_len_is_valid_pkce_range() {
         let v = gen_verifier();
-        assert!(v.len() >= 43 && v.len() <= 128, "verifier len = {}", v.len());
+        assert!(
+            v.len() >= 43 && v.len() <= 128,
+            "verifier len = {}",
+            v.len()
+        );
     }
 
     #[test]

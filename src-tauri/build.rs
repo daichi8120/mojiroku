@@ -26,7 +26,10 @@ fn main() {
         // この dylib を同梱（@executable_path/../Frameworks）するか OS 提供の /usr/lib/swift で
         // 解決できるかを別途検証する（Phase 7 の配布フェーズ）。
         println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
-        if let Ok(out) = std::process::Command::new("xcode-select").arg("-p").output() {
+        if let Ok(out) = std::process::Command::new("xcode-select")
+            .arg("-p")
+            .output()
+        {
             if out.status.success() {
                 let xcode = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 println!(

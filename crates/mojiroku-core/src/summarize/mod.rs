@@ -186,7 +186,10 @@ mod tests {
         assert_eq!(t_ja.name, "議事録");
         assert_eq!(t_ja.prompt, MINUTES_INSTRUCTION_JA);
         let p_ja = build_prompt(
-            &Transcript { language: None, segments: vec![seg("本文", None)] },
+            &Transcript {
+                language: None,
+                segments: vec![seg("本文", None)],
+            },
             &t_ja,
             Lang::Ja,
         );
@@ -198,7 +201,10 @@ mod tests {
         assert_eq!(t_en.prompt, MINUTES_INSTRUCTION_EN);
         assert_eq!(template_by_id("unknown", Lang::En).id, "minutes");
         let p_en = build_prompt(
-            &Transcript { language: None, segments: vec![seg("body", None)] },
+            &Transcript {
+                language: None,
+                segments: vec![seg("body", None)],
+            },
             &t_en,
             Lang::En,
         );

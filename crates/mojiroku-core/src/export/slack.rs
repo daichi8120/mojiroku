@@ -260,7 +260,10 @@ mod tests {
     #[test]
     fn mrkdwn_escapes_slack_control_chars() {
         // `<` `>` `&` をエンティティ化しないと Slack がリンク/メンション扱いして本文が消える。
-        assert_eq!(md_to_mrkdwn("戻り値: Vec<String>"), "戻り値: Vec&lt;String&gt;");
+        assert_eq!(
+            md_to_mrkdwn("戻り値: Vec<String>"),
+            "戻り値: Vec&lt;String&gt;"
+        );
         assert_eq!(md_to_mrkdwn("期日: <未定>"), "期日: &lt;未定&gt;");
         assert_eq!(md_to_mrkdwn("Q&A は来週"), "Q&amp;A は来週");
         // `&` を先に置換するので `&lt;` が二重エスケープされない。
@@ -328,7 +331,10 @@ mod tests {
                 sample_rate: 16000,
                 created_at: "2026-06-27T00:00:00Z".into(),
             },
-            transcript: Transcript { language: None, segments: vec![] },
+            transcript: Transcript {
+                language: None,
+                segments: vec![],
+            },
             summaries,
             speakers: vec![],
             active_job: None,

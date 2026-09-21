@@ -52,7 +52,9 @@ fn search_fts(conn: &Connection, q: &str) -> Result<Vec<SearchHit>> {
 fn search_like(conn: &Connection, q: &str) -> Result<Vec<SearchHit>> {
     let pat = format!(
         "%{}%",
-        q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+        q.replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
     );
     let mut stmt = conn.prepare(
         "SELECT r.id, r.source_type, r.title, r.duration_ms, r.sample_rate, r.created_at,
