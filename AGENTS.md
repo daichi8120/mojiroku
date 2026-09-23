@@ -59,6 +59,9 @@ repo は「全部の家」ではない。
   Weak individual turns inherit their aggregate cluster's anchor rather than resurrecting
   raw labels. Check both within-speaker consistency and the public brief-speaker suite;
   speaker count alone missed the v0.6.1 fragmentation regression.
+  A new brief speaker also needs one turn of at least 1 s, and a cluster of only sub-2 s
+  turns must score below the anchor's own short-turn 5th percentile (ADR-0042). A
+  one-on-one meeting still produced eight remote speakers under ADR-0041 alone.
 - Live translation is an opt-in meeting feature (ADR-0037, updated by ADR-0038), using the separate
   `mojiroku-llm --translate` path with Qwen3.5-9B and `--no-think`. It requires at least 16 GiB
   of detected RAM and its own 5.68 GB cache file; downloading it must not change summary
