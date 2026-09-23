@@ -296,6 +296,9 @@ const en: Dict = {
     runTranscribeDiarize: "Separate speakers too",
     runDiarize: "Separate speakers",
     runDiarizeDesc: "Analyze who spoke and assign it to the transcript afterwards.",
+    rerunDiarize: "Redetect speakers",
+    rerunDiarizeDesc:
+      "Analyze the speakers again. Names you gave are kept when the voice matches. In meetings, your own lines stay as they are.",
     summaryStale: "May be out of date",
     summaryStaleTitle: "The transcript or speakers were updated. Regenerating is recommended.",
     aiCreate: "Create with AI",
@@ -680,7 +683,7 @@ const en: Dict = {
     "error.job.no_audio": "The audio file for this recording was not found",
     "error.job.no_transcript": "Transcribe this recording first",
     "error.job.no_pertrack": "This recording has no per-track audio",
-    "error.job.already_diarized": "Meetings are already speaker-separated at record time",
+    "error.job.no_speakers_found": "No speakers were detected, so the current speaker assignments were kept",
     "error.job.unknown_kind": "Unknown job kind",
     "error.job.failed": "Processing failed",
   } as Record<string, string>,

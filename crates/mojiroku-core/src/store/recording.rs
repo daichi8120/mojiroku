@@ -303,10 +303,11 @@ impl SqliteStore {
                 ])?;
             }
         }
-        // 4) ライブラリ照合は再計算対象なのでリンクを消す（ADR-0018）。
+        // 4) ライブラリ照合は再計算対象なのでリンクを消す（ADR-0018）。ただし会議の自分（`self`）は
+        //    mic トラック由来で再分離されない（Issue #102）ので、手で付けたリンクを残す。
         tx.execute(
-            "DELETE FROM speaker_matches WHERE recording_id = ?1",
-            params![recording_id],
+            "DELETE FROM speaker_matches WHERE recording_id = ?1 AND speaker_id <> ?2",
+            params![recording_id, crate::merge::SELF_SPEAKER_ID],
         )?;
         // 5) 既存要約を stale マーク（元の文字起こし/話者が変わった）。
         tx.execute(

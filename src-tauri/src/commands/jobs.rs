@@ -94,10 +94,9 @@ pub(crate) fn transcribe_recording(
 }
 
 /// 既存録音に**後から話者分離**を掛けるジョブを投入する（ベスト努力で表示名を引き継ぐ・ADR-0024）。
-/// 文字起こし済みが前提（本文が無ければワーカーがエラーにする）。File/Mic の単一トラック録音のみ対象。
-///
-/// **会議（Live）は拒否する**: 取得時に相手＝話者分離・自分＝ソース帰属で確定済みで、後から system 音声を
-/// 再分離して全 transcript に merge すると自分セグメントが相手話者へ化けて壊れる（無意味かつ破壊的）。
+/// 文字起こし済みが前提（本文が無ければワーカーがエラーにする）。話者が既に付いていても
+/// やり直せる（Issue #102）。会議（Live）は system（相手）トラックだけを分離し直し、自分（`self`）の
+/// セグメントには触れない。
 #[tauri::command]
 pub(crate) fn diarize_recording(
     app: AppHandle,
@@ -105,14 +104,6 @@ pub(crate) fn diarize_recording(
     queue: State<'_, JobQueue>,
     recording_id: String,
 ) -> Result<StartJobResult, String> {
-    // 会議は enqueue 前に弾く（doomed なジョブ行を作らず即フィードバック）。
-    let detail = resolve_recording_detail(&store, &recording_id)?;
-    if matches!(
-        detail.recording.source_type,
-        mojiroku_core::SourceType::Live
-    ) {
-        return Err("error.job.already_diarized".to_string());
-    }
     // diarize ジョブに話者分離フラグは不要だが、params の形は共通なので false を入れる。
     let params = snapshot_params(&app, false)?;
     let job_id = uuid::Uuid::new_v4().to_string();

@@ -292,6 +292,9 @@ const ja = {
     runTranscribeDiarize: "話者分離もあわせて実行",
     runDiarize: "話者分離を実行",
     runDiarizeDesc: "誰が話したかを後から解析して発話に割り当てます。",
+    rerunDiarize: "話者分離をやり直す",
+    rerunDiarizeDesc:
+      "話者を解析し直します。付けた名前は、声が近ければ引き継ぎます。会議では自分の発言はそのままです。",
     summaryStale: "内容が古い可能性",
     summaryStaleTitle: "文字起こしまたは話者が更新されました。作り直しをおすすめします。",
     aiCreate: "AIで作成",
@@ -685,7 +688,7 @@ const ja = {
     "error.job.no_audio": "この録音の音声ファイルが見つかりません",
     "error.job.no_transcript": "先に文字起こしを実行してください",
     "error.job.no_pertrack": "この録音にはトラック別音声がありません",
-    "error.job.already_diarized": "会議は録音時に話者分離済みです",
+    "error.job.no_speakers_found": "話者を検出できなかったため、今の話者の割り当てをそのまま残しました",
     "error.job.unknown_kind": "不明なジョブ種別です",
     "error.job.failed": "処理に失敗しました",
   } as Record<string, string>,

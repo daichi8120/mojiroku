@@ -62,6 +62,9 @@ repo は「全部の家」ではない。
   A new brief speaker also needs one turn of at least 1 s, and a cluster of only sub-2 s
   turns must score below the anchor's own short-turn 5th percentile (ADR-0042). A
   one-on-one meeting still produced eight remote speakers under ADR-0041 alone.
+  Speaker separation can be re-run on any transcribed recording (Issue #102). For meetings
+  only the system track is re-diarized with the saved start offset; `self` segments are
+  never reassigned (`merge::reassign_meeting_speakers`).
 - Live translation is an opt-in meeting feature (ADR-0037, updated by ADR-0038), using the separate
   `mojiroku-llm --translate` path with Qwen3.5-9B and `--no-think`. It requires at least 16 GiB
   of detected RAM and its own 5.68 GB cache file; downloading it must not change summary
