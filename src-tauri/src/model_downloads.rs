@@ -284,7 +284,12 @@ mod tests {
     #[test]
     fn download_requests_are_limited_to_the_shipped_catalog() {
         assert!(catalog_size("../../other-file").is_none());
-        assert!(catalog_size("Qwen3.5-4B-Q4_K_M.gguf").is_none());
+        assert!(catalog_size("not-in-catalog.gguf").is_none());
+        // Adopted summary models are downloadable, including the small-tier default (ADR-0044).
+        assert_eq!(
+            catalog_size(models::DEFAULT_SUMMARY_MODEL),
+            Some(2_740_937_888)
+        );
         assert_eq!(
             catalog_size(models::TRANSLATION_MODEL_FILE),
             Some(models::TRANSLATION_MODEL_BYTES)

@@ -65,3 +65,4 @@
 
 - [ADR-0041: Control speaker fragmentation](ADR-0041_Control_speaker_fragmentation.md)
 - [ADR-0043: Block simplified Chinese characters in Japanese output](ADR-0043_Block_simplified_Chinese_characters_in_Japanese_output.md)
+- [ADR-0044: Qwen3.5-4B for the small summary tier](ADR-0044_Qwen3.5-4B_for_the_small_summary_tier.md)
