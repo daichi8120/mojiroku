@@ -42,6 +42,7 @@ import {
   PencilIcon,
   PlayIcon,
   RefreshIcon,
+  SearchIcon,
   SparklesIcon,
   TrashIcon,
   XIcon,
@@ -107,6 +108,33 @@ export function DetailView({ id }: { id: string }) {
   // 自動追従のスクロール中はこの時刻まで。それ以外のスクロール（ホイール・スクロールバー・キー）は
   // 利用者の操作とみなして追従をやめる。
   const autoScrollUntil = useRef(0);
+  // 文字起こし内検索（#111）。⌘F で開き、Enter / Shift+Enter で次 / 前へ。
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchPos, setMatchPos] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const q = query.trim().toLowerCase();
+  const matches =
+    searchOpen && q && detail
+      ? detail.transcript.segments.filter((s) => s.text.toLowerCase().includes(q)).map((s) => s.idx)
+      : [];
+  const currentMatchIdx = matches.length ? matches[Math.min(matchPos, matches.length - 1)] : null;
+  const moveMatch = (step: number) => {
+    if (!matches.length) return;
+    setFollowing(false);
+    setMatchPos((p) => (Math.min(p, matches.length - 1) + step + matches.length) % matches.length);
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    setMatchPos(0);
+  };
+  useEffect(() => {
+    if (currentMatchIdx == null) return;
+    scrollRef.current
+      ?.querySelector<HTMLElement>(`[data-seg-idx="${currentMatchIdx}"]`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [currentMatchIdx]);
   const seekToSegment = useCallback((seg: Segment) => {
     setFollowing(true);
     playerRef.current?.seek(seg.start_ms, true);
@@ -133,19 +161,36 @@ export function DetailView({ id }: { id: string }) {
   // スペースキーで再生 / 一時停止。入力欄・ダイアログ・ふつうのボタンの中では奪わない
   // （ボタンはスペースで押すのが標準の操作）。ただし時刻ボタン（data-seek）に選択が残っているときは
   // 再生の切り替えにする。押したあと選択がそこに残るので、奪わないと同じ位置へ飛び直してしまう。
+  // ←/→ は 5 秒戻る / 15 秒進む（再生バーのボタンと同じ）。⌘F は文字起こし内検索。
   useEffect(() => {
-    if (!audioSrc) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
+      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === "f") {
+        if (el?.closest("[role=dialog]")) return;
+        e.preventDefault();
+        setSearchOpen(true);
+        setTab("transcript");
+        requestAnimationFrame(() => searchInputRef.current?.select());
+        return;
+      }
+      if (!audioSrc || e.metaKey || e.ctrlKey || e.altKey) return;
       const onSeekButton = !!el?.closest("[data-seek]");
-      if (!onSeekButton && el?.closest("input, textarea, select, button, a, [contenteditable=true], [role=dialog]")) return;
+      const typing = !!el?.closest("input, textarea, select, [contenteditable=true], [role=dialog]");
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        if (typing || el?.closest("[role=slider]")) return;
+        e.preventDefault();
+        playerRef.current?.skip(e.key === "ArrowLeft" ? -5000 : 15000);
+        return;
+      }
+      if (e.code !== "Space") return;
+      if (!onSeekButton && (typing || el?.closest("button, a"))) return;
       e.preventDefault();
       playerRef.current?.toggle();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [audioSrc]);
+
 
   const [tab, setTab] = useState<"transcript" | "chapters" | "translations">("transcript");
   const [translateOn, setTranslateOn] = useState(false);
@@ -902,6 +947,20 @@ export function DetailView({ id }: { id: string }) {
                 {t.meeting.translation.savedTitle}
               </TabButton>
             )}
+            {hasTranscript && (
+              <button
+                onClick={() => {
+                  setSearchOpen(true);
+                  setTab("transcript");
+                  requestAnimationFrame(() => searchInputRef.current?.focus());
+                }}
+                aria-label={t.detail.find.open}
+                title={`${t.detail.find.open}（⌘F）`}
+                className="ml-auto mb-1 rounded-tag p-1.5 text-muted transition-colors hover:bg-hover hover:text-ink"
+              >
+                <SearchIcon size={14} />
+              </button>
+            )}
             {/* チャプター/翻訳はモック（未実装）。配布時(MOCK_PREVIEW=false)は丸ごと隠し、
                 実録音に固定ダミーが出ないようにする。 */}
             {MOCK_PREVIEW && (
@@ -921,6 +980,60 @@ export function DetailView({ id }: { id: string }) {
               </div>
             )}
           </div>
+
+          {searchOpen && tab === "transcript" && (
+            <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-center gap-2 rounded-ctl border border-border-2 bg-surface px-2.5 py-1.5 shadow-pop">
+              <SearchIcon size={14} className="shrink-0 text-muted" />
+              <input
+                ref={searchInputRef}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setMatchPos(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    moveMatch(e.shiftKey ? -1 : 1);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    closeSearch();
+                  }
+                }}
+                placeholder={t.detail.find.placeholder}
+                aria-label={t.detail.find.placeholder}
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-dim"
+              />
+              <span className="shrink-0 font-mono text-[11px] text-muted tnum" aria-live="polite">
+                {q ? t.detail.find.count(matches.length ? Math.min(matchPos, matches.length - 1) + 1 : 0, matches.length) : ""}
+              </span>
+              <button
+                onClick={() => moveMatch(-1)}
+                disabled={!matches.length}
+                aria-label={t.detail.find.prev}
+                title={`${t.detail.find.prev}（Shift+Enter）`}
+                className="rounded-tag px-1.5 py-0.5 text-[12px] text-sub hover:bg-hover disabled:opacity-40"
+              >
+                ↑
+              </button>
+              <button
+                onClick={() => moveMatch(1)}
+                disabled={!matches.length}
+                aria-label={t.detail.find.next}
+                title={`${t.detail.find.next}（Enter）`}
+                className="rounded-tag px-1.5 py-0.5 text-[12px] text-sub hover:bg-hover disabled:opacity-40"
+              >
+                ↓
+              </button>
+              <button
+                onClick={closeSearch}
+                aria-label={t.common.close}
+                className="rounded-tag p-1 text-muted hover:bg-hover hover:text-ink"
+              >
+                <XIcon size={13} />
+              </button>
+            </div>
+          )}
 
           {tab === "translations" ? <SavedTranslations key={id} id={id} /> : tab === "chapters" && MOCK_PREVIEW ? (
             <div>
@@ -988,6 +1101,8 @@ export function DetailView({ id }: { id: string }) {
               }
               activeIdx={activeIdx}
               onSeek={audioSrc ? seekToSegment : undefined}
+              query={searchOpen ? query : ""}
+              currentMatchIdx={currentMatchIdx}
             />
           ) : processing ? (
             <EmptyState title={t.detail.transcriptPendingTitle} hint={t.detail.transcriptPendingHint} />

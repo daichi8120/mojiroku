@@ -304,12 +304,22 @@ const en: Dict = {
     createSummary: "Summary (3 lines)",
     createActionItems: "Action items",
     mcpNote: "Also available from Claude and other tools via MCP",
+    find: {
+      open: "Find in transcript",
+      placeholder: "Find in transcript",
+      count: (i: number, n: number) => `${i} / ${n}`,
+      prev: "Previous match",
+      next: "Next match",
+    },
     audio: {
       play: "Play",
       pause: "Pause",
       seek: "Playback position",
       spaceHint: "Play / pause (Space)",
       follow: "Back to playback position",
+      back5: "Back 5 seconds",
+      forward15: "Forward 15 seconds",
+      rate: (r: number) => `Playback speed ${r}× (click to change)`,
     },
     speakerPanel: {
       title: "Speakers",

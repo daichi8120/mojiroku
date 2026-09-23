@@ -10,6 +10,15 @@ export interface AudioPlayerHandle {
   seek: (ms: number, play?: boolean) => void;
   toggle: () => void;
   isPlaying: () => boolean;
+  /** 現在位置から deltaMs だけ進める（負で戻す・#111）。 */
+  skip: (deltaMs: number) => void;
+}
+
+/** 再生速度の候補（#111）。押すたびに次へ回る。 */
+export const PLAYBACK_RATES = [1, 1.25, 1.5, 2] as const;
+export function nextRate(rate: number): number {
+  const i = PLAYBACK_RATES.indexOf(rate as (typeof PLAYBACK_RATES)[number]);
+  return PLAYBACK_RATES[(i + 1) % PLAYBACK_RATES.length];
 }
 
 export function AudioPlayer({
@@ -56,6 +65,7 @@ function SourceAudioPlayer({
   const [playing, setPlayingState] = useState(false);
   const [currentMs, setCurrentMsState] = useState(0);
   const [mediaDurationMs, setMediaDurationMs] = useState<number | null>(null);
+  const [rate, setRate] = useState<number>(1);
   const fallback = Number.isFinite(fallbackDurationMs) && fallbackDurationMs > 0 ? fallbackDurationMs : 0;
   const durationMs = mediaDurationMs ?? fallback;
 
@@ -95,10 +105,23 @@ function SourceAudioPlayer({
     if (play && a.paused) a.play().catch(() => setPlaying(false));
   };
 
+  const skip = (deltaMs: number) => {
+    const a = audioRef.current;
+    if (!a) return;
+    seekTo(a.currentTime * 1000 + deltaMs);
+  };
+
+  const cycleRate = () => {
+    const next = nextRate(rate);
+    setRate(next);
+    if (audioRef.current) audioRef.current.playbackRate = next;
+  };
+
   useImperativeHandle(handleRef, () => ({
     seek: seekTo,
     toggle,
     isPlaying: () => !!audioRef.current && !audioRef.current.paused,
+    skip,
   }));
 
   const seekFromClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -116,7 +139,10 @@ function SourceAudioPlayer({
         ref={audioRef}
         src={src}
         preload="metadata"
-        onLoadedMetadata={(e) => readDuration(e.currentTarget)}
+        onLoadedMetadata={(e) => {
+          readDuration(e.currentTarget);
+          e.currentTarget.playbackRate = rate;
+        }}
         onDurationChange={(e) => readDuration(e.currentTarget)}
         onEmptied={resetMedia}
         onError={resetMedia}
@@ -136,8 +162,32 @@ function SourceAudioPlayer({
       >
         {playing ? <PauseIcon size={15} /> : <PlayIcon size={15} />}
       </button>
+      <button
+        onClick={() => skip(-5000)}
+        aria-label={t.detail.audio.back5}
+        title={`${t.detail.audio.back5}（←）`}
+        className="shrink-0 rounded-tag px-1.5 py-1 font-mono text-[11px] text-sub transition-colors hover:bg-hover hover:text-ink"
+      >
+        −5
+      </button>
+      <button
+        onClick={() => skip(15000)}
+        aria-label={t.detail.audio.forward15}
+        title={`${t.detail.audio.forward15}（→）`}
+        className="shrink-0 rounded-tag px-1.5 py-1 font-mono text-[11px] text-sub transition-colors hover:bg-hover hover:text-ink"
+      >
+        +15
+      </button>
       <div
         onClick={seekFromClick}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowLeft") skip(-5000);
+          else if (e.key === "ArrowRight") skip(15000);
+          else return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        tabIndex={0}
         role="slider"
         aria-label={t.detail.audio.seek}
         aria-valuenow={Math.round(pct)}
@@ -157,6 +207,14 @@ function SourceAudioPlayer({
       <span className="shrink-0 font-mono text-[12px] text-muted tnum">
         {formatDuration(currentMs)} / {formatDuration(durationMs)}
       </span>
+      <button
+        onClick={cycleRate}
+        aria-label={t.detail.audio.rate(rate)}
+        title={t.detail.audio.rate(rate)}
+        className="w-12 shrink-0 rounded-tag border border-border-2 py-0.5 font-mono text-[11px] text-sub transition-colors hover:bg-hover hover:text-ink"
+      >
+        {rate}×
+      </button>
     </div>
   );
 }
