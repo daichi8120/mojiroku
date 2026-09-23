@@ -2,6 +2,7 @@
 // 日本語を 1 文字も含まない英単語 3 語以上の文を拾う。製品名・書式・出力見出しなど英語が正しいものは除外。
 import { describe, expect, it } from "vitest";
 import ja from "./ja";
+import en from "./en";
 
 // 英語のままが正しいキー（パス前方一致）。追加するときは理由を添える。
 const ALLOW: string[] = [];
@@ -31,5 +32,17 @@ describe("ja dictionary", () => {
         !japanese.test(v) && englishWords.test(v) && !ALLOW.some((a) => path.startsWith(a)),
     );
     expect(bad).toEqual([]);
+  });
+});
+
+describe("dictionaries", () => {
+  // 未実装の機能を「近日」「準備中」と見せて配らない（#108）。未実装なら UI ごと出さない。
+  it("do not advertise unfinished features", () => {
+    for (const dict of [ja, en]) {
+      const all: [string, string][] = [];
+      leaves(dict, "", all);
+      const bad = all.filter(([, v]) => /近日|準備中|coming soon|\(soon\)/i.test(v));
+      expect(bad).toEqual([]);
+    }
   });
 });

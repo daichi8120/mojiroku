@@ -93,8 +93,6 @@ const ja = {
       withSummary: "要約あり",
       withSpeakers: "話者あり",
       week: "今週",
-      comingSoon: "準備中",
-      notReady: "この絞り込みは履歴メタ拡張後に対応します",
     },
     count: (n: number) => `${n}件`,
     countMatch: (n: number) => `${n}件 一致`,
@@ -173,8 +171,6 @@ const ja = {
       warmupHint: "話し始めるとライブ文字起こしがここに表示されます",
       aiNotesLabel: "ライブ AI ノート",
       aiNotesAfterStop: "停止後に作成",
-      aiNotesSoon:
-        "会議中のリアルタイム表示は近日対応です。「停止して保存」すると、システム音声（相手）は話者分離つき、マイク（自分）と合わせて文字起こしして保存します。",
       aiNotesDetail:
         "保存後の詳細画面で、AI議事録・要約・アクションアイテムをローカルで作成できます。",
     },
@@ -322,11 +318,7 @@ const ja = {
         minutes: { title: "議事録", desc: "決定事項・宿題・論点つき" },
         summary: { title: "要約（3行）", desc: "要点だけ短く" },
         actionItems: { title: "アクションアイテム", desc: "担当・期限つきの ToDo" },
-        custom: { title: "カスタムプロンプト…", desc: "自分の型を保存できる（近日）" },
       },
-      customPlaceholder: "例: 「結論 → 根拠 → ネクスト」の順で5項目に要約して",
-      customSoonToast: "カスタムプロンプトは近日対応です",
-      customSoonNote: "カスタムプロンプトは近日対応です。",
       engineSection: "生成エンジン",
       engineCloud: (provider: string) => `クラウド / ${provider}`,
       engineLocal: "ローカル / Metal",
@@ -508,7 +500,6 @@ const ja = {
       fetch: "取得",
       savedBadge: "保存済み",
       onDemandBadge: "必要時にDL",
-      manageSoon: "モデル管理は近日",
       // Summary model switch (ADR-0030). Auto = chosen from the Mac's memory and models on disk.
       pickerLabel: "要約に使うモデル",
       pickerDesc: "乗り換えると次の要約でそのモデルをダウンロードします。手元のモデルは消しません。",
@@ -563,15 +554,7 @@ const ja = {
         "（Notion へ＝要約 + 文字起こし / Slack へ＝要約のみ。ローカル要約でも送信）、 (3) ",
       localAiStrong: "生成 AI（ChatGPT / Claude）で開く",
       localAiRest: "（文字起こしを含む）。いずれも自動では行いません。",
-      saveRecordings: {
-        title: "録音を Mac に保存",
-        desc: "履歴・全文検索に使われます",
-      },
-      sendUsage: {
-        title: "使用状況を送信",
-        desc: "既定でオフ。匿名の不具合情報のみ",
-      },
-      note: "※ これらの値はこの Mac に保存されます。挙動への反映（保存停止・送信）は近日対応です。",
+      storage: "録音・文字起こし・要約はこの Mac にだけ保存されます。使用状況（利用統計）は送信しません。",
     },
     general: {
       desc: "アプリ情報とフィードバック。",

@@ -182,7 +182,6 @@ export function SettingsView() {
 
   const engine = cfg?.engine ?? "local";
   const provider = cfg?.provider ?? "anthropic";
-  const notYet = () => toast(t.settings.models.manageSoon, "info");
 
   return (
     <div className="flex min-h-full">
@@ -275,8 +274,6 @@ export function SettingsView() {
                 model="sherpa-onnx (pyannote)"
                 size="110MB"
                 status="ondemand"
-                action={t.settings.models.fetch}
-                onAction={notYet}
                 last={!summaryModel}
               />
               {/* Explicit summary-model switch (ADR-0030). "" = automatic. Only adopted models
@@ -453,22 +450,9 @@ export function SettingsView() {
                 </div>
               </div>
             )}
-            <div className="mt-3 overflow-hidden rounded-card border border-border bg-surface">
-              <ToggleRow
-                title={t.settings.privacy.saveRecordings.title}
-                desc={t.settings.privacy.saveRecordings.desc}
-                checked={cfg?.save_recordings ?? true}
-                onChange={(v) => patch({ save_recordings: v })}
-              />
-              <ToggleRow
-                title={t.settings.privacy.sendUsage.title}
-                desc={t.settings.privacy.sendUsage.desc}
-                checked={cfg?.send_usage ?? false}
-                onChange={(v) => patch({ send_usage: v })}
-                last
-              />
-            </div>
-            <div className="mt-2 text-[11px] text-faint">{t.settings.privacy.note}</div>
+            {/* 以前ここにあった「録音を Mac に保存」「使用状況を送信」は、切り替えても何も起きなかったので外した（#108）。
+                settings.json の save_recordings / send_usage は互換のため読み書きだけ残す。 */}
+            <p className="mt-3 text-[12px] leading-relaxed text-muted">{t.settings.privacy.storage}</p>
           </section>
 
           {/* ── 一般 ── */}
