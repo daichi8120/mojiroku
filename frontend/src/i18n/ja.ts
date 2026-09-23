@@ -106,6 +106,7 @@ const ja = {
       processing: "処理中",
       failed: "失敗",
       untranscribed: "未文字起こし",
+      noSpeech: "発話なし",
       summarized: "要約あり",
       transcribed: "文字起こし済み",
     },

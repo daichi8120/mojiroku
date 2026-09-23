@@ -31,6 +31,7 @@ const STATE_TONE: Record<RecordingState, string> = {
   processing: "bg-brand/14 text-brand-lighter",
   failed: "bg-red/13 text-red-light",
   untranscribed: "bg-hover text-sub",
+  noSpeech: "bg-hover text-sub",
   summarized: "bg-green/13 text-green",
   transcribed: "",
 };

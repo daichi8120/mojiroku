@@ -171,6 +171,8 @@ describe("recordingState (#109)", () => {
   });
   it("then transcript and summary", () => {
     expect(recordingState(row({ segment_count: 0 }))).toBe("untranscribed");
+    expect(recordingState(row({ segment_count: 0, latest_job: job("done") }))).toBe("noSpeech");
+    expect(recordingState(row({ segment_count: 0, latest_job: job("canceled") }))).toBe("untranscribed");
     expect(recordingState(row({ latest_job: job("done"), summary_count: 1 }))).toBe("summarized");
     expect(recordingState(row({ latest_job: job("canceled") }))).toBe("transcribed");
   });

@@ -104,6 +104,7 @@ const en: Dict = {
       processing: "Processing",
       failed: "Failed",
       untranscribed: "Not transcribed",
+      noSpeech: "No speech",
       summarized: "Has summary",
       transcribed: "Transcribed",
     },

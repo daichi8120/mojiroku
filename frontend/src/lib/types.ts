@@ -136,13 +136,22 @@ export interface RecordingRow {
 }
 
 /** 一覧に出す録音の状態（#109）。処理中 > 失敗 > 未文字起こし > 要約済み > 文字起こし済み の順で 1 つ。 */
-export type RecordingState = "processing" | "failed" | "untranscribed" | "summarized" | "transcribed";
+export type RecordingState =
+  | "processing"
+  | "failed"
+  | "untranscribed"
+  | "noSpeech"
+  | "summarized"
+  | "transcribed";
 
 export function recordingState(row: RecordingRow): RecordingState {
   const job = row.latest_job;
   if (job && (job.status === "pending" || job.status === "running")) return "processing";
   if (job && job.status === "failed") return "failed";
-  if (row.segment_count === 0) return "untranscribed";
+  if (row.segment_count === 0) {
+    // 文字起こしは終わったが発話が無かった（VAD が無音と判定すると空の文字起こしを保存する・ADR-0031）。
+    return job && job.kind === "transcribe" && job.status === "done" ? "noSpeech" : "untranscribed";
+  }
   return row.summary_count > 0 ? "summarized" : "transcribed";
 }
 
