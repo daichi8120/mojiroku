@@ -64,3 +64,4 @@
 - [ADR-0040: Preserve brief speakers during cleanup](ADR-0040_Preserve_brief_speakers_during_cleanup.md)
 
 - [ADR-0041: Control speaker fragmentation](ADR-0041_Control_speaker_fragmentation.md)
+- [ADR-0043: Block simplified Chinese characters in Japanese output](ADR-0043_Block_simplified_Chinese_characters_in_Japanese_output.md)

@@ -67,6 +67,7 @@ repo は「全部の家」ではない。
   recording in SQLite schema v7; final STT does not overwrite them. Keep session/epoch/request
   checks, bounded pending work, and inference cancellation on stop/disable. Live Whisper now reserves the shared heavy-job semaphore atomically;
   release translation's permit only after its child has terminated and been reaped.
+- For Japanese output the summary sidecar blocks every token containing a CJK ideograph outside Windows-31J (simplified Chinese such as 进・报), via a logit bias built from the vocabulary at start-up (ADR-0043). English output and live translation are unchanged. Qwen3.5-4B wrote simplified Chinese in 3/28 gate outputs without it.
 - LLM プロンプトは **n_batch(2048) ごとに分割して decode** する（長尺会議で `GGML_ASSERT(n_tokens_all <= n_batch)` を踏まないため）。
 - whisper の**逐トークンログ flood** がタイムスタンプ的に長尺会議を停滞させる → `WhisperStt::load()` 先頭で `whisper_rs::install_logging_hooks()` を呼んで抑制（ADR-0009）。話者分離のスケーリングは線形（~0.5xRT）。
 - **C++ 例外は Rust を素通りしてプロセス abort する**（tokio の catch_unwind に届いた時点で "Rust cannot catch foreign exceptions"。v0.3.0 実機クラッシュ 3 件の根本原因＝高負荷時の bad_alloc 等）。whisper / sherpa-onnx を呼ぶ新経路は**必ず `mojiroku_core::ffi_guard::guard` を通す**こと（C++ 側 try/catch で Err 化。ADR-0021）。あわせて重い ML ジョブ（STT/話者分離/ローカル要約 sidecar）は `commands::acquire_heavy_job` で**アプリ全体 1 本に直列化**（16GB 機のメモリ枯渇→クラッシュ/スワップフリーズ対策）。ライブ文字起こしは重いジョブ中 tick をスキップして譲る。
