@@ -20,7 +20,17 @@ const SIMPLIFIED_BUT_ENCODABLE: &[char] = &['个', '价'];
 /// set: kanji used in Japanese text encode, simplified-only forms do not. A few rare
 /// Japanese kanji outside it (剝, 頰, 塡) have common alternatives (剥, 頬, 填).
 pub fn is_non_japanese_ideograph(c: char) -> bool {
-    let cjk = matches!(c, '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}');
+    // Every Han block: Extension A, the unified block, compatibility ideographs, and the
+    // supplementary planes (Extensions B–I and the compatibility supplement). Compatibility
+    // forms Japanese uses, such as 﨑, are in Windows-31J and pass the check below.
+    let cjk = matches!(
+        c,
+        '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{20000}'..='\u{2FA1F}'
+            | '\u{30000}'..='\u{323AF}'
+    );
     if !cjk {
         return false;
     }
@@ -67,6 +77,17 @@ mod tests {
         let text =
             "議事録の決定事項を確認し、髙橋さんと﨑山さんが進捗を報告した。来週までに対応する";
         assert!(!text.chars().any(is_non_japanese_ideograph));
+    }
+
+    #[test]
+    fn supplementary_and_compatibility_blocks_are_checked() {
+        // Extension B (𠮷), Extension G (𰀀), and a compatibility ideograph outside
+        // Windows-31J (U+F900 豈).
+        for c in ['𠮷', '\u{30000}', '\u{F900}'] {
+            assert!(is_non_japanese_ideograph(c), "{c:?}");
+        }
+        // Compatibility ideographs that Windows-31J includes stay allowed.
+        assert!(!is_non_japanese_ideograph('﨑'));
     }
 
     #[test]

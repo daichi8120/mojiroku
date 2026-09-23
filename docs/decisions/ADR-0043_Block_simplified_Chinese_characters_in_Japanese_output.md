@@ -20,7 +20,9 @@ vocabulary token whose text contains a CJK ideograph outside the Japanese charac
 set, before any other sampling step (`llama_sampler_init_logit_bias` with negative
 infinity).
 
-"Outside the Japanese character set" means not encodable in Windows-31J (JIS X 0208
+This covers every Han block: Extension A, the unified block, compatibility ideographs,
+and the supplementary planes (Extensions B–I). "Outside the Japanese character set" means
+not encodable in Windows-31J (JIS X 0208
 plus the common vendor extensions), plus 个 and 价, which that encoding happens to
 include. Kanji used in Japanese writing encode; simplified-only forms such as 进, 报,
 户, 这 and 们 do not. Tokens that are only part of a UTF-8 character are left alone,
@@ -34,8 +36,9 @@ English output (`--lang en`) and the live translation path are unchanged.
 ## Trade-offs
 
 - A few rare Japanese kanji outside Windows-31J (剝, 頰, 塡) can no longer be written.
-  Each has a common form (剥, 頬, 填). A name that uses such a character in the
-  transcript cannot be copied verbatim.
+  Each has a common form (剥, 頬, 填). The same applies to supplementary-plane variants
+  such as 𠮷 (written as 吉). A name that uses such a character in the transcript cannot be
+  copied verbatim.
 - A simplified character could still be produced from byte-level tokens. It did not
   happen in the gate below.
 - Removing tokens changes the probability of the remaining candidates, so an output
