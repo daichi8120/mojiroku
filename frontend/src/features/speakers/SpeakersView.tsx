@@ -21,11 +21,11 @@ import {
   type LibrarySpeaker,
 } from "@/lib/tauri";
 
-/** 30px のカラー丸アバター（地色は id 由来、文字は白）。 */
+/** 32px のカラー丸アバター（地色は id 由来、文字は白）。 */
 function Avatar({ id, initial }: { id: string; initial: string }) {
   return (
     <span
-      className="flex h-8 w-[30px] shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white"
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white"
       style={{ background: speakerInk(id).dot }}
     >
       {initial}

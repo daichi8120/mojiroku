@@ -353,7 +353,7 @@ export function IntegrationsView() {
             {/* 接続済みカード（⚠️ URL/メールは表示しない。状態のみ） */}
             <div className="rounded-card border border-border bg-surface px-4 py-3.5">
               <div className="flex items-center gap-3">
-                <span className="flex h-9 w-[34px] shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-light">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-light">
                   <CalendarIcon size={17} />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -484,7 +484,7 @@ export function IntegrationsView() {
             >
               <span
                 className={cx(
-                  "flex h-8 w-[30px] shrink-0 items-center justify-center rounded-btn bg-surface-2",
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-btn bg-surface-2",
                   p.connected ? "text-brand-light" : "text-muted",
                 )}
               >

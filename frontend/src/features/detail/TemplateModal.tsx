@@ -44,7 +44,7 @@ function TemplateOption({
     >
       <span
         className={cx(
-          "flex h-9 w-[34px] shrink-0 items-center justify-center rounded-ctl",
+          "flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl",
           selected ? "bg-brand/18 text-brand-lighter" : "bg-hover text-muted",
         )}
       >

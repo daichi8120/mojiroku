@@ -76,7 +76,7 @@ export function AskDrawer({
       {/* ヘッダ */}
       <div className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-8 w-[30px] shrink-0 items-center justify-center rounded-ctl bg-brand text-white">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-ctl bg-brand text-white">
             <SparklesIcon size={15} />
           </span>
           <div className="min-w-0">
