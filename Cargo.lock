@@ -2621,6 +2621,7 @@ dependencies = [
 name = "mojiroku-llm"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "libc",
  "llama-cpp-2",
 ]

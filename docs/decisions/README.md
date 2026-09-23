@@ -65,3 +65,4 @@
 
 - [ADR-0041: Control speaker fragmentation](ADR-0041_Control_speaker_fragmentation.md)
 - [ADR-0042: Judge short-turn speakers against the anchor's own short turns](ADR-0042_Judge_short_turn_speakers_against_the_anchors_own_short_turns.md)
+- [ADR-0043: Block simplified Chinese characters in Japanese output](ADR-0043_Block_simplified_Chinese_characters_in_Japanese_output.md)

@@ -17,6 +17,7 @@
 
 use std::num::NonZeroU32;
 
+mod japanese;
 mod translate;
 
 use llama_cpp_2::context::params::LlamaContextParams;
@@ -282,7 +283,18 @@ fn main() {
     // ループ保険として rep を 1.1 へわずかに上げ（量子化対策）、nucleus を絞って
     // 指示追従（見出し書式など）の安定性を優先する。
     const SEED: u32 = 1234;
-    let mut sampler = LlamaSampler::chain_simple([
+    let mut samplers = Vec::new();
+    if lang != "en" {
+        let t_bias = std::time::Instant::now();
+        let biases = japanese::non_japanese_token_biases(&model);
+        eprintln!(
+            "[mojiroku-llm] blocked {} non-Japanese ideograph tokens ({} ms)",
+            biases.len(),
+            t_bias.elapsed().as_millis()
+        );
+        samplers.push(LlamaSampler::logit_bias(model.n_vocab(), &biases));
+    }
+    samplers.extend([
         LlamaSampler::penalties(256, 1.1, 0.0, 0.0),
         LlamaSampler::top_k(20),
         LlamaSampler::top_p(0.8, 1),
@@ -290,6 +302,7 @@ fn main() {
         LlamaSampler::temp(0.7),
         LlamaSampler::dist(SEED),
     ]);
+    let mut sampler = LlamaSampler::chain_simple(samplers);
     // マルチバイト UTF-8 がトークン境界で割れるのを防ぐため、バイト列を蓄積して最後にデコードする
     let mut out_bytes: Vec<u8> = Vec::new();
 
