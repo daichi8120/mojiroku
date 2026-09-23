@@ -521,7 +521,9 @@ function Router({ route }: { route: Route }) {
     case "history":
       return <HistoryView />;
     case "detail":
-      return route.id ? <DetailView id={route.id} /> : <HomeView />;
+      // key で録音ごとに作り直す。再生位置・追従・検索・中断中などの画面内の状態を、
+      // 別の録音へ持ち越さないため（#110 レビュー）。
+      return route.id ? <DetailView key={route.id} id={route.id} /> : <HomeView />;
     case "settings":
       return <SettingsView />;
     case "meeting":

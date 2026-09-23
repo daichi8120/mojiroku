@@ -104,6 +104,9 @@ export function DetailView({ id }: { id: string }) {
   // 再生中は現在行を追いかけてスクロールする。利用者が自分でスクロールしたら追従をやめ、
   // 「再生位置に戻る」で再開する。
   const [following, setFollowing] = useState(true);
+  // 自動追従のスクロール中はこの時刻まで。それ以外のスクロール（ホイール・スクロールバー・キー）は
+  // 利用者の操作とみなして追従をやめる。
+  const autoScrollUntil = useRef(0);
   const seekToSegment = useCallback((seg: Segment) => {
     setFollowing(true);
     playerRef.current?.seek(seg.start_ms, true);
@@ -122,6 +125,7 @@ export function DetailView({ id }: { id: string }) {
     const b = box.getBoundingClientRect();
     const r = row.getBoundingClientRect();
     if (r.top < b.top + 40 || r.bottom > b.bottom - 40) {
+      autoScrollUntil.current = Date.now() + 800;
       row.scrollIntoView({ block: "center", behavior: "smooth" });
     }
   }, [followIdx]);
@@ -695,9 +699,10 @@ export function DetailView({ id }: { id: string }) {
         <div
           ref={scrollRef}
           className="relative flex-1 overflow-y-auto px-6 py-4"
-          // 利用者が自分でスクロールしたら追従をやめる（プログラムからの scrollIntoView は wheel を出さない）。
-          onWheel={() => playing && setFollowing(false)}
-          onTouchMove={() => playing && setFollowing(false)}
+          // 利用者が自分でスクロールしたら追従をやめる。自動追従のスクロールは autoScrollUntil で除く。
+          onScroll={() => {
+            if (playing && Date.now() > autoScrollUntil.current) setFollowing(false);
+          }}
         >
           {/* 処理中（ADR-0024）: ステージ + 進捗。pending はキャンセル可（running は完走）。 */}
           {processing && job && (
