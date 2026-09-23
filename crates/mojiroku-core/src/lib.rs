@@ -286,6 +286,8 @@ pub fn transcribe_and_diarize_file_with_options(
     let diarizer = diarization::SherpaDiarizer::new(seg, emb, diarization::DEFAULT_THRESHOLD, lang);
     use diarization::Diarizer;
     let diar = diarizer.diarize(&pcm, 16_000)?;
+    // sherpa-onnx は途中で止められないので、終わった直後に確かめる（Issue #114 レビュー）。
+    cancel::check()?;
 
     // 4) マージ（話者 turn → Segment.speaker_id）
     report_stage(on_progress, "merge")?;
@@ -357,6 +359,7 @@ pub fn transcribe_meeting_dual_track_with_options(
     // mic 側は %を抑止（会議は system STT/diarization/mic STT/merge と多段。mic の 0→100 だけ
     //    出すと全体進捗と誤読される。会議は経過時間で示す・emit_pct=false）。
     let mic = transcribe_file_impl(mic_path, models_dir, options, on_progress, false)?;
+    cancel::check()?;
     // ソース合成（マイク=self、システム=diarization 話者を保持、時系列マージ）。
     // system 話者 id は merge_tracks で不変＝声紋（system_embeddings）の id とも整合する。
     let (transcript, speakers) =
@@ -388,7 +391,9 @@ pub fn diarize_file(
     report_stage(on_progress, "diarization")?;
     let diarizer = diarization::SherpaDiarizer::new(seg, emb, diarization::DEFAULT_THRESHOLD, lang);
     use diarization::Diarizer;
-    diarizer.diarize(&pcm, 16_000)
+    let diar = diarizer.diarize(&pcm, 16_000)?;
+    cancel::check()?;
+    Ok(diar)
 }
 
 // 注: ローカル要約（llama.cpp）のオーケストレーションは、whisper.cpp との ggml シンボル衝突のため
