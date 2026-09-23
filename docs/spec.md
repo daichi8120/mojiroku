@@ -144,7 +144,7 @@ SummaryTemplate      { id, name, prompt, kind(minutes|summary|action_items) }
   実際に発言している人だけに絞る。**訂正モーダルと SpeakerPanel は絞らない**
   （発言ゼロになった話者を選び直せないと訂正が戻せない）。
 - **実際に変えたときだけ要約を stale にする。** 要約本文に話者名が出るため。
-  同値なら立てない — ローカル要約の作り直しは 7B モデルで分単位かかるので、内容が
+  同値なら立てない — ローカル要約の作り直しは分単位かかるので、内容が
   変わっていないのに促すのは害。
 - `rec_fts` は触らない。body は `segment.text` のみで話者を含まない。
 - **エラーは `error.` 始まりのキーで返し、コマンド層の `core_err` が `CoreError` の
