@@ -211,6 +211,8 @@ export function DetailView({ id }: { id: string }) {
     total: null,
   });
   const [transcribeDiarize, setTranscribeDiarize] = useState(false);
+  const [canceling, setCanceling] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [starting, setStarting] = useState(false);
   const processing = job?.status === "pending" || job?.status === "running";
   // このジョブの失敗はこの画面で出す（App のトーストと二重にしない）。
@@ -290,6 +292,7 @@ export function DetailView({ id }: { id: string }) {
       reloadDetail();
     } else if (u.status === "canceled") {
       setJob(null);
+      setCanceling(false);
       setJobProgress({ done: 0, total: null });
     } else if (u.status === "failed") {
       setJob((prev) => (prev ? { ...prev, status: "failed", error: u.error } : prev));
@@ -393,11 +396,17 @@ export function DetailView({ id }: { id: string }) {
   };
 
   // 順番待ち（pending）のジョブをキャンセル（running は完走）。
+  // 実行中の中断（#114）。順番待ちはその場で消え、実行中は処理が止まった時点で
+  // job://update（canceled）が届く。それまでは「中断しています…」を出す。
   const onCancelJob = async () => {
+    setConfirmCancel(false);
     if (!job) return;
+    const running = job.status === "running";
     try {
       const ok = await cancelJob(job.id);
-      if (ok) {
+      if (ok && running) {
+        setCanceling(true);
+      } else if (ok) {
         setJob(null);
         setJobProgress({ done: 0, total: null });
         refreshRecents();
@@ -770,14 +779,13 @@ export function DetailView({ id }: { id: string }) {
                     {etaMin != null ? ` · ${t.job.remaining(etaMin)}` : ""}
                   </div>
                 </div>
-                {job.status === "pending" && (
-                  <button
-                    onClick={() => void onCancelJob()}
-                    className="shrink-0 rounded-tag border border-border-3 px-2.5 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-body"
-                  >
-                    {t.job.cancel}
-                  </button>
-                )}
+                <button
+                  onClick={() => (job.status === "pending" ? void onCancelJob() : setConfirmCancel(true))}
+                  disabled={canceling}
+                  className="shrink-0 rounded-tag border border-border-3 px-2.5 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-body disabled:opacity-60"
+                >
+                  {canceling ? t.job.canceling : t.job.cancel}
+                </button>
               </div>
               {jobProgress.total ? (
                 <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-border-2">
@@ -1206,6 +1214,14 @@ export function DetailView({ id }: { id: string }) {
         replaces={!!findSummary(detail.summaries, presetTemplate)}
       />
       <AskDrawer key={`ask-${id}`} open={askOpen} onClose={() => setAskOpen(false)} title={title} />
+      <ConfirmDialog
+        open={confirmCancel}
+        title={t.job.cancelConfirmTitle}
+        body={t.job.cancelConfirmBody}
+        confirmLabel={t.job.cancelConfirm}
+        onConfirm={() => void onCancelJob()}
+        onCancel={() => setConfirmCancel(false)}
+      />
       <ConfirmDialog
         open={confirmDel}
         title={t.history.deleteConfirmTitle}

@@ -30,6 +30,10 @@ pub enum CoreError {
     /// ユーザ向けに「メモリ不足の可能性」を含める（16GB 機で重処理が重なると発生しうる）。
     #[error("{label} がネイティブ例外で失敗しました: {what}（メモリ不足の可能性。他のアプリや処理を閉じて再試行してください）")]
     Native { label: String, what: String },
+
+    /// 利用者が実行中の処理を中断した（Issue #114・`cancel`）。失敗ではない。
+    #[error("cancelled")]
+    Cancelled,
 }
 
 impl From<rusqlite::Error> for CoreError {

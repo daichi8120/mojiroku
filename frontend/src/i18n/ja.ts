@@ -226,11 +226,16 @@ const ja = {
 
   // バックグラウンドジョブ（ADR-0024）。詳細ビューの処理中表示・完了/失敗トースト。
   job: {
+    canceling: "中断しています…",
+    canceledToast: "処理を中断しました",
+    cancelConfirmTitle: "処理を中断しますか？",
+    cancelConfirmBody: "途中までの結果は保存されません。録音はそのまま残り、あとでやり直せます。",
+    cancelConfirm: "中断する",
     processing: "ローカルで処理中",
     queued: "順番待ち（他の処理の完了を待っています）",
     elapsed: "経過",
     remaining: (min: number) => (min <= 1 ? "残り約1分" : `残り約${min}分`),
-    cancel: "キャンセル",
+    cancel: "中断",
     transcribeCompleted: "文字起こしが完了しました",
     diarizeCompleted: "話者分離が完了しました",
     failedToast: "処理に失敗しました",
@@ -723,6 +728,7 @@ const ja = {
     "error.job.no_transcript": "先に文字起こしを実行してください",
     "error.job.no_pertrack": "この録音にはトラック別音声がありません",
     "error.recording.discard_failed": "録音は止めましたが、音声ファイルを削除できませんでした（次回の起動時に削除されます）",
+    "error.job.canceled": "処理を中断しました",
     "error.job.no_speakers_found": "話者を検出できなかったため、今の話者の割り当てをそのまま残しました",
     "error.job.unknown_kind": "不明なジョブ種別です",
     "error.job.failed": "処理に失敗しました",

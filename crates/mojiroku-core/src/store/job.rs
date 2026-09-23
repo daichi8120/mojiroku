@@ -137,8 +137,13 @@ impl SqliteStore {
         self.update_job_status(id, "failed", Some(error), None)
     }
 
+    /// 実行中に中断されたジョブを canceled にする（Issue #114）。ワーカーが処理を止めた後に呼ぶ。
+    pub fn set_job_canceled(&self, id: &str) -> Result<()> {
+        self.update_job_status(id, "canceled", None, None)
+    }
+
     /// pending ジョブをキャンセルする（running は対象外）。canceled にできたら true。
-    /// running は spawn_blocking 内で中断不可なので触らない（ハードキャンセルは提供しない）。
+    /// running の中断はワーカーの中断フラグで行い、止まった後に `set_job_canceled` で記録する。
     pub fn cancel_job(&self, id: &str) -> Result<bool> {
         let conn = self.conn();
         let n = conn.execute(

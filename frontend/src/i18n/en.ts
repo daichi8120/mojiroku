@@ -225,11 +225,16 @@ const en: Dict = {
 
   // Background jobs (ADR-0024). Detail-view processing state + completion/failure toasts.
   job: {
+    canceling: "Stopping…",
+    canceledToast: "Processing stopped",
+    cancelConfirmTitle: "Stop processing?",
+    cancelConfirmBody: "Partial results are not saved. The recording stays and you can run it again later.",
+    cancelConfirm: "Stop",
     processing: "Processing locally",
     queued: "Queued (waiting for another task to finish)",
     elapsed: "Elapsed",
     remaining: (min: number) => (min <= 1 ? "~1 min left" : `~${min} min left`),
-    cancel: "Cancel",
+    cancel: "Stop",
     transcribeCompleted: "Transcription complete",
     diarizeCompleted: "Speaker separation complete",
     failedToast: "Processing failed",
@@ -715,6 +720,7 @@ const en: Dict = {
     "error.job.no_transcript": "Transcribe this recording first",
     "error.job.no_pertrack": "This recording has no per-track audio",
     "error.recording.discard_failed": "Recording stopped, but the audio file could not be deleted (it is removed at the next launch)",
+    "error.job.canceled": "Processing stopped",
     "error.job.no_speakers_found": "No speakers were detected, so the current speaker assignments were kept",
     "error.job.unknown_kind": "Unknown job kind",
     "error.job.failed": "Processing failed",
