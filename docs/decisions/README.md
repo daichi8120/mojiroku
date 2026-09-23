@@ -64,3 +64,4 @@
 - [ADR-0040: Preserve brief speakers during cleanup](ADR-0040_Preserve_brief_speakers_during_cleanup.md)
 
 - [ADR-0041: Control speaker fragmentation](ADR-0041_Control_speaker_fragmentation.md)
+- [ADR-0042: Judge short-turn speakers against the anchor's own short turns](ADR-0042_Judge_short_turn_speakers_against_the_anchors_own_short_turns.md)

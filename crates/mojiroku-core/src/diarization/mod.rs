@@ -35,6 +35,13 @@ const MIN_MERGE_COSINE: f32 = 0.65;
 // sustained speech and clear separation from the existing group centroids.
 const NEW_SPEAKER_MIN_SECONDS: f32 = 1.0;
 const NEW_SPEAKER_MAX_COSINE: f32 = 0.40;
+// Embeddings of short turns are noisy: in a 32-minute one-on-one, the dominant
+// speaker's own sub-2 s turns scored a median cosine of 0.40 against that speaker's
+// centroid. A candidate made only of such turns must be less similar to an anchor
+// than the anchor's own short turns usually are (ADR-0042).
+const SHORT_TURN_SECONDS: f32 = 2.0;
+const SHORT_TURN_MIN_SAMPLES: usize = 10;
+const SHORT_TURN_PERCENTILE: f32 = 0.05;
 
 /// 埋め込み抽出に必要な最小窓（これ未満の turn は窓を広げて抽出を試みる）。
 const EMBED_MIN_SECONDS: f32 = 0.3;
@@ -297,7 +304,8 @@ fn consolidate(
     }
 
     // anchor: 尺 >= max(絶対, 相対) かつ centroid を持つクラスタ（尺降順）。
-    let anchors = select_supported_anchors(&centroid, &dur);
+    let evidence = ShortTurnEvidence::measure(raw, &embs, &centroid, &dur);
+    let anchors = select_supported_anchors(&centroid, &dur, &evidence);
 
     if anchors.is_empty() {
         // 全 turn の埋め込みに失敗し centroid が空 → anchor を採れない。ここで空へ graceful
@@ -376,9 +384,84 @@ fn select_anchors(centroid: &BTreeMap<i32, Vec<f32>>, dur: &BTreeMap<i32, f32>) 
     anchors
 }
 
+/// What the short turns of a recording say about voice similarity.
+#[derive(Default)]
+struct ShortTurnEvidence {
+    /// Longest raw turn of each cluster, in seconds.
+    longest: BTreeMap<i32, f32>,
+    /// Per duration anchor: the cosine below which only a small share of that
+    /// anchor's own short turns fall. Present only with enough short turns.
+    own_short_turn_floor: BTreeMap<i32, f32>,
+}
+
+impl ShortTurnEvidence {
+    fn measure(
+        raw: &[OfflineSpeakerDiarizationSegment],
+        embs: &[Option<Vec<f32>>],
+        centroid: &ClusterEmbeddings,
+        dur: &BTreeMap<i32, f32>,
+    ) -> Self {
+        let mut longest: BTreeMap<i32, f32> = BTreeMap::new();
+        for s in raw {
+            let d = longest.entry(s.speaker).or_insert(0.0);
+            *d = d.max(s.end - s.start);
+        }
+        let mut own_short_turn_floor = BTreeMap::new();
+        for anchor in select_anchors(centroid, dur) {
+            let voice = &centroid[&anchor];
+            let mut scores: Vec<f32> = raw
+                .iter()
+                .zip(embs)
+                .filter(|(s, _)| s.speaker == anchor && s.end - s.start < SHORT_TURN_SECONDS)
+                .filter_map(|(_, e)| e.as_ref().map(|e| dot(e, voice)))
+                .filter(|score| score.is_finite())
+                .collect();
+            if let Some(floor) = low_percentile(&mut scores) {
+                own_short_turn_floor.insert(anchor, floor);
+            }
+        }
+        Self {
+            longest,
+            own_short_turn_floor,
+        }
+    }
+
+    /// Sub-second windows carry little voice identity, however many of them a cluster
+    /// accumulates. A cluster without a longest turn on record is not restricted.
+    fn has_turn_of(&self, candidate: i32, seconds: f32) -> bool {
+        self.longest.get(&candidate).is_none_or(|d| *d >= seconds)
+    }
+
+    /// Highest cosine to `anchor` at which `candidate` still counts as a different voice.
+    fn max_cosine(&self, candidate: i32, anchor: i32) -> f32 {
+        let only_short_turns = self
+            .longest
+            .get(&candidate)
+            .is_some_and(|d| *d < SHORT_TURN_SECONDS);
+        match self.own_short_turn_floor.get(&anchor) {
+            Some(floor) if only_short_turns => floor.min(NEW_SPEAKER_MAX_COSINE),
+            _ => NEW_SPEAKER_MAX_COSINE,
+        }
+    }
+}
+
+/// `SHORT_TURN_PERCENTILE` of `scores`, or `None` below `SHORT_TURN_MIN_SAMPLES`.
+fn low_percentile(scores: &mut [f32]) -> Option<f32> {
+    if scores.len() < SHORT_TURN_MIN_SAMPLES {
+        return None;
+    }
+    scores.sort_by(|a, b| cmp_f32(*a, *b));
+    let i = ((scores.len() - 1) as f32 * SHORT_TURN_PERCENTILE).floor() as usize;
+    Some(scores[i])
+}
+
 /// Retain short clusters whose voices are not sufficiently similar to an existing anchor.
 /// Original long-duration groups remain anchor candidates.
-fn select_supported_anchors(centroid: &ClusterEmbeddings, dur: &BTreeMap<i32, f32>) -> Vec<i32> {
+fn select_supported_anchors(
+    centroid: &ClusterEmbeddings,
+    dur: &BTreeMap<i32, f32>,
+    evidence: &ShortTurnEvidence,
+) -> Vec<i32> {
     let mut anchors: Vec<_> = select_anchors(centroid, dur)
         .into_iter()
         .filter(|id| valid_embedding(&centroid[id]))
@@ -392,9 +475,11 @@ fn select_supported_anchors(centroid: &ClusterEmbeddings, dur: &BTreeMap<i32, f3
     for candidate in candidates {
         if !anchors.contains(&candidate)
             && dur[&candidate] >= NEW_SPEAKER_MIN_SECONDS
-            && !anchors
-                .iter()
-                .any(|anchor| dot(&centroid[&candidate], &centroid[anchor]) >= NEW_SPEAKER_MAX_COSINE)
+            && evidence.has_turn_of(candidate, NEW_SPEAKER_MIN_SECONDS)
+            && !anchors.iter().any(|anchor| {
+                dot(&centroid[&candidate], &centroid[anchor])
+                    >= evidence.max_cosine(candidate, *anchor)
+            })
         {
             anchors.push(candidate);
         }
@@ -709,7 +794,7 @@ mod tests {
             (2, vec![0.0, 0.0]),
         ]);
         let durations = BTreeMap::from([(0, 60.0), (1, 1.0), (2, 1.0)]);
-        let anchors = select_supported_anchors(&voices, &durations);
+        let anchors = select_supported_anchors(&voices, &durations, &ShortTurnEvidence::default());
         assert_eq!(anchors, vec![0]);
         assert_eq!(supported_assignment(&[1.0, 0.0], 0, &anchors, &voices), 0);
         assert_eq!(nearest_anchor(&[1.0, 0.0], &[0, 1], &voices), Some(0));
@@ -723,7 +808,8 @@ mod tests {
             BTreeMap::from([(0, 600.0), (1, 30.0)]),
             BTreeMap::from([(0, 3.0), (1, 1.0)]),
         ] {
-            let anchors = select_supported_anchors(&voices, &durations);
+            let anchors =
+                select_supported_anchors(&voices, &durations, &ShortTurnEvidence::default());
             assert_eq!(anchors.len(), 2);
             assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 1);
         }
@@ -738,7 +824,7 @@ mod tests {
             (3, vec![0.2, 0.0, -0.9797959]),
         ]);
         let durations = BTreeMap::from([(0, 60.0), (1, 2.4), (2, 1.7), (3, 0.6)]);
-        let anchors = select_supported_anchors(&voices, &durations);
+        let anchors = select_supported_anchors(&voices, &durations, &ShortTurnEvidence::default());
         assert_eq!(anchors, vec![0]);
         for (id, voice) in &voices {
             assert_eq!(supported_assignment(voice, *id, &anchors, &voices), 0);
@@ -753,17 +839,68 @@ mod tests {
             (2, vec![0.0, 0.0, 1.0]),
         ]);
         let durations = BTreeMap::from([(0, 60.0), (1, 2.4), (2, 2.5)]);
-        let anchors = select_supported_anchors(&voices, &durations);
+        let anchors = select_supported_anchors(&voices, &durations, &ShortTurnEvidence::default());
         assert_eq!(anchors, vec![0, 2]);
         assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 0);
         assert_eq!(supported_assignment(&voices[&2], 2, &anchors, &voices), 2);
+    }
+
+    /// Anchor 0's own short turns sometimes score as low as 0.1 against its centroid,
+    /// so a candidate made of short turns at 0.2 is not evidence of another voice.
+    fn one_on_one_evidence(candidate_longest: f32) -> ShortTurnEvidence {
+        ShortTurnEvidence {
+            longest: BTreeMap::from([(0, 40.0), (1, candidate_longest)]),
+            own_short_turn_floor: BTreeMap::from([(0, 0.1)]),
+        }
+    }
+
+    #[test]
+    fn short_turn_fragments_merge_when_the_anchor_itself_scores_that_low() {
+        let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.2, 0.9797959])]);
+        let durations = BTreeMap::from([(0, 900.0), (1, 2.5)]);
+        let anchors = select_supported_anchors(&voices, &durations, &one_on_one_evidence(1.9));
+        assert_eq!(anchors, vec![0]);
+        assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 0);
+    }
+
+    #[test]
+    fn candidate_with_a_long_turn_keeps_the_fixed_threshold() {
+        let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.2, 0.9797959])]);
+        let durations = BTreeMap::from([(0, 900.0), (1, 2.5)]);
+        let anchors = select_supported_anchors(&voices, &durations, &one_on_one_evidence(2.5));
+        assert_eq!(anchors, vec![0, 1]);
+    }
+
+    #[test]
+    fn short_candidate_clearly_below_the_anchor_floor_survives() {
+        let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.05, 0.998_749_2])]);
+        let durations = BTreeMap::from([(0, 900.0), (1, 1.3)]);
+        let anchors = select_supported_anchors(&voices, &durations, &one_on_one_evidence(1.3));
+        assert_eq!(anchors, vec![0, 1]);
+    }
+
+    #[test]
+    fn accumulated_subsecond_turns_do_not_create_a_speaker() {
+        let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.0, 1.0])]);
+        let durations = BTreeMap::from([(0, 900.0), (1, 1.6)]);
+        let anchors = select_supported_anchors(&voices, &durations, &one_on_one_evidence(0.5));
+        assert_eq!(anchors, vec![0]);
+    }
+
+    #[test]
+    fn few_short_turns_do_not_set_a_floor() {
+        let mut scores = vec![0.1; SHORT_TURN_MIN_SAMPLES - 1];
+        assert_eq!(low_percentile(&mut scores), None);
+        let mut scores: Vec<f32> = (0..21).map(|i| i as f32 / 20.0).collect();
+        scores.reverse();
+        assert_eq!(low_percentile(&mut scores), Some(0.05));
     }
 
     #[test]
     fn weak_turn_does_not_resurrect_a_merged_fragment() {
         let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.8, 0.6])]);
         let durations = BTreeMap::from([(0, 60.0), (1, 2.0)]);
-        let anchors = select_supported_anchors(&voices, &durations);
+        let anchors = select_supported_anchors(&voices, &durations, &ShortTurnEvidence::default());
         assert_eq!(anchors, vec![0]);
         // The cluster has a supported identity even when this short turn does not.
         assert_eq!(supported_assignment(&[0.1, 0.9949874], 1, &anchors, &voices), 0);
@@ -773,7 +910,7 @@ mod tests {
     fn similar_short_fragments_merge_but_unsupported_turns_keep_their_group() {
         let voices = BTreeMap::from([(0, vec![1.0, 0.0]), (1, vec![0.8, 0.6])]);
         let durations = BTreeMap::from([(0, 60.0), (1, 2.0)]);
-        let anchors = select_supported_anchors(&voices, &durations);
+        let anchors = select_supported_anchors(&voices, &durations, &ShortTurnEvidence::default());
         assert_eq!(anchors, vec![0]);
         assert_eq!(supported_assignment(&voices[&1], 1, &anchors, &voices), 0);
         assert_eq!(supported_assignment(&[0.0, 1.0], 2, &anchors, &voices), 2);
