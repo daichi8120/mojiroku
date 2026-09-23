@@ -287,6 +287,9 @@ export function SettingsView() {
                   <SelectRow
                     title={t.settings.models.pickerLabel}
                     desc={t.settings.models.pickerDesc}
+                    // 選択肢が長い（モデル名 · サイズ · 要ダウンロード）ので縦に積む。横並びだと
+                    // 最小幅 920px の英語表示で説明文が 1 語ずつ折り返していた（#104）。
+                    stacked
                     value={summaryChoice?.file ?? ""}
                     onChange={(v) => patch({ local_summary_model: v })}
                     options={[
