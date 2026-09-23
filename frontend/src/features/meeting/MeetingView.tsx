@@ -20,6 +20,9 @@ import { ModelSetupCard, useLiveModels } from "@/features/setup/ModelSetup";
 // システム音声 + マイクのレベルメータ（小さな縦バー）。
 const METER_BARS = [6, 11, 8, 13, 5];
 
+// 開始時にライブ文字起こしのモデルが無かった会議（開始時刻）。
+const unavailableMeetings = new Set<number>();
+
 export function MeetingView() {
   const { meeting, startMeeting, stopMeeting, discardMeeting, liveSnapshot, translation, translationTarget, setTranslationTarget } = useApp();
   const { t } = useI18n();
@@ -35,6 +38,12 @@ export function MeetingView() {
   // App now retains this snapshot across navigation; no next-tick wait is needed.
   const liveLines = liveSnapshot?.lines ?? [];
   const liveModels = useLiveModels();
+  // この会議が始まった時点でモデルが無かったか。live_stt は開始時にモデルが無いと終わり、
+  // 途中で取得しても始まらないので、取得後も「この会議では出ない」と言い続ける（#112 レビュー）。
+  // 画面を離れて戻っても保つため、会議の開始時刻をキーにモジュールで覚える。
+  const startedAt = meeting.startedAt;
+  if (capturing && startedAt !== null && liveModels.ready === false) unavailableMeetings.add(startedAt);
+  const liveUnavailable = capturing && startedAt !== null && unavailableMeetings.has(startedAt);
   const liveScrollRef = useRef<HTMLDivElement | null>(null);
 
   // idle のときだけ許可状態を確認して開始ボタン/誘導の出し分けに使う。
@@ -236,9 +245,15 @@ export function MeetingView() {
               </div>
             ) : (
               // モデルが無いとライブ文字起こしは出ない（#112）。待たせずにそう言う。
-              liveModels.ready === false ? (
+              liveUnavailable ? (
                 <div className="flex min-h-0 flex-1 items-center justify-center px-2">
-                  <ModelSetupCard variant="live" className="w-full max-w-[460px]" />
+                  {liveModels.ready === false ? (
+                    <ModelSetupCard variant="live" className="w-full max-w-[460px]" />
+                  ) : (
+                    <p className="max-w-[420px] text-center text-[13px] leading-relaxed text-muted">
+                      {t.setup.readyNextMeeting}
+                    </p>
+                  )}
                 </div>
               ) : (
               // ウォームアップ（モデルロード中 / まだ発話なし）。

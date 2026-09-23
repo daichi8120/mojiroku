@@ -120,6 +120,7 @@ const ja = {
 
   // 初回のモデル準備（#112）。
   setup: {
+    readyNextMeeting: "モデルの準備ができました。この会議のライブ文字起こしは表示されませんが、停止して保存すると文字起こしされます。次の会議からはライブでも表示されます。",
     whisperName: "文字起こしモデル（Whisper large-v3-turbo）",
     vadName: "無音検出モデル（Silero VAD）",
     home: {

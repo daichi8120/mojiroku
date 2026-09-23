@@ -117,6 +117,7 @@ const en: Dict = {
   },
 
   setup: {
+    readyNextMeeting: "The model is ready. This meeting has no live transcript, but it is transcribed when you stop and save. Live transcripts appear from your next meeting.",
     whisperName: "Transcription model (Whisper large-v3-turbo)",
     vadName: "Silence detection (Silero VAD)",
     home: {
