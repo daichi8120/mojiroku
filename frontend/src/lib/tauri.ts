@@ -11,6 +11,7 @@ import type {
   Progress,
   Recording,
   RecordingDetail,
+  RecordingRow,
   SearchHit,
   Settings,
   StartJobResult,
@@ -90,6 +91,9 @@ export const summarize = (
 
 /** 履歴一覧（created_at 降順）。 */
 export const listRecordings = () => invoke<Recording[]>("list_recordings");
+
+/** 履歴一覧（状態つき・#109）。Rust 側 store::RecordingRow に対応。 */
+export const listRecordingRows = () => invoke<RecordingRow[]>("list_recording_rows");
 
 /** FTS5 全文検索（title + 本文）。 */
 export const searchRecordings = (query: string) =>

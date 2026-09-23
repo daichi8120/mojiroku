@@ -9,6 +9,14 @@ pub(crate) fn list_recordings(store: State<'_, SqliteStore>) -> Result<Vec<mojir
     store.list_recordings().map_err(|e| e.to_string())
 }
 
+/// 履歴一覧を状態つきで（文字起こし・話者・要約の有無と直近ジョブ・Issue #109）。
+#[tauri::command]
+pub(crate) fn list_recording_rows(
+    store: State<'_, SqliteStore>,
+) -> Result<Vec<mojiroku_core::store::RecordingRow>, String> {
+    store.list_recording_rows().map_err(|e| e.to_string())
+}
+
 /// 履歴の全文検索（title + 本文）。空クエリは呼び出し側で list_recordings に切替える前提。
 #[tauri::command]
 pub(crate) fn search_recordings(

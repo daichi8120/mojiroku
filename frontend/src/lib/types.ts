@@ -126,6 +126,26 @@ export interface RecordingDetail {
   active_job?: Job | null;
 }
 
+/** 履歴一覧の 1 行（#109）。Rust 側 store::RecordingRow に対応。 */
+export interface RecordingRow {
+  recording: Recording;
+  segment_count: number;
+  speaker_count: number;
+  summary_count: number;
+  latest_job: { kind: string; status: string; error: string | null } | null;
+}
+
+/** 一覧に出す録音の状態（#109）。処理中 > 失敗 > 未文字起こし > 要約済み > 文字起こし済み の順で 1 つ。 */
+export type RecordingState = "processing" | "failed" | "untranscribed" | "summarized" | "transcribed";
+
+export function recordingState(row: RecordingRow): RecordingState {
+  const job = row.latest_job;
+  if (job && (job.status === "pending" || job.status === "running")) return "processing";
+  if (job && job.status === "failed") return "failed";
+  if (row.segment_count === 0) return "untranscribed";
+  return row.summary_count > 0 ? "summarized" : "transcribed";
+}
+
 /** 全文検索の 1 ヒット。Rust 側 store::SearchHit に対応。 */
 export interface SearchHit {
   recording: Recording;

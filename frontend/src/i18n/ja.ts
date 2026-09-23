@@ -98,9 +98,16 @@ const ja = {
     countMatch: (n: number) => `${n}件 一致`,
     empty: {
       noMatch: (q: string) => `『${q}』に一致する履歴はありません`,
-      noneThisWeek: "今週の履歴はありません",
+      noneFiltered: "この条件に合う履歴はありません",
       none: "まだ履歴がありません",
       hint: "ホームで音声を文字起こしすると残ります",
+    },
+    state: {
+      processing: "処理中",
+      failed: "失敗",
+      untranscribed: "未文字起こし",
+      summarized: "要約あり",
+      transcribed: "文字起こし済み",
     },
     deleted: "削除しました",
     renamed: "タイトルを変更しました",

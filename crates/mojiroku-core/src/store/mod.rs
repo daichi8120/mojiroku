@@ -104,6 +104,30 @@ pub struct Job {
     pub updated_at: String,
 }
 
+/// 履歴一覧の 1 行（Issue #109）。一覧で状態と種類を出すための集計を Recording に添える。
+///
+/// `Recording`（schemas）自体は広げない。MCP サーバーや保存処理も同じ型を使っているため。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordingRow {
+    pub recording: Recording,
+    /// 文字起こしの発言数。0 なら未文字起こし。
+    pub segment_count: u32,
+    /// 話者の数（会議の「自分」を含む）。0 なら話者分離していない。
+    pub speaker_count: u32,
+    /// 保存済みの要約（議事録・要約・アクションアイテム）の数。
+    pub summary_count: u32,
+    /// 直近に投入したジョブ。一度も投入していなければ None。
+    pub latest_job: Option<JobBrief>,
+}
+
+/// 一覧に出す分だけのジョブ情報。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobBrief {
+    pub kind: String,
+    pub status: String,
+    pub error: Option<String>,
+}
+
 /// 全文検索の 1 ヒット。Recording 本体 + マッチ箇所スニペット。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
@@ -1382,4 +1406,45 @@ mod tests {
             .unwrap();
         assert_eq!(n, 1);
     }
+
+    #[test]
+    fn recording_rows_carry_state_for_the_history_list() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        // 文字起こし済み + 要約 1 件
+        let mut done = rec("done");
+        done.created_at = "2026-06-24T12:00:00Z".into();
+        s.save_recording(&done, &transcript(), &[]).unwrap();
+        s.save_summary("done", &summary("minutes", vec![])).unwrap();
+        // 音声だけ保存（ジョブなし）
+        let mut bare = rec("bare");
+        bare.created_at = "2026-06-24T11:00:00Z".into();
+        s.insert_recording_only(&bare).unwrap();
+        // 失敗したジョブのあとに再投入して処理中
+        let mut retry = rec("retry");
+        retry.created_at = "2026-06-24T10:00:00Z".into();
+        s.insert_recording_only(&retry).unwrap();
+        let p = JobParams { diarize: false, stt_lang: None, transcription_model: String::new(), lang: "ja".into() };
+        s.enqueue_job("j1", "retry", "transcribe", &p).unwrap();
+        s.set_job_failed("j1", "error.job.no_audio").unwrap();
+        s.enqueue_job("j2", "retry", "transcribe", &p).unwrap();
+        // 失敗したまま
+        let mut failed = rec("failed");
+        failed.created_at = "2026-06-24T09:00:00Z".into();
+        s.insert_recording_only(&failed).unwrap();
+        s.enqueue_job("j3", "failed", "diarize", &p).unwrap();
+        s.set_job_failed("j3", "error.job.no_speakers_found").unwrap();
+
+        let rows = s.list_recording_rows().unwrap();
+        let ids: Vec<_> = rows.iter().map(|r| r.recording.id.as_str()).collect();
+        assert_eq!(ids, ["done", "bare", "retry", "failed"], "newest first");
+        assert_eq!((rows[0].segment_count, rows[0].summary_count), (3, 1));
+        assert_eq!(rows[0].latest_job, None);
+        assert_eq!((rows[1].segment_count, rows[1].latest_job.clone()), (0, None));
+        let latest = rows[2].latest_job.as_ref().unwrap();
+        assert_eq!(latest.status, "pending", "the retry, not the earlier failure");
+        let failed = rows[3].latest_job.as_ref().unwrap();
+        assert_eq!((failed.kind.as_str(), failed.status.as_str()), ("diarize", "failed"));
+        assert_eq!(failed.error.as_deref(), Some("error.job.no_speakers_found"));
+    }
+
 }

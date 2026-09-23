@@ -11,7 +11,7 @@ import {
   getPendingMeeting,
   getSettings,
   listJobs,
-  listRecordings,
+  listRecordingRows,
   resolveMeetingTitle,
   setSettings,
   startMeetingRecording,
@@ -22,7 +22,7 @@ import {
   useMeetingLiveSnapshot,
   type LiveSnapshot,
 } from "@/lib/tauri";
-import { elapsedSeconds, formatTimestamp, type Recording, type StartingMeeting } from "@/lib/types";
+import { elapsedSeconds, formatTimestamp, type RecordingRow, type StartingMeeting } from "@/lib/types";
 import { Sidebar } from "@/components/Sidebar";
 import { CheckIcon, StopIcon, VideoIcon, XIcon } from "@/components/icons";
 
@@ -47,7 +47,7 @@ interface ToastItem {
 
 function App() {
   const [route, setRoute] = useState<Route>({ view: "home" });
-  const [recents, setRecents] = useState<Recording[]>([]);
+  const [recents, setRecents] = useState<RecordingRow[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastSeq = useRef(0);
   // UI 言語。真実は settings.json（起動時に load）。未確定の間は OS 言語で描画し、
@@ -92,7 +92,7 @@ function App() {
   }, []);
 
   const refreshRecents = useCallback(() => {
-    listRecordings()
+    listRecordingRows()
       .then(setRecents)
       .catch(() => {
         /* 履歴未初期化などは無視（サイドバーは空のまま） */
@@ -190,8 +190,9 @@ function App() {
     } else if (u.status === "done" || u.status === "failed" || u.status === "canceled") {
       clearJobStart(u.job_id);
     }
+    // 状態（失敗など）をサイドバーに反映する。
+    if (u.status === "done" || u.status === "failed" || u.status === "canceled") refreshRecents();
     if (u.status === "done") {
-      refreshRecents();
       toast(u.kind === "diarize" ? t.job.diarizeCompleted : t.job.transcribeCompleted, "success");
     } else if (u.status === "failed") {
       // 詳細画面がこのジョブを表示しているなら、そちらの赤枠（再試行つき）だけにする（#107）。

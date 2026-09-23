@@ -4,6 +4,7 @@ import {
   elapsedSeconds,
   formatDateTime,
   formatDuration,
+  recordingState,
   recordingTitle,
   segmentAt,
   formatDurationHuman,
@@ -154,5 +155,23 @@ describe("segmentAt (#110)", () => {
   it("is null before the first segment or with no segments", () => {
     expect(segmentAt([seg(0, 500)], 100)).toBeNull();
     expect(segmentAt([], 100)).toBeNull();
+  });
+});
+
+describe("recordingState (#109)", () => {
+  const recording = { id: "r", source_type: "mic" as const, title: null, duration_ms: 1, sample_rate: 16000, created_at: "" };
+  const row = (over: Partial<import("./types").RecordingRow>) => ({
+    recording, segment_count: 10, speaker_count: 0, summary_count: 0, latest_job: null, ...over,
+  });
+  const job = (status: string) => ({ kind: "transcribe", status, error: null });
+  it("puts processing and failure first", () => {
+    expect(recordingState(row({ latest_job: job("running") }))).toBe("processing");
+    expect(recordingState(row({ latest_job: job("pending"), segment_count: 0 }))).toBe("processing");
+    expect(recordingState(row({ latest_job: job("failed"), summary_count: 2 }))).toBe("failed");
+  });
+  it("then transcript and summary", () => {
+    expect(recordingState(row({ segment_count: 0 }))).toBe("untranscribed");
+    expect(recordingState(row({ latest_job: job("done"), summary_count: 1 }))).toBe("summarized");
+    expect(recordingState(row({ latest_job: job("canceled") }))).toBe("transcribed");
   });
 });

@@ -3,7 +3,7 @@ import { useApp, type ViewKind } from "@/lib/app";
 import { useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { openFeedbackForm } from "@/lib/feedback";
-import { formatDurationHuman, recordingTitle, type Recording } from "@/lib/types";
+import { formatDurationHuman, recordingState, recordingTitle, type RecordingRow } from "@/lib/types";
 import { LocalStatus } from "./composite";
 import {
   BrandMark,
@@ -42,7 +42,7 @@ export function Sidebar({
   recents,
   activeJobIds,
 }: {
-  recents: Recording[];
+  recents: RecordingRow[];
   /** 進行中ジョブ（pending|running）を持つ録音 id。最近リストに処理中ドットを出す（ADR-0024）。 */
   activeJobIds?: Set<string>;
 }) {
@@ -115,7 +115,7 @@ export function Sidebar({
           {recents.length === 0 ? (
             <div className="px-2.5 py-2 text-[12px] text-dim">{t.sidebar.recentEmpty}</div>
           ) : (
-            recents.slice(0, 12).map((r) => (
+            recents.slice(0, 12).map(({ recording: r, ...row }) => (
               <button
                 key={r.id}
                 onClick={() => navigate({ view: "detail", id: r.id })}
@@ -130,12 +130,20 @@ export function Sidebar({
                   <span className="truncate text-[13px] text-body">
                     {recordingTitle(r, lang)}
                   </span>
-                  {activeJobIds?.has(r.id) && (
+                  {activeJobIds?.has(r.id) ? (
                     <span
                       className="h-1.5 w-1.5 shrink-0 animate-mjpulse rounded-full bg-brand-light"
                       title={t.job.processing}
                     />
-                  )}
+                  ) : recordingState({ recording: r, ...row }) === "failed" ? (
+                    // 失敗は再起動後も残す（#109）。以前は完了時のトーストだけだった。
+                    <span
+                      role="img"
+                      aria-label={t.history.state.failed}
+                      title={t.history.state.failed}
+                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-light"
+                    />
+                  ) : null}
                 </span>
                 <span className="font-mono text-[11px] text-dim tnum">
                   {formatDurationHuman(r.duration_ms, lang)}

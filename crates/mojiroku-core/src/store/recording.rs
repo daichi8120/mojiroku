@@ -405,6 +405,38 @@ impl SqliteStore {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// 履歴一覧を状態つきで返す（created_at 降順・Issue #109）。直近のジョブは作成順で最後の 1 本。
+    pub fn list_recording_rows(&self) -> Result<Vec<RecordingRow>> {
+        let conn = self.conn();
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.source_type, r.title, r.duration_ms, r.sample_rate, r.created_at,
+                    (SELECT COUNT(*) FROM segments s WHERE s.recording_id = r.id),
+                    (SELECT COUNT(*) FROM speakers sp WHERE sp.recording_id = r.id),
+                    (SELECT COUNT(*) FROM summaries su WHERE su.recording_id = r.id),
+                    j.kind, j.status, j.error
+             FROM recordings r
+             LEFT JOIN jobs j ON j.id = (
+               SELECT id FROM jobs WHERE recording_id = r.id
+               ORDER BY created_at DESC, rowid DESC LIMIT 1
+             )
+             ORDER BY r.created_at DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let kind: Option<String> = r.get(9)?;
+            Ok(RecordingRow {
+                recording: row_to_recording(r)?,
+                segment_count: r.get::<_, i64>(6)? as u32,
+                speaker_count: r.get::<_, i64>(7)? as u32,
+                summary_count: r.get::<_, i64>(8)? as u32,
+                latest_job: match kind {
+                    Some(kind) => Some(JobBrief { kind, status: r.get(10)?, error: r.get(11)? }),
+                    None => None,
+                },
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// 履歴詳細（Recording + Transcript + 全 Summary）。無ければ `None`。
     pub fn get_recording_detail(&self, recording_id: &str) -> Result<Option<RecordingDetail>> {
         let conn = self.conn();
