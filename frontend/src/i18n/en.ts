@@ -116,6 +116,23 @@ const en: Dict = {
       `“${title}”, along with its transcript and summaries, will be deleted. This cannot be undone.`,
   },
 
+  setup: {
+    whisperName: "Transcription model (Whisper large-v3-turbo)",
+    vadName: "Silence detection (Silero VAD)",
+    home: {
+      title: "Set up the transcription model first",
+      body: "Transcription runs on this Mac, so the model is downloaded once. Getting it now means your first recording is transcribed right away and live transcription works in meetings.",
+    },
+    meeting: {
+      title: "Live transcription needs a model",
+      body: "You can record and save without it. To see the transcript during the meeting, download it first.",
+    },
+    live: {
+      title: "No live transcript for this meeting",
+      body: "The transcription model is not downloaded yet. Recording continues and is transcribed when you stop and save. Download it now to see live transcripts from your next meeting.",
+    },
+  },
+
   meeting: {
     translation: {
       title: "Live translation",
