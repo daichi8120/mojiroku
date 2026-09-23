@@ -281,7 +281,7 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
     let rec_dir = resolve_recordings_dir(app)?;
 
     // 既存の本文・source_type・旧話者/声紋を読む（軽い。await をまたがない）。
-    let (mut transcript, source_type, old_pairs, self_speaker, mic_offset_ms) = {
+    let (mut transcript, source_type, old_pairs, self_speaker, mic_offset_ms, had_speakers) = {
         let store = app.state::<SqliteStore>();
         let detail = store
             .get_recording_detail(&id)
@@ -314,12 +314,17 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
             .get_mic_offset_ms(&id)
             .map_err(|e| e.to_string())?
             .unwrap_or(0);
+        let had_speakers = detail
+            .speakers
+            .iter()
+            .any(|sp| sp.id != mojiroku_core::merge::SELF_SPEAKER_ID);
         (
             detail.transcript,
             detail.recording.source_type,
             old_pairs,
             self_speaker,
             offset,
+            had_speakers,
         )
     };
 
@@ -353,6 +358,12 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
         Err(join) => return Err(format!("error.job.failed: {join}")),
     };
 
+    // A re-run that finds no speech turns would erase every existing speaker. Keep the
+    // current assignments and report it instead (Issue #102).
+    if diar.turns.is_empty() && had_speakers {
+        return Err("error.job.no_speakers_found".to_string());
+    }
+
     // 本文へ新話者割当をマージ（純関数・text 不変）。
     let speakers = if source_type == SourceType::Live {
         // merge_tracks は開始が早かった側を後ろへずらして保存している。system 側がずれたのは
@@ -370,7 +381,8 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
             lang,
         )
     } else {
-        mojiroku_core::merge::assign_speakers(&mut transcript, &diar);
+        // From scratch, so labels from an older diarization do not survive (Issue #102).
+        mojiroku_core::merge::reassign_speakers(&mut transcript, &diar);
         diar.speakers.clone()
     };
 

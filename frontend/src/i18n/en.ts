@@ -683,6 +683,7 @@ const en: Dict = {
     "error.job.no_audio": "The audio file for this recording was not found",
     "error.job.no_transcript": "Transcribe this recording first",
     "error.job.no_pertrack": "This recording has no per-track audio",
+    "error.job.no_speakers_found": "No speakers were detected, so the current speaker assignments were kept",
     "error.job.unknown_kind": "Unknown job kind",
     "error.job.failed": "Processing failed",
   } as Record<string, string>,

@@ -29,6 +29,15 @@ pub fn assign_speakers(transcript: &mut Transcript, diar: &DiarizationResult) {
     }
 }
 
+/// Re-run on a single-track recording (Issue #102): every segment is assigned from scratch,
+/// so labels from an older diarization never survive. Unlike [`assign_speakers`], a segment
+/// with no overlapping turn becomes unassigned.
+pub fn reassign_speakers(transcript: &mut Transcript, diar: &DiarizationResult) {
+    for seg in &mut transcript.segments {
+        seg.speaker_id = best_turn(seg, diar, 0).map(str::to_string);
+    }
+}
+
 /// `seg` と最も長く重なる turn の話者。turn は `shift_ms` だけ後ろへずらして比べる。
 fn best_turn<'a>(seg: &Segment, diar: &'a DiarizationResult, shift_ms: u64) -> Option<&'a str> {
     let mut best: Option<(&str, u64)> = None;
@@ -279,6 +288,28 @@ mod tests {
         assert_eq!(speakers[0].display_name.as_deref(), Some("Daichi"));
         assert_eq!(speakers[1].id, "S1");
         assert_eq!(speakers[1].label, "相手1");
+    }
+
+    /// A re-run must not leave labels from the previous diarization on segments that the
+    /// new turns do not cover (they would point at a speaker that no longer exists).
+    #[test]
+    fn rediarization_clears_labels_the_new_turns_do_not_cover() {
+        let mut covered = seg(0, 1000);
+        covered.speaker_id = Some("S2".into());
+        let mut stale = seg(5000, 6000);
+        stale.speaker_id = Some("S7".into());
+        let mut t = Transcript {
+            language: None,
+            segments: vec![covered, stale],
+        };
+        let diar = DiarizationResult {
+            speakers: vec![speaker("S1", "話者1", None)],
+            turns: vec![turn(0, 1000, "S1")],
+            ..Default::default()
+        };
+        reassign_speakers(&mut t, &diar);
+        assert_eq!(t.segments[0].speaker_id.as_deref(), Some("S1"));
+        assert_eq!(t.segments[1].speaker_id, None);
     }
 
     #[test]

@@ -1007,6 +1007,34 @@ mod tests {
         assert_eq!(embs, ["N1".to_string(), "N2".to_string()].into_iter().collect());
     }
 
+    /// Re-diarizing a meeting keeps the user's own library link; remote links are recomputed.
+    #[test]
+    fn replace_speaker_assignments_keeps_the_self_library_link() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let me = Speaker { id: crate::merge::SELF_SPEAKER_ID.into(), label: "あなた".into(), display_name: None };
+        let guest = Speaker { id: "S1".into(), label: "相手1".into(), display_name: None };
+        let mut t = transcript_with_speakers();
+        t.segments[0].speaker_id = Some(me.id.clone());
+        s.save_recording(&rec("r1"), &t, &[me.clone(), guest.clone()]).unwrap();
+        s.add_library_speaker("p1", "本人").unwrap();
+        s.add_library_speaker("p2", "相手").unwrap();
+        s.link_speaker("r1", &me.id, "p1", 1.0).unwrap();
+        s.link_speaker("r1", "S1", "p2", 1.0).unwrap();
+
+        s.replace_speaker_assignments("r1", &t, &[me, guest], &[], "titanet", &[])
+            .unwrap();
+
+        let linked: Vec<String> = s
+            .conn()
+            .prepare("SELECT speaker_id FROM speaker_matches WHERE recording_id = 'r1'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(linked, vec![crate::merge::SELF_SPEAKER_ID.to_string()]);
+    }
+
     #[test]
     fn migrate_v4_to_v5_adds_jobs_and_stale_idempotent() {
         // v4 スキーマの「旧 DB」を用意し user_version=4 に固定 → migrate で v5 化。
