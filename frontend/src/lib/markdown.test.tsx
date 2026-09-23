@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Markdown, parseMarkdown } from "./markdown";
+import { Markdown, numberItems, parseMarkdown } from "./markdown";
 
 const minutes = `# 議題
 - リリース範囲の確認
@@ -43,6 +43,23 @@ describe("parseMarkdown (#106)", () => {
     const html = renderToStaticMarkup(<Markdown text={'<img src=x onerror="alert(1)"> **a**'} />);
     expect(html).not.toContain("<img");
     expect(html).toContain("&lt;img");
+  });
+
+  it("keeps a trailing hash that is part of the heading", () => {
+    const [h] = parseMarkdown("# C#");
+    expect(h.kind === "heading" && h.text).toBe("C#");
+    const [h2] = parseMarkdown("## 議題 ##");
+    expect(h2.kind === "heading" && h2.text).toBe("議題");
+  });
+
+  it("drops doubled heading markers", () => {
+    const [h] = parseMarkdown("## # 議題");
+    expect(h.kind === "heading" && h.text).toBe("議題");
+  });
+
+  it("numbers ordered items per nesting level", () => {
+    const [list] = parseMarkdown("1. a\n2. b\n   1. b-1\n   2. b-2\n3. c");
+    expect(list.kind === "list" && numberItems(list.items).map((x) => x.n)).toEqual([1, 2, 1, 2, 3]);
   });
 
   it("keeps a lone Japanese note asterisk as text", () => {

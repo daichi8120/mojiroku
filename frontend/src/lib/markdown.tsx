@@ -25,7 +25,8 @@ interface ListItem {
 
 const BULLET = /^(\s*)(?:[-*+•・])\s+(.*)$/;
 const ORDERED = /^(\s*)\d+[.)]\s+(.*)$/;
-const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+// 閉じの # は空白を挟んだものだけ（`# C#` の # は本文）。
+const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
 const RULE = /^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$/;
 const TABLE_ROW = /^\s*\|.*\|\s*$/;
 const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
@@ -49,7 +50,8 @@ export function parseMarkdown(src: string): Block[] {
     const h = HEADING.exec(line);
     if (h) {
       flush();
-      blocks.push({ kind: "heading", level: h[1].length, text: h[2] });
+      // モデルが「## # 議題」のように記号を重ねることがある。本文側の先頭 # も落とす。
+      blocks.push({ kind: "heading", level: h[1].length, text: h[2].replace(/^#+\s+/, "") });
       continue;
     }
     if (RULE.test(line)) {
@@ -148,6 +150,16 @@ export function renderInline(text: string): ReactNode[] {
   return out;
 }
 
+/** 番号付き箇条書きの番号を入れ子の深さごとに数える（深い項目のあとで浅い番号が続くように）。 */
+export function numberItems(items: ListItem[]): { it: ListItem; n: number }[] {
+  const counters: number[] = [];
+  return items.map((it) => {
+    counters.length = it.depth + 1;
+    counters[it.depth] = (counters[it.depth] ?? 0) + 1;
+    return { it, n: counters[it.depth] };
+  });
+}
+
 function withBreaks(text: string): ReactNode[] {
   return text.split("\n").map((part, i) => (
     <Fragment key={i}>
@@ -210,14 +222,14 @@ export function Markdown({ text, className }: { text: string; className?: string
             const Tag = b.ordered ? "ol" : "ul";
             return (
               <Tag key={i} className="flex flex-col gap-1">
-                {b.items.map((it, j) => (
+                {numberItems(b.items).map(({ it, n }, j) => (
                   <li
                     key={j}
                     className="flex gap-2"
                     style={{ paddingLeft: it.depth * 18 }}
                   >
                     <span aria-hidden className="w-4 shrink-0 text-center text-dim">
-                      {it.checked !== null ? (it.checked ? "☑" : "☐") : b.ordered ? `${j + 1}.` : "•"}
+                      {it.checked !== null ? (it.checked ? "☑" : "☐") : b.ordered ? `${n}.` : "•"}
                     </span>
                     <span className={cx("min-w-0", it.checked && "text-muted line-through")}>
                       {withBreaks(it.text)}
