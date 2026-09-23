@@ -347,7 +347,7 @@ const ja = {
     },
     share: {
       /** 詳細画面右上のボタン。コピー・書き出し・送信・AI で開くをまとめたメニュー（#105）。 */
-      button: "共有・書き出し",
+      button: "共有",
       secCopy: "コピー",
       minutesMd: "議事録（Markdown）",
       minutesMdSub: "見出し・箇条書きつき",

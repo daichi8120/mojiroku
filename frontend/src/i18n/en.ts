@@ -350,7 +350,7 @@ const en: Dict = {
       generate: "Generate",
     },
     share: {
-      button: "Share & export",
+      button: "Share",
       secCopy: "Copy",
       minutesMd: "Minutes (Markdown)",
       minutesMdSub: "With headings and bullet lists",
