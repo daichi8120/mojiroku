@@ -21,7 +21,7 @@ set, before any other sampling step (`llama_sampler_init_logit_bias` with negati
 infinity).
 
 This covers every Han block: Extension A, the unified block, compatibility ideographs,
-and the supplementary planes (Extensions B–I). "Outside the Japanese character set" means
+and the supplementary planes (Extensions B–J, J being added in Unicode 17). "Outside the Japanese character set" means
 not encodable in Windows-31J (JIS X 0208
 plus the common vendor extensions), plus 个 and 价, which that encoding happens to
 include. Kanji used in Japanese writing encode; simplified-only forms such as 进, 报,
