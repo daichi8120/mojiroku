@@ -3,6 +3,7 @@ import { AppCtx, type MeetingState, type MeetingStartResult, type Route, type To
 import { I18nCtx, detectLocale, dicts, resolveLocale, translateError, useI18n, type Locale } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { clearJobStart, markJobStart, markStageStart } from "@/lib/jobClock";
+import { isJobShown } from "@/lib/jobFocus";
 import {
   cancelMeetingRecording,
   checkSystemAudioPermission,
@@ -46,8 +47,6 @@ interface ToastItem {
 
 function App() {
   const [route, setRoute] = useState<Route>({ view: "home" });
-  const routeRef = useRef(route);
-  routeRef.current = route;
   const [recents, setRecents] = useState<Recording[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastSeq = useRef(0);
@@ -195,9 +194,8 @@ function App() {
       refreshRecents();
       toast(u.kind === "diarize" ? t.job.diarizeCompleted : t.job.transcribeCompleted, "success");
     } else if (u.status === "failed") {
-      // その録音の詳細を開いているなら、詳細画面の赤枠（再試行つき）だけにする（#107）。
-      const r = routeRef.current;
-      if (!(r.view === "detail" && r.id === u.recording_id)) {
+      // 詳細画面がこのジョブを表示しているなら、そちらの赤枠（再試行つき）だけにする（#107）。
+      if (!isJobShown(u.job_id)) {
         toast(u.error ? translateError(u.error, t) : t.job.failedToast, "error");
       }
     }

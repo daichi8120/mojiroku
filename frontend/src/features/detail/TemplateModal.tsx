@@ -60,11 +60,15 @@ export function TemplateModal({
   const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
+  // 今回開いたときの設定を読み終えたか。前回開いたときの engine が state に残っていても、
+  // 読み終えるまでは自動で始めない（設定がクラウドに変わっていたら送ってしまうため）。
+  const loadedRef = useRef(false);
 
   // モーダルを開くたびに最新の設定を読む（設定画面で変更され得るため）。
   useEffect(() => {
     if (!open) return;
     startedRef.current = false;
+    loadedRef.current = false;
     setEngine(null);
     setError(null);
     let active = true;
@@ -72,11 +76,15 @@ export function TemplateModal({
       .then((s) => {
         if (!active) return;
         setProvider(s.provider);
+        loadedRef.current = true;
         setEngine(s.engine);
       })
       .catch(() => {
         // 読めないときはクラウド扱い（自動では始めない）。
-        if (active) setEngine("cloud");
+        if (active) {
+          loadedRef.current = true;
+          setEngine("cloud");
+        }
       });
     return () => {
       active = false;
@@ -111,7 +119,9 @@ export function TemplateModal({
 
   // ローカルは開いたらすぐ始める（1 回だけ。失敗後の再試行はボタンで）。
   useEffect(() => {
-    if (open && shouldAutoStart(engine, replaces) && !startedRef.current) void generate();
+    if (open && loadedRef.current && shouldAutoStart(engine, replaces) && !startedRef.current) {
+      void generate();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, engine, replaces]);
 

@@ -3,6 +3,7 @@
 // 左サイドバーは App が描く。実機能: 取得 / 話者改名 / 話者訂正（発言単位）/ 要約生成 / 共有。
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { getJobStart, getStageStart, markJobStart } from "@/lib/jobClock";
+import { setShownJob } from "@/lib/jobFocus";
 import { useApp } from "@/lib/app";
 import { cx } from "@/lib/cx";
 import {
@@ -116,6 +117,11 @@ export function DetailView({ id }: { id: string }) {
   const [transcribeDiarize, setTranscribeDiarize] = useState(false);
   const [starting, setStarting] = useState(false);
   const processing = job?.status === "pending" || job?.status === "running";
+  // このジョブの失敗はこの画面で出す（App のトーストと二重にしない）。
+  useEffect(() => {
+    setShownJob(job?.id ?? null);
+    return () => setShownJob(null);
+  }, [job?.id]);
   const jobFailed = job?.status === "failed";
   // 実処理中（順番待ち=pending/queued を除く）だけ「ローディングが進んでいる」実感のため
   // 経過時間を刻む。core は多くの段で incremental % を出さない（stage,0,None のみ）ので、
