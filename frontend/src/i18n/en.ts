@@ -296,7 +296,7 @@ const en: Dict = {
     runTranscribeDiarize: "Separate speakers too",
     runDiarize: "Separate speakers",
     runDiarizeDesc: "Analyze who spoke and assign it to the transcript afterwards.",
-    rerunDiarize: "Re-run speaker separation",
+    rerunDiarize: "Redetect speakers",
     rerunDiarizeDesc:
       "Analyze the speakers again. Names you gave are kept when the voice matches. In meetings, your own lines stay as they are.",
     summaryStale: "May be out of date",
