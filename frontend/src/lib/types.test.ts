@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   SPEAKER_PALETTE,
   elapsedSeconds,
+  formatDateTime,
   formatDuration,
+  recordingTitle,
   formatDurationHuman,
   formatEventTime,
   formatTimestamp,
@@ -112,5 +114,23 @@ describe("speaker helpers", () => {
     expect(speakerName("S3", speakers, "ja")).toBe("話者3"); // 表に無い → 既定ラベル
     expect(speakerName("S1", undefined, "ja")).toBe("話者1"); // speakers 無し
     expect(speakerName("S3", speakers, "en")).toBe("Speaker 3"); // en の既定ラベル
+  });
+});
+
+describe("recordingTitle / formatDateTime (#105)", () => {
+  const base = { id: "r", sample_rate: 16000, duration_ms: 1000, created_at: "2026-09-21T01:00:00Z" };
+  it("keeps a real title", () => {
+    expect(recordingTitle({ ...base, source_type: "mic", title: " 定例 " }, "ja")).toBe("定例");
+  });
+  it("names untitled recordings by kind and time, the same way everywhere", () => {
+    const ja = recordingTitle({ ...base, source_type: "mic", title: null }, "ja");
+    expect(ja.startsWith("マイク録音（")).toBe(true);
+    expect(ja).not.toContain("無題");
+    const en = recordingTitle({ ...base, source_type: "live", title: "  " }, "en");
+    expect(en.startsWith("Meeting (")).toBe(true);
+  });
+  it("shows dates without seconds", () => {
+    const s = formatDateTime("2026-09-23T02:03:45Z", "ja");
+    expect(s).not.toMatch(/:\d\d:\d\d/);
   });
 });

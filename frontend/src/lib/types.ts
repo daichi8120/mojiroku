@@ -372,11 +372,32 @@ export function formatDurationHuman(ms: number, lang: Lang): string {
 /** Lang → toLocale* に渡す BCP 47 ロケール（OS 設定でなくアプリ言語に揃える）。 */
 const bcp47 = (lang: Lang) => (lang === "ja" ? "ja-JP" : "en-US");
 
-/** RFC3339(UTC) → アプリ言語のローカル日時表記。 */
+/** RFC3339(UTC) → アプリ言語のローカル日時表記（秒は出さない・#105）。 */
 export function formatDateTime(iso: string, lang: Lang): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(bcp47(lang));
+  return d.toLocaleString(bcp47(lang), {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * 録音の表示名。タイトルが無ければ「マイク録音（9月21日 10:00）」のように種類と日時で作る（#105）。
+ * 一覧・詳細・削除確認で同じ名前を出すため、表示はすべてここを通す。
+ */
+export function recordingTitle(rec: Recording, lang: Lang): string {
+  const title = rec.title?.trim();
+  if (title) return title;
+  const f = dicts[lang].format;
+  const d = new Date(rec.created_at);
+  const when = Number.isNaN(d.getTime())
+    ? rec.created_at
+    : d.toLocaleString(bcp47(lang), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return f.untitledTitle(f.sourceKind[rec.source_type] ?? f.sourceKind.file, when);
 }
 
 /** RFC3339(UTC) → 「6月27日」/ "June 27" のような短い日付。 */

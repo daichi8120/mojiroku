@@ -7,12 +7,9 @@ const en: Dict = {
     cancel: "Cancel",
     delete: "Delete",
     close: "Close",
-    copy: "Copy",
     open: "Open",
     retry: "Retry",
     loading: "Loading…",
-    untitled: "(Untitled)",
-    untitledRecording: "Untitled recording",
     clickToRename: "Click to rename",
   },
 
@@ -353,6 +350,7 @@ const en: Dict = {
       generate: "Generate",
     },
     share: {
+      button: "Share & export",
       secCopy: "Copy",
       minutesMd: "Minutes (Markdown)",
       minutesMdSub: "With headings and bullet lists",
@@ -611,6 +609,8 @@ const en: Dict = {
     eventTomorrow: (time: string) => `Tomorrow ${time}`,
     weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
     listSeparator: ", ",
+    untitledTitle: (kind: string, when: string) => `${kind} (${when})`,
+    sourceKind: { file: "Audio file", mic: "Mic recording", live: "Meeting" } as Record<"file" | "mic" | "live", string>,
   },
 
   // ⚠️ Output strings for export/print/AI prompts (distinct from in-app UI labels).

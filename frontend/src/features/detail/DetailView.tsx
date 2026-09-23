@@ -21,6 +21,7 @@ import { MOCK_PREVIEW } from "@/lib/mockData";
 import { translateError, useI18n } from "@/i18n";
 import {
   formatDateTime,
+  recordingTitle,
   formatDuration,
   type Job,
   type RecordingDetail,
@@ -502,7 +503,7 @@ export function DetailView({ id }: { id: string }) {
   }
 
   const rec = detail.recording;
-  const title = rec.title?.trim() || t.common.untitledRecording;
+  const title = recordingTitle(rec, lang);
   const meta = [formatDateTime(rec.created_at, lang), formatDuration(rec.duration_ms)];
   const speakers = detail.speakers ?? [];
   const hasTranscript = detail.transcript.segments.length > 0;
@@ -537,7 +538,7 @@ export function DetailView({ id }: { id: string }) {
                         setEditingTitle(false);
                       }
                     }}
-                    placeholder={t.common.untitledRecording}
+                    placeholder={recordingTitle({ ...rec, title: null }, lang)}
                     className="min-w-0 flex-1 rounded-tag border border-border-3 bg-surface-2 px-2.5 py-1 text-[18px] font-bold text-ink outline-none focus:border-brand"
                   />
                   <button
