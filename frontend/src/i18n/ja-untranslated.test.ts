@@ -41,7 +41,7 @@ describe("dictionaries", () => {
     for (const dict of [ja, en]) {
       const all: [string, string][] = [];
       leaves(dict, "", all);
-      const bad = all.filter(([, v]) => /近日|準備中|coming soon|\(soon\)/i.test(v));
+      const bad = all.filter(([, v]) => /近日|準備中|coming soon|\bsoon\b/i.test(v));
       expect(bad).toEqual([]);
     }
   });

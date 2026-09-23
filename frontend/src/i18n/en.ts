@@ -553,7 +553,7 @@ const en: Dict = {
         " (Notion = summary + transcript / Slack = summary only — sent even with local summaries); (3) ",
       localAiStrong: "open in an AI (ChatGPT / Claude)",
       localAiRest: " (includes the transcript). None of this happens automatically.",
-      storage: "Recordings, transcripts and summaries are stored only on this Mac. No usage data is sent.",
+      storage: "Recordings, transcripts and summaries are stored on this Mac. They leave it only through the actions above, and then the destination (Notion and others) keeps a copy. No usage data is sent.",
     },
     general: {
       desc: "App info and feedback.",
