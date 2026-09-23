@@ -48,10 +48,21 @@ lecture's content as decisions and action items, where 7B's "なし" was the bet
   model wins, ADR-0030), so nobody is made to download 2.7 GB behind their back.
   New installs and Macs without a summary model get 4B.
 
+## English output
+
+The gate above is Japanese only, and ADR-0043 does not apply to English output. One
+English minutes note was generated through the app (32-minute one-on-one, English UI):
+it contained no CJK characters and the four English headings, but 4B padded it with two
+to three blank lines between sections and a blank line between list items. The detail view
+renders summaries with `white-space: pre-wrap`, so the padding showed as large gaps.
+Local summaries now pass through `summarize::tidy_local_output` before they are saved: runs
+of blank lines collapse to one and consecutive list items are joined. On that note it
+removed 10 of 20 blank lines and left the text unchanged. Japanese gate outputs from 4B,
+7B and 9B had no such padding.
+
 ## Not measured
 
-- English summaries with 4B. The gate above is Japanese only; ADR-0043 does not apply
-  to English output.
+- English summaries beyond that single note.
 - Behaviour on an actual 8 GB Mac. Peak memory figures come from a larger machine.
 
 ## Verification

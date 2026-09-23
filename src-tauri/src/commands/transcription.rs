@@ -301,7 +301,8 @@ pub(crate) async fn summarize(
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    let content = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let content =
+        mojiroku_core::summarize::tidy_local_output(&String::from_utf8_lossy(&output.stdout));
     let summary = mojiroku_core::Summary {
         template_id,
         content,

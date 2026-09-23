@@ -114,10 +114,55 @@ pub fn build_prompt(transcript: &Transcript, template: &SummaryTemplate, lang: L
     )
 }
 
+/// Remove the blank-line padding some local models add before it is saved (ADR-0044).
+///
+/// The detail view renders summaries with `white-space: pre-wrap`, so every extra blank line
+/// shows up as a gap. Qwen3.5-4B writing English put two to three blank lines between
+/// sections and a blank line between list items. Headings keep one blank line before them;
+/// consecutive list items are joined. Text inside lines is not touched.
+pub fn tidy_local_output(text: &str) -> String {
+    let is_item = |l: &str| {
+        let t = l.trim_start();
+        t.starts_with("- ")
+            || t.starts_with("* ")
+            || t.split_once(". ")
+                .is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    let lines: Vec<&str> = text.trim().lines().map(str::trim_end).collect();
+    let mut out: Vec<&str> = Vec::with_capacity(lines.len());
+    for (i, line) in lines.iter().enumerate() {
+        if line.is_empty() {
+            let prev = out.last().copied().unwrap_or("");
+            let next = lines[i + 1..].iter().find(|l| !l.is_empty()).copied();
+            let between_items = is_item(prev) && next.is_some_and(is_item);
+            if prev.is_empty() || between_items {
+                continue;
+            }
+        }
+        out.push(line);
+    }
+    out.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::schemas::Segment;
+
+    #[test]
+    fn tidy_local_output_collapses_padding_but_keeps_sections() {
+        let raw = "# Agenda\n\nReview.\n\n\n\n# Decisions\n\n- One.\n\n- Two.\n\n1. A\n\n2. B\n\n\n# ToDo\n- Three.  \n";
+        assert_eq!(
+            tidy_local_output(raw),
+            "# Agenda\n\nReview.\n\n# Decisions\n\n- One.\n- Two.\n1. A\n2. B\n\n# ToDo\n- Three."
+        );
+    }
+
+    #[test]
+    fn tidy_local_output_leaves_compact_text_unchanged() {
+        let ja = "# 議題\n- 進捗の確認\n\n# 決定事項\nなし\n\n# ToDo\n- 資料を送る（担当：自分）";
+        assert_eq!(tidy_local_output(ja), ja);
+    }
 
     fn seg(text: &str, speaker: Option<&str>) -> Segment {
         Segment {
