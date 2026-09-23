@@ -5,6 +5,7 @@ import {
   formatDateTime,
   formatDuration,
   recordingTitle,
+  segmentAt,
   formatDurationHuman,
   formatEventTime,
   formatTimestamp,
@@ -137,5 +138,21 @@ describe("recordingTitle / formatDateTime (#105)", () => {
     it("shows dates without seconds", () => {
     const s = formatDateTime("2026-09-23T02:03:45Z", "ja");
     expect(s).not.toMatch(/:\d\d:\d\d/);
+  });
+});
+
+describe("segmentAt (#110)", () => {
+  const seg = (idx: number, start_ms: number) => ({ idx, start_ms, end_ms: start_ms + 900, text: "", speaker_id: null });
+  const segs = [seg(0, 0), seg(1, 1000), seg(2, 2500), seg(3, 4000)];
+  it("finds the segment under the playhead", () => {
+    expect(segmentAt(segs, 0)).toBe(0);
+    expect(segmentAt(segs, 999)).toBe(0);
+    expect(segmentAt(segs, 1000)).toBe(1);
+    expect(segmentAt(segs, 3000)).toBe(2);
+    expect(segmentAt(segs, 99999)).toBe(3);
+  });
+  it("is null before the first segment or with no segments", () => {
+    expect(segmentAt([seg(0, 500)], 100)).toBeNull();
+    expect(segmentAt([], 100)).toBeNull();
   });
 });

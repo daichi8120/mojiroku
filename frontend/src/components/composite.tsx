@@ -1,5 +1,5 @@
 // 複数ビューで再利用する複合コンポーネント。
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import {
@@ -53,6 +53,8 @@ export function TranscriptList({
   showTimestamps = true,
   translate,
   onSpeakerClick,
+  activeIdx,
+  onSeek,
   className,
 }: {
   segments: Segment[];
@@ -68,51 +70,105 @@ export function TranscriptList({
    * 他の利用箇所には影響しない。
    */
   onSpeakerClick?: (seg: Segment) => void;
+  /** 再生中の発言（Segment.idx）。強調表示する（#110）。 */
+  activeIdx?: number | null;
+  /** 時刻を押したときにその位置から再生する（#110）。渡さなければ時刻はただの文字。 */
+  onSeek?: (seg: Segment) => void;
   className?: string;
 }) {
-  const { t, lang } = useI18n();
   return (
     <ol className={cx("divide-y divide-line", className)}>
-      {segments.map((seg) => {
-        const ja = translate?.(seg) ?? null;
-        return (
-          <li key={seg.idx} className="flex gap-3 px-1 py-2.5 text-[15px] leading-relaxed">
-            {showTimestamps && (
-              <span className="shrink-0 pt-1 font-mono text-[11px] text-dim tnum">
-                {formatTimestamp(seg.start_ms)}
-              </span>
-            )}
-            {(seg.speaker_id || onSpeakerClick) && (
-              <span className="shrink-0 self-start">
-                <SpeakerChip
-                  id={seg.speaker_id}
-                  name={
-                    seg.speaker_id
-                      ? speakerName(seg.speaker_id, speakers, lang)
-                      : t.composite.speakerUnknown
-                  }
-                  onClick={onSpeakerClick ? () => onSpeakerClick(seg) : undefined}
-                  title={onSpeakerClick ? t.composite.clickToFixSpeaker : undefined}
-                />
-              </span>
-            )}
-            <div className="min-w-0">
-              <p className="text-speech break-words">{seg.text}</p>
-              {ja && (
-                <p className="mt-1 flex gap-1.5 text-[13px] text-sub">
-                  <span className="mt-px shrink-0 rounded bg-cyan/13 px-1 text-[11px] font-medium text-cyan">
-                    {t.composite.translated}
-                  </span>
-                  <span>{ja}</span>
-                </p>
-              )}
-            </div>
-          </li>
-        );
-      })}
+      {segments.map((seg) => (
+        <TranscriptRow
+          key={seg.idx}
+          seg={seg}
+          speakers={speakers}
+          showTimestamps={showTimestamps}
+          translated={translate?.(seg) ?? null}
+          onSpeakerClick={onSpeakerClick}
+          onSeek={onSeek}
+          active={activeIdx === seg.idx}
+        />
+      ))}
     </ol>
   );
 }
+
+// 行ごとに memo する。再生中は位置が 1 秒に数回変わるが、描き直すのは強調が移った 2 行だけで済む。
+const TranscriptRow = memo(function TranscriptRow({
+  seg,
+  speakers,
+  showTimestamps,
+  translated: ja,
+  onSpeakerClick,
+  onSeek,
+  active,
+}: {
+  seg: Segment;
+  speakers?: Speaker[];
+  showTimestamps: boolean;
+  translated: string | null;
+  onSpeakerClick?: (seg: Segment) => void;
+  onSeek?: (seg: Segment) => void;
+  active: boolean;
+}) {
+  const { t, lang } = useI18n();
+  return (
+    <li
+      data-seg-idx={seg.idx}
+      aria-current={active ? "true" : undefined}
+      className={cx(
+        "flex gap-3 rounded-ctl px-1 py-2.5 text-[15px] leading-relaxed transition-colors",
+        active && "bg-brand/10",
+      )}
+    >
+      {showTimestamps &&
+        (onSeek ? (
+          <button
+            data-seek
+            onClick={() => onSeek(seg)}
+            title={t.composite.playFromHere}
+            aria-label={`${t.composite.playFromHere} ${formatTimestamp(seg.start_ms)}`}
+            className={cx(
+              "h-fit shrink-0 rounded-tag px-1 pt-1 font-mono text-[11px] tnum transition-colors hover:bg-hover hover:text-brand-light",
+              active ? "text-brand-light" : "text-dim",
+            )}
+          >
+            {formatTimestamp(seg.start_ms)}
+          </button>
+        ) : (
+          <span className="shrink-0 pt-1 font-mono text-[11px] text-dim tnum">
+            {formatTimestamp(seg.start_ms)}
+          </span>
+        ))}
+      {(seg.speaker_id || onSpeakerClick) && (
+        <span className="shrink-0 self-start">
+          <SpeakerChip
+            id={seg.speaker_id}
+            name={
+              seg.speaker_id
+                ? speakerName(seg.speaker_id, speakers, lang)
+                : t.composite.speakerUnknown
+            }
+            onClick={onSpeakerClick ? () => onSpeakerClick(seg) : undefined}
+            title={onSpeakerClick ? t.composite.clickToFixSpeaker : undefined}
+          />
+        </span>
+      )}
+      <div className="min-w-0">
+        <p className="text-speech break-words">{seg.text}</p>
+        {ja && (
+          <p className="mt-1 flex gap-1.5 text-[13px] text-sub">
+            <span className="mt-px shrink-0 rounded bg-cyan/13 px-1 text-[11px] font-medium text-cyan">
+              {t.composite.translated}
+            </span>
+            <span>{ja}</span>
+          </p>
+        )}
+      </div>
+    </li>
+  );
+});
 
 // ── ライブ波形（mjbar） ────────────────────────────────────────────────────
 export function Waveform({

@@ -224,6 +224,7 @@ const en: Dict = {
     /** 発言単位の話者訂正（Issue #19）。 */
     speakerUnknown: "?",
     clickToFixSpeaker: "Click to fix the speaker",
+    playFromHere: "Play from here",
     fixSpeakerHeading: "Speaker for this line",
     fixSpeakerToUnknown: "Set to unknown",
     speakerFixed: "Speaker corrected",
@@ -307,6 +308,8 @@ const en: Dict = {
       play: "Play",
       pause: "Pause",
       seek: "Playback position",
+      spaceHint: "Play / pause (Space)",
+      follow: "Back to playback position",
     },
     speakerPanel: {
       title: "Speakers",

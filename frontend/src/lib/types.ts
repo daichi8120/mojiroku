@@ -320,6 +320,26 @@ export function speakerName(id: string, speakers: Speaker[] | undefined, lang: L
   return speakerLabelFromId(id, lang);
 }
 
+/**
+ * 再生位置 ms にあたる発言の idx（#110）。開始が ms 以下で最も遅い発言。最初の発言より前なら null。
+ * segments は start_ms 昇順（store が並べて返す）を前提に二分探索する。
+ */
+export function segmentAt(segments: Segment[], ms: number): number | null {
+  let lo = 0;
+  let hi = segments.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (segments[mid].start_ms <= ms) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found < 0 ? null : segments[found].idx;
+}
+
 // ── 時刻・日時フォーマット ─────────────────────────────────────────────
 
 /** ms → mm:ss（タイムスタンプ用）。 */
