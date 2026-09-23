@@ -27,14 +27,14 @@
   --color-border-2: #242a35;
   --color-border-3: #2a3140;
 
-  /* テキスト（濃→淡） */
+  /* テキスト（濃→淡）。disabled 以外は全サーフェス上で WCAG AA（4.5:1）以上（#104）。 */
   --color-ink: #e7e9ee;
   --color-speech: #d5d9e0;
   --color-body: #c8cdd6;
   --color-sub: #aeb4c0;
-  --color-muted: #8a91a0;
-  --color-faint: #6b7280;
-  --color-dim: #5b6270;
+  --color-muted: #9aa1ae;
+  --color-faint: #8f96a4;
+  --color-dim: #8a91a0;
   --color-disabled: #4b515e;
 
   /* ブランド / アクセント */
@@ -50,11 +50,26 @@
   --color-teal: #5eead4;
   --color-amber: #fcd34d;
   --color-red: #ef4444;
+  /* 白文字を載せる赤（停止・削除）。#ef4444 では白との比が 3.8:1 で足りない。 */
+  --color-danger: #dc2626;
   --color-red-light: #f87171;
   --color-pink: #f472b6;
   --color-purple: #a78bfa;
 
-  /* 角丸 */
+  /* 前景に載せる白（ブランド塗りボタンの文字など）。外観で変えない。 */
+  --color-on-brand: #ffffff;
+
+  /* 影（ポップオーバー・モーダル） */
+  --shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.6);
+  --shadow-modal: 0 28px 80px rgba(0, 0, 0, 0.6);
+  --shadow-cta: 0 10px 26px rgba(79, 70, 229, 0.35);
+
+  /* 文字サイズ（#104）。この 7 段だけを使う: 11 / 12 / 13 / 14 / 15 / 18 / 22 px。
+   * 長文（文字起こし・議事録）は 15px。text-[Npx] で書くときもこの値に限る。 */
+
+  /* 角丸（#104）。tag=小バッジ・アイコン台, ctl=小ボタン・入力, btn, card, win。 */
+  --radius-tag: 6px;
+  --radius-ctl: 8px;
   --radius-win: 14px;
   --radius-card: 12px;
   --radius-btn: 10px;
@@ -86,9 +101,102 @@
   50% { transform: scaleY(1); }
 }
 
+/* 話者の配色（8 色。文字 / 地 / ドット）。lib/types.ts の SPEAKER_PALETTE が参照する。
+ * 文字は地の上で 4.5:1 以上（#104）。 */
+:root {
+  --spk-1-text: #a5b4fc; --spk-1-bg: rgba(99, 102, 241, 0.15); --spk-1-dot: #818cf8;
+  --spk-2-text: #5eead4; --spk-2-bg: rgba(34, 211, 238, 0.14); --spk-2-dot: #22d3ee;
+  --spk-3-text: #fcd34d; --spk-3-bg: rgba(245, 158, 11, 0.15); --spk-3-dot: #fbbf24;
+  --spk-4-text: #f9a8d4; --spk-4-bg: rgba(244, 114, 182, 0.15); --spk-4-dot: #f472b6;
+  --spk-5-text: #c4b5fd; --spk-5-bg: rgba(167, 139, 250, 0.15); --spk-5-dot: #a78bfa;
+  --spk-6-text: #6ee7b7; --spk-6-bg: rgba(52, 211, 153, 0.14); --spk-6-dot: #34d399;
+  --spk-7-text: #fdba74; --spk-7-bg: rgba(251, 146, 60, 0.15); --spk-7-dot: #fb923c;
+  --spk-8-text: #93c5fd; --spk-8-bg: rgba(96, 165, 250, 0.15); --spk-8-dot: #60a5fa;
+  --spk-none-bg: rgba(148, 163, 184, 0.14);
+}
+
+/* ライト外観（macOS の設定に追従。#104）。@theme の既定（ダーク）を上書きする。
+ * 淡色のアクセント（green / amber …）は白地で読めないので、文字として読める濃さに差し替える。 */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg: #f5f6f8;
+    --color-surface: #ffffff;
+    --color-surface-2: #ffffff;
+    --color-chrome: #eef0f3;
+    --color-hover: #eef0f4;
+    --color-selected: #eceefb;
+    --color-popover: #ffffff;
+    --color-popover-2: #f1f2f6;
+
+    --color-line: #e6e8ec;
+    --color-border: #e2e5ea;
+    --color-border-2: #d9dde3;
+    --color-border-3: #cdd2da;
+
+    --color-ink: #14171c;
+    --color-speech: #1f242b;
+    --color-body: #2b313a;
+    --color-sub: #454d5a;
+    --color-muted: #566070;
+    --color-faint: #5a6371;
+    --color-dim: #5f6876;
+    --color-disabled: #a3a9b3;
+
+    --color-brand-light: #4f46e5;
+    --color-brand-lighter: #4338ca;
+    --color-brand-tint: #3730a3;
+
+    --color-green: #047857;
+    --color-green-light: #065f46;
+    --color-cyan: #0e7490;
+    --color-teal: #0f766e;
+    --color-amber: #8a5a00;
+    --color-red-light: #c81e1e;
+    --color-pink: #be185d;
+    --color-purple: #6d28d9;
+
+    --shadow-pop: 0 18px 50px rgba(15, 23, 42, 0.14);
+    --shadow-modal: 0 24px 64px rgba(15, 23, 42, 0.18);
+    --shadow-cta: 0 8px 20px rgba(79, 70, 229, 0.22);
+
+    --spk-1-text: #4338ca; --spk-1-bg: rgba(99, 102, 241, 0.14); --spk-1-dot: #6366f1;
+    --spk-2-text: #0e7490; --spk-2-bg: rgba(6, 182, 212, 0.14); --spk-2-dot: #06b6d4;
+    --spk-3-text: #8a5a00; --spk-3-bg: rgba(234, 179, 8, 0.16); --spk-3-dot: #eab308;
+    --spk-4-text: #be185d; --spk-4-bg: rgba(236, 72, 153, 0.13); --spk-4-dot: #ec4899;
+    --spk-5-text: #6d28d9; --spk-5-bg: rgba(139, 92, 246, 0.13); --spk-5-dot: #8b5cf6;
+    --spk-6-text: #047857; --spk-6-bg: rgba(16, 185, 129, 0.14); --spk-6-dot: #10b981;
+    --spk-7-text: #b43c0a; --spk-7-bg: rgba(249, 115, 22, 0.14); --spk-7-dot: #f97316;
+    --spk-8-text: #1d4ed8; --spk-8-bg: rgba(59, 130, 246, 0.13); --spk-8-dot: #3b82f6;
+    --spk-none-bg: rgba(100, 116, 139, 0.12);
+  }
+}
+
 /* ベース */
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
+}
+
+/* キーボード操作時の選択枠（#104）。レイヤ外に置いて outline-none 等のユーティリティより優先する。 */
+:focus-visible {
+  outline: 2px solid var(--color-brand-light);
+  outline-offset: 2px;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-offset: 0;
+}
+
+/* 「視差効果を減らす」設定では動きを止める（#104）。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 * {
   box-sizing: border-box;
@@ -121,6 +229,11 @@ body {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ブランドの塗り（主ボタン・ロゴ）。白文字と 5:1 以上（#104）。外観で変えない。 */
+.bg-brand-gradient {
+  background: linear-gradient(180deg, #5558ee, #4f46e5);
 }
 
 /* タイマー・タイムスタンプ用の等幅数字 */

@@ -31,7 +31,7 @@ import {
 
 function Sec({ children }: { children: ReactNode }) {
   return (
-    <div className="px-2 pb-1 pt-2 text-[10.5px] font-bold uppercase tracking-[0.07em] text-dim">
+    <div className="px-2 pb-1 pt-2 text-[11px] font-bold uppercase tracking-[0.07em] text-dim">
       {children}
     </div>
   );
@@ -48,7 +48,7 @@ function ExportFileButton({
   return (
     <button
       onClick={onClick}
-      className="rounded-[7px] border border-border-3 bg-popover-2 px-2.5 py-1 text-[11px] text-body transition-colors hover:bg-hover"
+      className="rounded-tag border border-border-3 bg-popover-2 px-2.5 py-1 text-[11px] text-body transition-colors hover:bg-hover"
     >
       {children}
     </button>
@@ -71,20 +71,20 @@ function CopyRow({
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-[9px] px-2 py-2 text-left transition-colors hover:bg-popover-2"
+      className="flex w-full items-center gap-2.5 rounded-ctl px-2 py-2 text-left transition-colors hover:bg-popover-2"
     >
       <span
         className={
           accent
-            ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] bg-[rgba(99,102,241,0.15)] text-brand-lighter"
-            : "flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] bg-surface-2 text-muted"
+            ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-tag bg-brand/15 text-brand-lighter"
+            : "flex h-7 w-7 shrink-0 items-center justify-center rounded-tag bg-surface-2 text-muted"
         }
       >
         {icon}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-semibold text-ink">{title}</span>
-        {sub && <span className="block text-[10.5px] text-faint">{sub}</span>}
+        {sub && <span className="block text-[11px] text-faint">{sub}</span>}
       </span>
       <CopyIcon size={13} className="shrink-0 text-faint" />
     </button>
@@ -106,14 +106,14 @@ function LinkRow({
   return (
     <button
       onClick={onClick}
-      className="mx-2 mb-1 flex w-[calc(100%-16px)] items-center gap-2.5 rounded-[9px] border border-border-3 bg-popover-2 px-2 py-2 text-left transition-colors hover:bg-hover"
+      className="mx-2 mb-1 flex w-[calc(100%-16px)] items-center gap-2.5 rounded-ctl border border-border-3 bg-popover-2 px-2 py-2 text-left transition-colors hover:bg-hover"
     >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] bg-surface-2 text-muted">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag bg-surface-2 text-muted">
         {icon}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block text-[13px] font-semibold text-ink">{title}</span>
-        <span className="block text-[10.5px] text-faint">{sub}</span>
+        <span className="block text-[11px] text-faint">{sub}</span>
       </span>
     </button>
   );
@@ -227,8 +227,7 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
           onClick={toggle}
           aria-haspopup="menu"
           aria-expanded={open}
-          className="inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11.5px] font-semibold text-white transition-[filter] hover:brightness-110"
-          style={{ background: "linear-gradient(180deg,#6366F1,#4F46E5)" }}
+          className="bg-brand-gradient inline-flex h-7 items-center gap-1.5 rounded-tag px-2.5 text-[12px] font-semibold text-white transition-[filter] hover:brightness-110"
         >
           <CopyIcon size={13} />
           {t.common.copy}
@@ -268,13 +267,13 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
           <div className="flex gap-2 px-2 pb-1.5">
             <button
               onClick={() => openAi(close, "chatgpt")}
-              className="h-[34px] flex-1 rounded-[9px] border border-border-3 bg-popover-2 text-[12px] font-semibold text-ink transition-colors hover:bg-hover"
+              className="h-9 flex-1 rounded-ctl border border-border-3 bg-popover-2 text-[12px] font-semibold text-ink transition-colors hover:bg-hover"
             >
               {t.detail.share.openChatGpt}
             </button>
             <button
               onClick={() => openAi(close, "claude")}
-              className="h-[34px] flex-1 rounded-[9px] border border-border-3 bg-popover-2 text-[12px] font-semibold text-ink transition-colors hover:bg-hover"
+              className="h-9 flex-1 rounded-ctl border border-border-3 bg-popover-2 text-[12px] font-semibold text-ink transition-colors hover:bg-hover"
             >
               {t.detail.share.openClaude}
             </button>
@@ -287,7 +286,7 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
               onClick={() =>
                 doExport(close, obsidianMarkdown(detail, lang), "md", t.detail.share.fmtObsidian)
               }
-              className="rounded-[7px] border border-brand/30 bg-[rgba(99,102,241,0.12)] px-2.5 py-1 text-[11px] font-semibold text-brand-lighter transition-colors hover:brightness-110"
+              className="rounded-tag border border-brand/30 bg-brand/12 px-2.5 py-1 text-[11px] font-semibold text-brand-lighter transition-colors hover:brightness-110"
             >
               {t.detail.share.obsidianNote}
             </button>
@@ -330,7 +329,7 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
               {t.detail.share.pdfButton}
             </ExportFileButton>
           </div>
-          <p className="px-2 pb-2 text-[10px] text-faint">{t.detail.share.exportNote}</p>
+          <p className="px-2 pb-2 text-[11px] text-faint">{t.detail.share.exportNote}</p>
 
           <div className="my-1.5 h-px bg-border-2" />
           <Sec>{t.detail.share.secIntegrations}</Sec>
@@ -346,9 +345,9 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
             sub={t.detail.share.slackSub}
             onClick={() => doSlack(close)}
           />
-          <p className="px-2 pb-2 text-[10px] text-faint">{t.detail.share.integrationsNote}</p>
+          <p className="px-2 pb-2 text-[11px] text-faint">{t.detail.share.integrationsNote}</p>
 
-          <div className="mt-1 flex items-center gap-1.5 border-t border-border-2 px-2 pb-1 pt-2 text-[10.5px] text-dim">
+          <div className="mt-1 flex items-center gap-1.5 border-t border-border-2 px-2 pb-1 pt-2 text-[11px] text-dim">
             <ShieldIcon size={11} />
             {t.detail.share.privacyFooter}
           </div>

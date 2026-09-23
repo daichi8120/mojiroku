@@ -34,7 +34,7 @@ function TemplateOption({
     <button
       onClick={onClick}
       className={cx(
-        "flex w-full items-center gap-3 rounded-[11px] border px-3 py-3 text-left transition-colors",
+        "flex w-full items-center gap-3 rounded-btn border px-3 py-3 text-left transition-colors",
         selected
           ? "border-brand bg-selected"
           : dashed
@@ -44,15 +44,15 @@ function TemplateOption({
     >
       <span
         className={cx(
-          "flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px]",
-          selected ? "bg-[rgba(99,102,241,0.18)] text-brand-lighter" : "bg-hover text-muted",
+          "flex h-9 w-[34px] shrink-0 items-center justify-center rounded-ctl",
+          selected ? "bg-brand/18 text-brand-lighter" : "bg-hover text-muted",
         )}
       >
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[13.5px] font-semibold text-ink">{title}</span>
-        <span className="mt-px block text-[11.5px] text-muted">{desc}</span>
+        <span className="block text-[14px] font-semibold text-ink">{title}</span>
+        <span className="mt-px block text-[12px] text-muted">{desc}</span>
       </span>
       {selected && (
         <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-brand text-white">
@@ -204,7 +204,7 @@ export function TemplateModal({
             <textarea
               disabled
               placeholder={t.detail.templateModal.customPlaceholder}
-              className="h-20 w-full resize-none rounded-[10px] border border-border-2 bg-surface-2 px-3 py-2 text-[12.5px] text-body placeholder:text-dim disabled:opacity-70"
+              className="h-20 w-full resize-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2 text-[13px] text-body placeholder:text-dim disabled:opacity-70"
             />
             <p className="text-[11px] text-amber">{t.detail.templateModal.customSoonNote}</p>
           </div>
@@ -216,10 +216,10 @@ export function TemplateModal({
           {t.detail.templateModal.engineSection}
         </div>
         {isCloud ? (
-          <div className="rounded-[10px] border border-amber/30 bg-amber/10 px-3 py-2.5">
+          <div className="rounded-btn border border-amber/30 bg-amber/10 px-3 py-2.5">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 shrink-0 rounded-full bg-amber" />
-              <span className="text-[12.5px] font-semibold text-ink">
+              <span className="text-[13px] font-semibold text-ink">
                 {t.detail.templateModal.cloudBadge(PROVIDER_LABEL[provider])}
               </span>
             </div>
@@ -228,17 +228,17 @@ export function TemplateModal({
             </p>
           </div>
         ) : (
-          <div className="rounded-[10px] border border-border-2 bg-surface-2 px-3 py-2.5">
+          <div className="rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 shrink-0 rounded-full bg-green" />
-              <span className="text-[12.5px] font-semibold text-ink">
+              <span className="text-[13px] font-semibold text-ink">
                 {t.detail.templateModal.localBadge}
               </span>
             </div>
             <p className="mt-1.5 text-[11px] text-green">{t.detail.templateModal.localNote}</p>
           </div>
         )}
-        <p className="mt-1.5 text-[10.5px] text-faint">{t.detail.templateModal.engineHint}</p>
+        <p className="mt-1.5 text-[11px] text-faint">{t.detail.templateModal.engineHint}</p>
       </div>
 
       <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3.5">

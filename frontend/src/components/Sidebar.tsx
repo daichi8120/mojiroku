@@ -59,8 +59,8 @@ export function Sidebar({
     <aside className="flex h-full w-[236px] shrink-0 flex-col border-r border-border bg-surface">
       {/* ロゴ */}
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
-        <BrandMark size={28} className="rounded-[8px]" />
-        <span className="text-[16px] font-bold tracking-tight text-ink">mojiroku</span>
+        <BrandMark size={28} className="rounded-ctl" />
+        <span className="text-[15px] font-bold tracking-tight text-ink">mojiroku</span>
       </div>
 
       {/* 新しい録音 */}
@@ -68,8 +68,7 @@ export function Sidebar({
         <button
           onClick={() => navigate({ view: "home" })}
           disabled={locked}
-          className="flex w-full items-center justify-center gap-2 rounded-btn py-2.5 text-[13px] font-medium text-white transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
-          style={{ background: "linear-gradient(180deg,#6366F1,#4F46E5)" }}
+          className="bg-brand-gradient flex w-full items-center justify-center gap-2 rounded-btn py-2.5 text-[13px] font-medium text-white transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
         >
           <PlusIcon size={16} />
           {t.sidebar.newRecording}
@@ -87,7 +86,7 @@ export function Sidebar({
               onClick={() => navigate({ view: item.view })}
               disabled={locked}
               className={cx(
-                "flex items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13px] transition-colors",
+                "flex items-center gap-2.5 rounded-ctl px-2.5 py-2 text-[13px] transition-colors",
                 isActive
                   ? "bg-hover text-ink"
                   : "text-sub hover:bg-hover/60 hover:text-body",
@@ -98,7 +97,7 @@ export function Sidebar({
               <span className="flex-1 text-left">{t.sidebar.nav[item.view]}</span>
               {item.view === "meeting" && meetingRecording && (
                 <span
-                  className="h-2 w-2 animate-mjpulse rounded-full bg-red shadow-[0_0_0_3px_rgba(239,68,68,0.18)]"
+                  className="h-2 w-2 animate-mjpulse rounded-full bg-red ring-[3px] ring-red/20"
                   title={t.sidebar.recordingDot}
                 />
               )}
@@ -109,7 +108,7 @@ export function Sidebar({
 
       {/* 最近 */}
       <div className="mt-1 flex min-h-0 flex-1 flex-col px-3">
-        <div className="px-2.5 pb-1.5 pt-2 text-[10.5px] font-medium uppercase tracking-[0.08em] text-dim">
+        <div className="px-2.5 pb-1.5 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
           {t.sidebar.recent}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -122,13 +121,13 @@ export function Sidebar({
                 onClick={() => navigate({ view: "detail", id: r.id })}
                 disabled={locked}
                 className={cx(
-                  "flex w-full flex-col rounded-[8px] px-2.5 py-1.5 text-left transition-colors hover:bg-hover/60",
+                  "flex w-full flex-col rounded-ctl px-2.5 py-1.5 text-left transition-colors hover:bg-hover/60",
                   route.view === "detail" && route.id === r.id && "bg-hover",
                   locked && "opacity-40 pointer-events-none",
                 )}
               >
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate text-[12.5px] text-body">
+                  <span className="truncate text-[13px] text-body">
                     {r.title || t.common.untitled}
                   </span>
                   {activeJobIds?.has(r.id) && (
@@ -138,7 +137,7 @@ export function Sidebar({
                     />
                   )}
                 </span>
-                <span className="font-mono text-[10.5px] text-dim tnum">
+                <span className="font-mono text-[11px] text-dim tnum">
                   {formatDurationHuman(r.duration_ms, lang)}
                 </span>
               </button>
@@ -151,7 +150,7 @@ export function Sidebar({
       <div className="px-3 pt-2">
         <button
           onClick={() => void openFeedbackForm().catch(() => {})}
-          className="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[12.5px] text-sub transition-colors hover:bg-hover/60 hover:text-body"
+          className="flex w-full items-center gap-2.5 rounded-ctl px-2.5 py-2 text-[13px] text-sub transition-colors hover:bg-hover/60 hover:text-body"
         >
           <MessageIcon size={16} />
           <span className="flex-1 text-left">{t.sidebar.sendFeedback}</span>

@@ -77,7 +77,7 @@ export function MeetingView() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-8 py-12">
         <div className="w-full max-w-[460px] rounded-win border border-border bg-surface p-8 text-center">
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[14px] bg-brand/15 text-brand-light">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-win bg-brand/15 text-brand-light">
             <VideoIcon size={26} />
           </span>
           <h1 className="mt-4 text-[18px] font-bold text-ink">{t.meeting.idle.title}</h1>
@@ -85,16 +85,16 @@ export function MeetingView() {
 
           {denied ? (
             <div className="mt-6 rounded-card border border-amber/30 bg-amber/10 px-4 py-3.5 text-left">
-              <div className="flex items-center gap-2 text-[12.5px] font-medium text-amber">
+              <div className="flex items-center gap-2 text-[13px] font-medium text-amber">
                 <ShieldIcon size={15} />
                 {t.meeting.idle.permTitle}
               </div>
-              <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
                 {t.meeting.idle.permBody}
               </p>
               <button
                 onClick={begin}
-                className="mt-3 inline-flex h-9 items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-4 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover"
+                className="mt-3 inline-flex h-9 items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-hover"
               >
                 {t.meeting.idle.permStart}
               </button>
@@ -102,8 +102,7 @@ export function MeetingView() {
           ) : (
             <button
               onClick={begin}
-              className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-btn text-[14px] font-medium text-white transition-[filter] hover:brightness-110"
-              style={{ background: "linear-gradient(180deg,#6366F1,#4F46E5)" }}
+              className="bg-brand-gradient mt-6 inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-btn text-[14px] font-medium text-white transition-[filter] hover:brightness-110"
             >
               <span className="h-2.5 w-2.5 rounded-full bg-white/90" />
               {t.meeting.idle.start}
@@ -127,7 +126,7 @@ export function MeetingView() {
       {/* ヘッダ */}
       <header className="flex items-center justify-between gap-4 border-b border-line px-6 py-3.5">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-brand/15 text-brand-light">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-light">
             <VideoIcon size={18} />
           </span>
           <div className="min-w-0">
@@ -141,7 +140,7 @@ export function MeetingView() {
         <div className="flex shrink-0 items-center gap-3.5">
           {/* システム音声 + マイク レベルメータ */}
           <div className="flex items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-3 py-1.5">
-            <span className="text-[11.5px] text-body">
+            <span className="text-[12px] text-body">
               {capturing ? t.meeting.live.meterCapturing : t.app.meetingBar.saving}
             </span>
             <span className="flex h-3.5 items-end gap-0.5">
@@ -163,7 +162,7 @@ export function MeetingView() {
 
           {/* 録音タイマー */}
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-mjpulse rounded-full bg-red shadow-[0_0_0_3px_rgba(239,68,68,0.18)]" />
+            <span className="h-2 w-2 animate-mjpulse rounded-full bg-red ring-[3px] ring-red/20" />
             <span className="font-mono text-[13px] text-ink tnum">
               {formatTimestamp(elapsed * 1000)}
             </span>
@@ -180,11 +179,9 @@ export function MeetingView() {
           </Button>
 
           <Button
-            variant="primary"
+            variant="destructive"
             size="sm"
             icon={<StopIcon size={14} />}
-            className="shadow-[0_10px_26px_rgba(239,68,68,0.35)]"
-            style={{ background: "#EF4444" }}
             onClick={() => void stopMeeting()}
             disabled={stopping}
           >
@@ -218,7 +215,7 @@ export function MeetingView() {
                     <div key={l.id} className="py-1">
                       <span
                         className={cx(
-                          "text-[13.5px] leading-[1.7]",
+                          "text-[14px] leading-[1.7]",
                           l.committed ? "text-speech" : "text-muted",
                         )}
                       >
@@ -239,7 +236,7 @@ export function MeetingView() {
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
                 <span className="h-2 w-2 animate-mjpulse rounded-full bg-red" />
                 <span className="text-[13px] text-body">{t.meeting.live.warmupTitle}</span>
-                <span className="text-[11.5px] text-muted">{t.meeting.live.warmupHint}</span>
+                <span className="text-[12px] text-muted">{t.meeting.live.warmupHint}</span>
               </div>
             )}
           </div>

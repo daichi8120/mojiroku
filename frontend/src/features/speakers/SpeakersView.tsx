@@ -25,7 +25,7 @@ import {
 function Avatar({ id, initial }: { id: string; initial: string }) {
   return (
     <span
-      className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white"
+      className="flex h-8 w-[30px] shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white"
       style={{ background: speakerInk(id).dot }}
     >
       {initial}
@@ -96,7 +96,7 @@ export function SpeakersView() {
       {/* ヘッダ */}
       <header className="flex items-center gap-2.5">
         <UsersIcon size={20} className="text-brand-light" />
-        <h1 className="text-[17px] font-bold text-ink">{t.speakers.title}</h1>
+        <h1 className="text-[18px] font-bold text-ink">{t.speakers.title}</h1>
       </header>
 
       {/* プライバシーカード */}
@@ -182,13 +182,13 @@ export function SpeakersView() {
                   <div className="absolute right-2 top-2 flex items-center gap-1">
                     <button
                       onClick={() => void remove(v.id)}
-                      className="rounded border-0 bg-red/15 px-1.5 py-0.5 text-[10px] text-red transition-colors hover:bg-red/25"
+                      className="rounded border-0 bg-red/15 px-1.5 py-0.5 text-[11px] text-red transition-colors hover:bg-red/25"
                     >
                       {t.common.delete}
                     </button>
                     <button
                       onClick={() => setConfirmDelete(null)}
-                      className="rounded border-0 bg-surface-2 px-1.5 py-0.5 text-[10px] text-sub"
+                      className="rounded border-0 bg-surface-2 px-1.5 py-0.5 text-[11px] text-sub"
                     >
                       {t.speakers.cancelDelete}
                     </button>
@@ -197,6 +197,7 @@ export function SpeakersView() {
                   <button
                     onClick={() => setConfirmDelete(v.id)}
                     title={t.common.delete}
+                    aria-label={t.common.delete}
                     className="absolute right-2 top-2 rounded border-0 bg-transparent p-1 text-muted opacity-0 transition-opacity hover:text-red group-hover:opacity-100"
                   >
                     <TrashIcon size={13} />

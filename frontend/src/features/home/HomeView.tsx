@@ -124,28 +124,26 @@ export function HomeView() {
   return (
     <div className="mx-auto flex max-w-[760px] flex-col gap-6 px-8 py-10">
       <header>
-        <h1 className="text-[17px] font-bold text-ink">{t.home.title}</h1>
+        <h1 className="text-[18px] font-bold text-ink">{t.home.title}</h1>
         <p className="mt-1 text-[13px] text-muted">{t.home.subtitle}</p>
       </header>
 
       {/* 会議モード（主役） */}
       <button
         onClick={beginMeeting}
-        className="group relative flex items-center gap-4 overflow-hidden rounded-win border border-brand/30 px-6 py-6 text-left transition-[filter] hover:brightness-[1.06]"
-        style={{ background: "linear-gradient(135deg,rgba(99,102,241,0.18),rgba(79,70,229,0.10))" }}
+        className="group relative flex items-center gap-4 overflow-hidden rounded-win border border-brand/30 bg-linear-135 from-brand/18 to-brand-2/10 px-6 py-6 text-left transition-[filter] hover:brightness-[1.06]"
       >
         <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand/20 text-brand-light">
           <VideoIcon size={28} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] font-bold text-ink">{t.home.meetingCard.title}</span>
-          <span className="mt-1 block text-[12.5px] leading-relaxed text-muted">
+          <span className="mt-1 block text-[13px] leading-relaxed text-muted">
             {t.home.meetingCard.desc}
           </span>
         </span>
         <span
-          className="inline-flex h-10 shrink-0 items-center gap-2 rounded-btn px-5 text-[13px] font-medium text-white"
-          style={{ background: "linear-gradient(180deg,#6366F1,#4F46E5)" }}
+          className="bg-brand-gradient inline-flex h-10 shrink-0 items-center gap-2 rounded-btn px-5 text-[13px] font-medium text-white"
         >
           {recording ? (
             <>
@@ -182,14 +180,14 @@ export function HomeView() {
           busy && "opacity-60",
         )}
       >
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[rgba(99,102,241,0.12)] text-brand-light">
+        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/12 text-brand-light">
           <FileAudioIcon size={24} />
         </span>
         <span className="text-center">
           <span className="block text-[14px] font-medium text-ink">
             {t.home.dropTitle}
           </span>
-          <span className="mt-1 block font-mono text-[11.5px] text-dim">
+          <span className="mt-1 block font-mono text-[12px] text-dim">
             mp3 / wav / m4a / flac / aac / ogg
           </span>
         </span>

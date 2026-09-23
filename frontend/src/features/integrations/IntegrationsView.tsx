@@ -324,10 +324,10 @@ export function IntegrationsView() {
     <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-8 py-10">
       <header>
         <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-btn bg-[rgba(167,139,250,0.14)] text-purple">
+          <span className="flex h-9 w-9 items-center justify-center rounded-btn bg-purple/14 text-purple">
             <PlugIcon size={18} />
           </span>
-          <h1 className="text-[17px] font-bold text-ink">{t.integrations.title}</h1>
+          <h1 className="text-[18px] font-bold text-ink">{t.integrations.title}</h1>
         </div>
         <p className="mt-1.5 text-[13px] text-muted">{t.integrations.intro}</p>
       </header>
@@ -353,7 +353,7 @@ export function IntegrationsView() {
             {/* 接続済みカード（⚠️ URL/メールは表示しない。状態のみ） */}
             <div className="rounded-card border border-border bg-surface px-4 py-3.5">
               <div className="flex items-center gap-3">
-                <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-[rgba(99,102,241,0.15)] text-brand-light">
+                <span className="flex h-9 w-[34px] shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-light">
                   <CalendarIcon size={17} />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -417,7 +417,7 @@ export function IntegrationsView() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] text-ink">{ev.title}</div>
                       {ev.location && (
-                        <div className="mt-0.5 truncate text-[10.5px] text-faint">{ev.location}</div>
+                        <div className="mt-0.5 truncate text-[11px] text-faint">{ev.location}</div>
                       )}
                     </div>
                     <Button size="sm" variant="primary" onClick={() => prepare(ev)}>
@@ -427,7 +427,7 @@ export function IntegrationsView() {
                 ))
               )}
             </div>
-            <p className="text-[10.5px] text-faint">{t.integrations.calendar.cacheNote}</p>
+            <p className="text-[11px] text-faint">{t.integrations.calendar.cacheNote}</p>
           </>
         ) : (
           // 未連携: Google OAuth ワンクリック連携
@@ -435,7 +435,7 @@ export function IntegrationsView() {
             <div className="text-[13px] font-semibold text-ink">
               {t.integrations.calendar.connectTitle}
             </div>
-            <div className="mt-1 text-[11.5px] text-sub">{t.integrations.calendar.connectDesc}</div>
+            <div className="mt-1 text-[12px] text-sub">{t.integrations.calendar.connectDesc}</div>
             <div className="mt-3">
               <Button variant="primary" onClick={connect} disabled={busy}>
                 {busy ? t.integrations.connect.waitingBrowser : t.integrations.calendar.connectCta}
@@ -484,7 +484,7 @@ export function IntegrationsView() {
             >
               <span
                 className={cx(
-                  "flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-btn bg-surface-2",
+                  "flex h-8 w-[30px] shrink-0 items-center justify-center rounded-btn bg-surface-2",
                   p.connected ? "text-brand-light" : "text-muted",
                 )}
               >
@@ -512,7 +512,7 @@ export function IntegrationsView() {
         {/* Notion */}
         <div className="rounded-card border border-border bg-surface p-4">
           <div className="flex items-center gap-2">
-            <div className="text-[13.5px] font-bold text-ink">Notion</div>
+            <div className="text-[14px] font-bold text-ink">Notion</div>
             {notionSaved && cfg?.notion_parent_id.trim() ? (
               <StatusBadge tone="green">{t.integrations.export.configured}</StatusBadge>
             ) : notionSaved ? (
@@ -521,7 +521,7 @@ export function IntegrationsView() {
               <StatusBadge tone="neutral">{t.integrations.export.notConfigured}</StatusBadge>
             )}
           </div>
-          <div className="mt-1 text-[11.5px] text-sub">{t.integrations.notion.desc}</div>
+          <div className="mt-1 text-[12px] text-sub">{t.integrations.notion.desc}</div>
 
           {/* 連携ボタン（OAuth・Worker ブローカー経由。事前のインテグレーション作成やトークン貼り付けは不要） */}
           <ConnectRow
@@ -535,12 +535,12 @@ export function IntegrationsView() {
           {/* 書き出し先ページ（連携後に共有を許可したページから選ぶ） */}
           {notionSaved && (
             <div className="mt-3">
-              <div className="mb-1.5 text-[11.5px] text-sub">{t.integrations.notion.parentLabel}</div>
+              <div className="mb-1.5 text-[12px] text-sub">{t.integrations.notion.parentLabel}</div>
               {notionPages.length > 0 ? (
                 <select
                   value={cfg?.notion_parent_id ?? ""}
                   onChange={(e) => patch({ notion_parent_id: e.target.value })}
-                  className="w-full rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 text-[12.5px] text-body focus:border-brand focus:outline-none"
+                  className="w-full rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 text-[13px] text-body focus:border-brand focus:outline-none"
                 >
                   <option value="">{t.integrations.notion.parentPlaceholder}</option>
                   {notionPages.map((p) => (
@@ -550,7 +550,7 @@ export function IntegrationsView() {
                   ))}
                 </select>
               ) : (
-                <div className="rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 text-[11.5px] text-muted">
+                <div className="rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 text-[12px] text-muted">
                   {t.integrations.notion.noPages}
                 </div>
               )}
@@ -581,14 +581,14 @@ export function IntegrationsView() {
         {/* Slack */}
         <div className="rounded-card border border-border bg-surface p-4">
           <div className="flex items-center gap-2">
-            <div className="text-[13.5px] font-bold text-ink">Slack</div>
+            <div className="text-[14px] font-bold text-ink">Slack</div>
             {slackSaved ? (
               <StatusBadge tone="green">{t.integrations.export.configured}</StatusBadge>
             ) : (
               <StatusBadge tone="neutral">{t.integrations.export.notConfigured}</StatusBadge>
             )}
           </div>
-          <div className="mt-1 text-[11.5px] text-sub">{t.integrations.slack.desc}</div>
+          <div className="mt-1 text-[12px] text-sub">{t.integrations.slack.desc}</div>
 
           {/* 連携ボタン（OAuth・loopback + PKCE。事前のアプリ作成や URL 貼り付けは不要） */}
           <ConnectRow
@@ -621,7 +621,7 @@ export function IntegrationsView() {
         </div>
       </section>
 
-      <p className="text-[11.5px] text-faint">{t.integrations.footer}</p>
+      <p className="text-[12px] text-faint">{t.integrations.footer}</p>
     </div>
   );
 }

@@ -374,7 +374,7 @@ function App() {
           <div
             key={t.id}
             className={cx(
-              "animate-mjfade flex items-center gap-2 rounded-[10px] border px-3.5 py-2 text-[12.5px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]",
+              "animate-mjfade flex items-center gap-2 rounded-btn border px-3.5 py-2 text-[13px] shadow-pop",
               t.kind === "error"
                 ? "border-red/40 bg-surface text-red-light"
                 : t.kind === "success"
@@ -418,9 +418,9 @@ function MeetingBar({
 
   return (
     <div className="pointer-events-none fixed left-1/2 top-4 z-[55] flex -translate-x-1/2">
-      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border-3 bg-surface/95 py-2 pl-3.5 pr-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur">
-        <span className="flex items-center gap-2 text-[12.5px] text-body">
-          <span className="h-2 w-2 animate-mjpulse rounded-full bg-red shadow-[0_0_0_3px_rgba(239,68,68,0.18)]" />
+      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border-3 bg-surface/95 py-2 pl-3.5 pr-2 shadow-pop backdrop-blur">
+        <span className="flex items-center gap-2 text-[13px] text-body">
+          <span className="h-2 w-2 animate-mjpulse rounded-full bg-red ring-[3px] ring-red/20" />
           {t.app.meetingBar.recording}
           <span className="font-mono text-ink tnum">{formatTimestamp(elapsed * 1000)}</span>
         </span>
@@ -434,8 +434,7 @@ function MeetingBar({
         <button
           onClick={onStop}
           disabled={stopping}
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium text-white transition-[filter] hover:brightness-110 disabled:opacity-60"
-          style={{ background: "#EF4444" }}
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium bg-danger text-on-brand transition-[filter] hover:brightness-110 disabled:opacity-60"
         >
           <StopIcon size={13} />
           {stopping ? t.app.meetingBar.saving : t.app.meetingBar.stopAndSave}
@@ -471,14 +470,14 @@ function MeetingStartPrompt({
   const { t } = useI18n();
   return (
     <div className="fixed bottom-5 right-5 z-[58] w-[320px] max-w-[calc(100vw-2.5rem)]">
-      <div className="rounded-[14px] border border-border-3 bg-surface/95 p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur">
+      <div className="rounded-win border border-border-3 bg-surface/95 p-4 shadow-pop backdrop-blur">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand-light">
             <VideoIcon size={16} />
           </span>
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-ink">{t.app.meetingStartPrompt.heading}</p>
-            <p className="mt-0.5 truncate text-[12.5px] text-body">
+            <p className="mt-0.5 truncate text-[13px] text-body">
               {t.app.meetingStartPrompt.body(title)}
             </p>
           </div>
@@ -492,8 +491,7 @@ function MeetingStartPrompt({
           </button>
           <button
             onClick={onRecord}
-            className="inline-flex items-center gap-1.5 rounded-btn px-3 py-1.5 text-[12px] font-medium text-white transition-[filter] hover:brightness-110"
-            style={{ background: "#EF4444" }}
+            className="inline-flex items-center gap-1.5 rounded-btn px-3 py-1.5 text-[12px] font-medium bg-danger text-on-brand transition-[filter] hover:brightness-110"
           >
             <VideoIcon size={13} />
             {t.app.meetingStartPrompt.record}

@@ -52,10 +52,10 @@ import { AudioPlayer } from "./AudioPlayer";
 
 // チャプターはモック（トピック自動分割は未実装・Studio 15）。
 const CHAPTERS = [
-  { time: "00:00", color: "#6366F1", grow: 2.1, title: "ベータ配布の状況", dur: "2分", body: "未署名ビルドの初回起動でつまずく人が多く、許可手順に画像を追加。" },
-  { time: "02:10", color: "#22D3EE", grow: 3.3, title: "オンボーディング刷新", dur: "3.5分", body: "「ローカル完結・基本無料」を初回画面の主役に据える方針で合意。" },
-  { time: "05:40", color: "#34D399", grow: 3.6, title: "モデルDLの統合", dur: "3.6分", body: "ダウンロードを初回フローへ統合。進捗は控えめに、状態は分かるように。" },
-  { time: "09:20", color: "#FCD34D", grow: 3.1, title: "ネクストと宿題の確認", dur: "3.1分", body: "佐藤=初回画面デザイン案、鈴木=DL進捗UI。次回までに共有。" },
+  { time: "00:00", color: "var(--spk-1-dot)", grow: 2.1, title: "ベータ配布の状況", dur: "2分", body: "未署名ビルドの初回起動でつまずく人が多く、許可手順に画像を追加。" },
+  { time: "02:10", color: "var(--spk-2-dot)", grow: 3.3, title: "オンボーディング刷新", dur: "3.5分", body: "「ローカル完結・基本無料」を初回画面の主役に据える方針で合意。" },
+  { time: "05:40", color: "var(--spk-6-dot)", grow: 3.6, title: "モデルDLの統合", dur: "3.6分", body: "ダウンロードを初回フローへ統合。進捗は控えめに、状態は分かるように。" },
+  { time: "09:20", color: "var(--spk-3-dot)", grow: 3.1, title: "ネクストと宿題の確認", dur: "3.1分", body: "佐藤=初回画面デザイン案、鈴木=DL進捗UI。次回までに共有。" },
 ];
 
 const MOCK_TRANSLATION = "（翻訳プレビュー）この発話の日本語訳がここに表示されます。";
@@ -493,7 +493,7 @@ export function DetailView({ id }: { id: string }) {
         )}
         <button
           onClick={() => navigate({ view: "history" })}
-          className="mt-1 text-[12.5px] text-brand-light hover:text-brand-lighter"
+          className="mt-1 text-[13px] text-brand-light hover:text-brand-lighter"
         >
           {t.detail.backToHistory}
         </button>
@@ -538,14 +538,14 @@ export function DetailView({ id }: { id: string }) {
                       }
                     }}
                     placeholder={t.common.untitledRecording}
-                    className="min-w-0 flex-1 rounded-[7px] border border-border-3 bg-surface-2 px-2.5 py-1 text-[18px] font-bold text-ink outline-none focus:border-brand"
+                    className="min-w-0 flex-1 rounded-tag border border-border-3 bg-surface-2 px-2.5 py-1 text-[18px] font-bold text-ink outline-none focus:border-brand"
                   />
                   <button
                     onClick={() => void saveTitle()}
                     disabled={savingTitle}
                     aria-label={t.common.save}
                     title={t.common.save}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-green transition-colors hover:bg-surface-2 disabled:opacity-50"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-green transition-colors hover:bg-surface-2 disabled:opacity-50"
                   >
                     {savingTitle ? <Spinner size={14} /> : <CheckIcon size={16} />}
                   </button>
@@ -554,19 +554,19 @@ export function DetailView({ id }: { id: string }) {
                     disabled={savingTitle}
                     aria-label={t.common.cancel}
                     title={t.common.cancel}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-dim transition-colors hover:bg-surface-2 hover:text-body disabled:opacity-50"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-dim transition-colors hover:bg-surface-2 hover:text-body disabled:opacity-50"
                   >
                     <XIcon size={15} />
                   </button>
                 </div>
               ) : (
                 <div className="group/title flex items-center gap-2">
-                  <h1 className="truncate text-[19px] font-bold text-ink">{title}</h1>
+                  <h1 className="truncate text-[18px] font-bold text-ink">{title}</h1>
                   <button
                     onClick={beginEditTitle}
                     aria-label={t.history.renameTitle}
                     title={t.history.renameTitle}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-dim opacity-0 transition-all hover:bg-surface-2 hover:text-body group-hover/title:opacity-100"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-dim opacity-0 transition-all hover:bg-surface-2 hover:text-body group-hover/title:opacity-100"
                   >
                     <PencilIcon size={14} />
                   </button>
@@ -579,7 +579,7 @@ export function DetailView({ id }: { id: string }) {
               {MOCK_PREVIEW && (
                 <button
                   onClick={() => setAskOpen(true)}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-border-3 bg-surface-2 px-2.5 text-[11.5px] text-body transition-colors hover:bg-hover"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-tag border border-border-3 bg-surface-2 px-2.5 text-[12px] text-body transition-colors hover:bg-hover"
                 >
                   <SparklesIcon size={13} className="text-brand-lighter" />
                   質問する
@@ -590,7 +590,7 @@ export function DetailView({ id }: { id: string }) {
                 onClick={() => setConfirmDel(true)}
                 aria-label={t.common.delete}
                 title={t.common.delete}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-[7px] text-dim transition-colors hover:bg-[rgba(239,68,68,0.12)] hover:text-red-light"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-tag text-dim transition-colors hover:bg-red/12 hover:text-red-light"
               >
                 <TrashIcon size={15} />
               </button>
@@ -608,11 +608,11 @@ export function DetailView({ id }: { id: string }) {
                     <PlayIcon size={15} />
                   </div>
                   <Waveform active={false} bars={30} height={42} className="flex-1" />
-                  <span className="shrink-0 font-mono text-[11.5px] text-muted tnum">
+                  <span className="shrink-0 font-mono text-[12px] text-muted tnum">
                     0:00 / {formatDuration(rec.duration_ms)}
                   </span>
                 </div>
-                <div className="mt-1 text-right text-[10.5px] text-dim">
+                <div className="mt-1 text-right text-[11px] text-dim">
                   {t.detail.noAudio}
                 </div>
               </>
@@ -645,14 +645,14 @@ export function DetailView({ id }: { id: string }) {
                 {job.status === "pending" && (
                   <button
                     onClick={() => void onCancelJob()}
-                    className="shrink-0 rounded-[7px] border border-border-3 px-2.5 py-1 text-[11.5px] text-muted transition-colors hover:bg-hover hover:text-body"
+                    className="shrink-0 rounded-tag border border-border-3 px-2.5 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-body"
                   >
                     {t.job.cancel}
                   </button>
                 )}
               </div>
               {jobProgress.total ? (
-                <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.08)]">
+                <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-border-2">
                   <div
                     className="h-full rounded-full bg-brand transition-[width]"
                     style={{
@@ -666,7 +666,7 @@ export function DetailView({ id }: { id: string }) {
 
           {/* 失敗（ADR-0024）: キー化メッセージを翻訳表示。下の実行ボタンで再試行できる。 */}
           {jobFailed && job && (
-            <div className="mb-4 rounded-card border border-red/40 bg-[rgba(239,68,68,0.08)] px-4 py-3 text-[12.5px] text-red-light">
+            <div className="mb-4 rounded-card border border-red/40 bg-red/8 px-4 py-3 text-[13px] text-red-light">
               {job.error ? translateError(job.error, t) : t.job.failedToast}
             </div>
           )}
@@ -674,7 +674,7 @@ export function DetailView({ id }: { id: string }) {
           {/* 後付け文字起こし（空 transcript の録音）。 */}
           {canTranscribe && (
             <div className="mb-4 rounded-card border border-border-2 bg-surface-2 px-4 py-4">
-              <div className="text-[13.5px] font-semibold text-ink">{t.detail.runTranscribe}</div>
+              <div className="text-[14px] font-semibold text-ink">{t.detail.runTranscribe}</div>
               <div className="mt-0.5 text-[12px] text-muted">{t.detail.runTranscribeDesc}</div>
               <div className="mt-3 flex items-center gap-2 text-[12px] text-body">
                 <Toggle
@@ -687,7 +687,7 @@ export function DetailView({ id }: { id: string }) {
               <button
                 onClick={() => void startTranscribe()}
                 disabled={starting}
-                className="mt-3 h-9 rounded-[8px] bg-brand px-4 text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-110 disabled:opacity-50"
+                className="mt-3 h-9 rounded-ctl bg-brand px-4 text-[13px] font-semibold text-white transition-[filter] hover:brightness-110 disabled:opacity-50"
               >
                 {starting ? <Spinner size={14} /> : t.detail.runTranscribe}
               </button>
@@ -704,7 +704,7 @@ export function DetailView({ id }: { id: string }) {
               <button
                 onClick={() => void startDiarize()}
                 disabled={starting}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[8px] border border-border-2 px-3.5 text-[12.5px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-ctl border border-border-2 px-3.5 text-[13px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
               >
                 {starting ? <Spinner size={14} /> : t.detail.runDiarize}
               </button>
@@ -717,8 +717,7 @@ export function DetailView({ id }: { id: string }) {
               {detail.summaries.map((s, i) => (
                 <div
                   key={i}
-                  className="rounded-card border border-border-2 bg-surface-2 px-[17px] py-[15px]"
-                  style={{ borderLeft: "3px solid #6366F1" }}
+                  className="rounded-card border border-border-2 border-l-[3px] border-l-brand bg-surface-2 px-[17px] py-[15px]"
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-2">
@@ -729,7 +728,7 @@ export function DetailView({ id }: { id: string }) {
                       {s.stale && (
                         <span
                           title={t.detail.summaryStaleTitle}
-                          className="shrink-0 rounded-full bg-[rgba(245,158,11,0.15)] px-2 py-0.5 text-[10px] font-medium text-amber"
+                          className="shrink-0 rounded-full bg-amber/15 px-2 py-0.5 text-[11px] font-medium text-amber"
                         >
                           {t.detail.summaryStale}
                         </span>
@@ -745,13 +744,13 @@ export function DetailView({ id }: { id: string }) {
                       {t.detail.regenerate}
                     </button>
                   </div>
-                  <div className="whitespace-pre-wrap text-[13px] leading-[1.85] text-body">
+                  <div className="whitespace-pre-wrap text-[15px] leading-[1.8] text-body">
                     {s.content}
                   </div>
                   {s.action_items.length > 0 && (
                     <ul className="mt-3 flex flex-col gap-1.5">
                       {s.action_items.map((a, j) => (
-                        <li key={j} className="flex gap-2 text-[12.5px] text-body">
+                        <li key={j} className="flex gap-2 text-[13px] text-body">
                           <CheckIcon size={14} className="mt-0.5 shrink-0 text-green" />
                           <span>
                             {a.text}
@@ -770,11 +769,11 @@ export function DetailView({ id }: { id: string }) {
               onClick={() => openModal("minutes")}
               className="mb-4 flex w-full items-center gap-3 rounded-card border border-dashed border-border-3 bg-surface-2 px-4 py-4 text-left transition-colors hover:bg-hover"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-[rgba(99,102,241,0.15)] text-brand-lighter">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-lighter">
                 <SparklesIcon size={17} />
               </span>
               <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold text-ink">
+                <span className="block text-[14px] font-semibold text-ink">
                   {t.detail.createMinutesCta}
                 </span>
                 <span className="mt-0.5 block text-[12px] text-muted">
@@ -813,7 +812,7 @@ export function DetailView({ id }: { id: string }) {
             {tab === "transcript" && MOCK_PREVIEW && (
               <div className="ml-auto flex items-center gap-2 pb-1.5">
                 <PreviewTag />
-                <span className="text-[11.5px] text-muted">日本語に翻訳</span>
+                <span className="text-[12px] text-muted">日本語に翻訳</span>
                 <Toggle
                   checked={translateOn}
                   onChange={setTranslateOn}
@@ -830,22 +829,22 @@ export function DetailView({ id }: { id: string }) {
                   <span className="text-[13px] text-sub">{CHAPTERS.length} チャプター</span>
                   <PreviewTag />
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-[7px] bg-[rgba(99,102,241,0.14)] px-2.5 py-1 text-[11px] text-brand-lighter">
+                <span className="inline-flex items-center gap-1.5 rounded-tag bg-brand/14 px-2.5 py-1 text-[11px] text-brand-lighter">
                   <SparklesIcon size={12} />
                   AIが自動生成
                 </span>
               </div>
               {/* タイムラインバー */}
-              <div className="flex h-[9px] gap-[3px] overflow-hidden rounded-[5px]">
+              <div className="flex h-[9px] gap-[3px] overflow-hidden rounded-tag">
                 {CHAPTERS.map((c) => (
                   <div
                     key={c.time}
-                    className="rounded-[4px]"
+                    className="rounded-tag"
                     style={{ flexGrow: c.grow, background: c.color }}
                   />
                 ))}
               </div>
-              <div className="mb-5 mt-1.5 flex justify-between font-mono text-[10px] text-dim">
+              <div className="mb-5 mt-1.5 flex justify-between font-mono text-[11px] text-dim">
                 <span>00:00</span>
                 <span>{formatDuration(rec.duration_ms)}</span>
               </div>
@@ -866,8 +865,8 @@ export function DetailView({ id }: { id: string }) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[13.5px] font-bold text-ink">{c.title}</span>
-                        <span className="shrink-0 text-[10.5px] text-dim">{c.dur}</span>
+                        <span className="text-[14px] font-bold text-ink">{c.title}</span>
+                        <span className="shrink-0 text-[11px] text-dim">{c.dur}</span>
                       </div>
                       <div className="mt-1.5 text-[12px] leading-relaxed text-muted">{c.body}</div>
                     </div>
@@ -911,7 +910,7 @@ export function DetailView({ id }: { id: string }) {
             onClick={() => void startDiarize()}
             disabled={starting}
             title={t.detail.rerunDiarizeDesc}
-            className="-mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-[8px] border border-border-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
+            className="-mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-ctl border border-border-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
           >
             {starting ? <Spinner size={13} /> : t.detail.rerunDiarize}
           </button>
@@ -926,21 +925,21 @@ export function DetailView({ id }: { id: string }) {
             <button
               onClick={() => openModal("minutes")}
               disabled={processing}
-              className="h-9 w-full disabled:opacity-50 rounded-[8px] bg-brand text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-110"
+              className="h-9 w-full disabled:opacity-50 rounded-ctl bg-brand text-[13px] font-semibold text-white transition-[filter] hover:brightness-110"
             >
               {t.detail.createMinutes}
             </button>
             <button
               onClick={() => openModal("summary")}
               disabled={processing}
-              className="h-[34px] w-full disabled:opacity-50 rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
+              className="h-9 w-full disabled:opacity-50 rounded-ctl border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createSummary}
             </button>
             <button
               onClick={() => openModal("action_items")}
               disabled={processing}
-              className="h-[34px] w-full disabled:opacity-50 rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
+              className="h-9 w-full disabled:opacity-50 rounded-ctl border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createActionItems}
             </button>
@@ -984,7 +983,7 @@ export function DetailView({ id }: { id: string }) {
             />
             <div className="px-5 py-4">
               {/* どの発言を直そうとしているかを示す（押し間違いに気づけるように）。 */}
-              <p className="mb-3 rounded-[10px] bg-surface-2 px-3 py-2 text-[12.5px] leading-6 text-sub">
+              <p className="mb-3 rounded-btn bg-surface-2 px-3 py-2 text-[13px] leading-6 text-sub">
                 <span className="mr-2 font-mono text-[11px] text-dim tnum">
                   {formatTimestamp(fixingSeg.start_ms)}
                 </span>

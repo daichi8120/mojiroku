@@ -27,7 +27,7 @@ function highlight(snippet: string): ReactNode[] {
     parts.push(
       <mark
         key={key++}
-        className="rounded bg-[rgba(99,102,241,0.25)] px-1 text-brand-tint"
+        className="rounded bg-brand/25 px-1 text-brand-tint"
       >
         {m[1]}
       </mark>,
@@ -136,10 +136,10 @@ export function HistoryView() {
 
   return (
     <div className="mx-auto flex max-w-[840px] flex-col gap-0 px-8 py-8">
-      <h1 className="mb-4 text-[17px] font-bold text-ink">{t.history.title}</h1>
+      <h1 className="mb-4 text-[18px] font-bold text-ink">{t.history.title}</h1>
 
       {/* 検索バー */}
-      <div className="flex items-center gap-2.5 rounded-[11px] border border-border-3 bg-surface-2 px-4 py-3">
+      <div className="flex items-center gap-2.5 rounded-btn border border-border-3 bg-surface-2 px-4 py-3">
         <SearchIcon size={16} className="shrink-0 text-faint" />
         <input
           value={query}
@@ -168,14 +168,14 @@ export function HistoryView() {
           onClick={() => toast(t.history.filters.notReady, "info")}
         >
           {t.history.filters.withSummary}
-          <span className="ml-1 text-[10px] text-faint">{t.history.filters.comingSoon}</span>
+          <span className="ml-1 text-[11px] text-faint">{t.history.filters.comingSoon}</span>
         </Chip>
         <Chip
           className="text-dim"
           onClick={() => toast(t.history.filters.notReady, "info")}
         >
           {t.history.filters.withSpeakers}
-          <span className="ml-1 text-[10px] text-faint">{t.history.filters.comingSoon}</span>
+          <span className="ml-1 text-[11px] text-faint">{t.history.filters.comingSoon}</span>
         </Chip>
         <Chip active={filter === "week"} onClick={() => setFilter("week")}>
           {t.history.filters.week}
@@ -237,7 +237,7 @@ export function HistoryView() {
                         }
                       }}
                       placeholder={t.common.untitledRecording}
-                      className="min-w-0 flex-1 rounded-[7px] border border-border-3 bg-surface-2 px-2.5 py-1.5 text-[14px] font-semibold text-ink outline-none focus:border-brand"
+                      className="min-w-0 flex-1 rounded-tag border border-border-3 bg-surface-2 px-2.5 py-1.5 text-[14px] font-semibold text-ink outline-none focus:border-brand"
                     />
                   ) : (
                     <div className="min-w-0 truncate text-[14px] font-semibold text-ink">
@@ -286,7 +286,7 @@ export function HistoryView() {
                           aria-label={t.history.renameTitle}
                           title={t.history.renameTitle}
                           className={cx(
-                            "flex h-7 w-7 items-center justify-center rounded-btn text-dim opacity-55 transition-all",
+                            "flex h-7 w-7 items-center justify-center rounded-btn text-dim transition-all",
                             "hover:bg-surface-2 hover:text-body hover:opacity-100 group-hover:opacity-100",
                           )}
                         >
@@ -301,7 +301,7 @@ export function HistoryView() {
                           title={t.common.delete}
                           className={cx(
                             // 常時うっすら表示（見つかる）→ 行/ボタンホバーで濃く
-                            "flex h-7 w-7 items-center justify-center rounded-btn text-dim opacity-55 transition-all",
+                            "flex h-7 w-7 items-center justify-center rounded-btn text-dim transition-all",
                             "hover:bg-surface-2 hover:text-red-light hover:opacity-100 group-hover:opacity-100",
                           )}
                         >
@@ -312,7 +312,7 @@ export function HistoryView() {
                   </div>
                 </div>
                 {h.snippet && !isEditing && (
-                  <div className="mt-2 text-[12.5px] leading-[1.6] text-muted">
+                  <div className="mt-2 text-[13px] leading-[1.6] text-muted">
                     {highlight(h.snippet)}
                   </div>
                 )}
