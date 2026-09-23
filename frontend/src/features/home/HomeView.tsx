@@ -8,7 +8,7 @@ import { useApp } from "@/lib/app";
 import { ModelSetupCard } from "@/features/setup/ModelSetup";
 import { cx } from "@/lib/cx";
 import { translateError, useI18n } from "@/i18n";
-import { listCalendarEvents, listRecordingRows, startMicRecording, transcribeFile } from "@/lib/tauri";
+import { listCalendarEvents, listRecordingRows, startMicRecording, transcribeFile, useJobUpdate } from "@/lib/tauri";
 import { getDiarizePref, setDiarizePref } from "@/lib/prefs";
 import {
   formatDateShort,
@@ -24,6 +24,17 @@ import { PrivacyBar, RecordingStateBadge, SourceIcon } from "@/components/compos
 import { CalendarIcon, FileAudioIcon, MicIcon, VideoIcon } from "@/components/icons";
 
 const RECENT_COUNT = 5;
+/** 終了時刻の無い予定は、開始からこの時間は「進行中」とみなす。 */
+const OPEN_ENDED_MS = 60 * 60 * 1000;
+
+/** これから・進行中の予定（終わったものは除く）。 */
+export function upcomingEvents(evs: CalendarEvent[], now: number): CalendarEvent[] {
+  return evs.filter((e) => {
+    const start = new Date(e.start).getTime();
+    const end = e.end ? new Date(e.end).getTime() : start + OPEN_ENDED_MS;
+    return end >= now;
+  });
+}
 
 const AUDIO_EXT = ["mp3", "wav", "m4a", "aac", "aiff", "flac", "ogg"];
 const isAudio = (p: string) => AUDIO_EXT.some((x) => p.toLowerCase().endsWith(`.${x}`));
@@ -39,20 +50,24 @@ export function HomeView() {
   };
   const [recent, setRecent] = useState<RecordingRow[] | null>(null);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  useEffect(() => {
+  const loadRecent = useCallback(() => {
     listRecordingRows()
       .then((rows) => setRecent(rows.slice(0, RECENT_COUNT)))
       .catch(() => setRecent([]));
+  }, []);
+  // 処理が終わると状態（処理中 → 要約あり など）が変わるので取り直す。
+  useJobUpdate((u) => {
+    if (u.status === "done" || u.status === "failed" || u.status === "canceled") loadRecent();
+  });
+  useEffect(() => {
+    loadRecent();
     // カレンダー未連携はエラーで返る。そのときは予定の欄ごと出さない。
     listCalendarEvents()
       .then((evs) => {
-        const now = Date.now();
-        setEvents(
-          evs.filter((e) => new Date(e.end ?? e.start).getTime() >= now).slice(0, 3),
-        );
+        setEvents(upcomingEvents(evs, Date.now()).slice(0, 3));
       })
       .catch(() => setEvents([]));
-  }, []);
+  }, [loadRecent]);
   // 音声だけ保存（後から文字起こし・ADR-0024 増分5）。ON のとき停止/取込は録音行だけ作りジョブは積まない。
   const [recordOnly, setRecordOnly] = useState(false);
   const [busy, setBusy] = useState(false);
