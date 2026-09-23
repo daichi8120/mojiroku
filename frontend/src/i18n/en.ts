@@ -335,6 +335,7 @@ const en: Dict = {
       localNote: "Everything is processed on your Mac · nothing is uploaded.",
       engineHint: "You can switch engines in Settings → Summary engine.",
       sendAndGenerate: (provider: string) => `Send to ${provider} and create`,
+      replaceNote: (what: string) => `This replaces the current ${what.toLowerCase()}.`,
       progressQueued: "Waiting for another task (transcription, …) to finish…",
       progressDownload: (pct: number) => `Downloading summary model… ${pct}%`,
       progressGenerating: (engine: string) => `Generating summary… (${engine})`,

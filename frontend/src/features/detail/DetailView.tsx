@@ -1001,6 +1001,7 @@ export function DetailView({ id }: { id: string }) {
         transcript={detail.transcript}
         onCreated={onCreated}
         presetTemplate={presetTemplate}
+        replaces={!!findSummary(detail.summaries, presetTemplate)}
       />
       <AskDrawer key={`ask-${id}`} open={askOpen} onClose={() => setAskOpen(false)} title={title} />
       <ConfirmDialog

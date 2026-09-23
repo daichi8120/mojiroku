@@ -331,6 +331,7 @@ const ja = {
       localNote: "すべて Mac の中で処理 · 送信なし。",
       engineHint: "エンジンは 設定 → 要約エンジン で切り替えられます。",
       sendAndGenerate: (provider: string) => `${provider} に送信して作成`,
+      replaceNote: (what: string) => `今の${what}を新しく作り直します。`,
       progressQueued: "他の処理（文字起こしなど）の完了を待っています…",
       progressDownload: (pct: number) => `要約モデルをDL中… ${pct}%`,
       progressGenerating: (engine: string) => `要約を生成中…（${engine}）`,

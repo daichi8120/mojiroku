@@ -28,6 +28,7 @@ const TEMPLATE_ICON: Record<string, ReactNode> = {
  * - ローカル: 設定を読み終えたらそのまま生成を始め、進捗を出す。
  * - クラウド（BYOK）: 文字起こしが外部へ送られるので、警告を見せてボタンを押すまで始めない。
  *   設定が読めなかったときも同じ扱い（どちらのエンジンか分からないまま送らない）。
+ * - 既存の要約を置き換える（再生成）ときも、押し間違いで数分の生成が始まらないよう確認する。
  */
 export function TemplateModal({
   open,
@@ -36,6 +37,7 @@ export function TemplateModal({
   transcript,
   onCreated,
   presetTemplate = "minutes",
+  replaces = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -43,6 +45,8 @@ export function TemplateModal({
   transcript: Transcript;
   onCreated: (summary: Summary) => void;
   presetTemplate?: string;
+  /** このテンプレの要約が既にある（生成すると置き換える）。 */
+  replaces?: boolean;
 }) {
   const { toast } = useApp();
   const { t } = useI18n();
@@ -107,9 +111,9 @@ export function TemplateModal({
 
   // ローカルは開いたらすぐ始める（1 回だけ。失敗後の再試行はボタンで）。
   useEffect(() => {
-    if (open && engine === "local" && !startedRef.current) void generate();
+    if (open && shouldAutoStart(engine, replaces) && !startedRef.current) void generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, engine]);
+  }, [open, engine, replaces]);
 
   const isCloud = engine === "cloud";
   const engineLabel = isCloud ? tm.engineCloud(PROVIDER_LABEL[provider]) : tm.engineLocal;
@@ -170,21 +174,36 @@ export function TemplateModal({
             {error}
           </p>
         )}
+        {replaces && !busy && !error && (
+          <p className="mt-3 text-[13px] text-body">{tm.replaceNote(label.title)}</p>
+        )}
         <p className="mt-3 text-[11px] text-faint">{tm.engineHint}</p>
       </div>
 
-      {(isCloud || error) && !busy && (
+      {engine !== null && (!shouldAutoStart(engine, replaces) || error) && !busy && (
         <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">
           <Button variant="secondary" size="sm" onClick={handleClose}>
             {t.common.cancel}
           </Button>
           <Button variant="primary" size="sm" onClick={() => void generate()}>
-            {error ? t.common.retry : tm.sendAndGenerate(PROVIDER_LABEL[provider])}
+            {error
+              ? t.common.retry
+              : isCloud
+                ? tm.sendAndGenerate(PROVIDER_LABEL[provider])
+                : t.detail.regenerate}
           </Button>
         </div>
       )}
     </Modal>
   );
+}
+
+/**
+ * 開いただけで生成を始めてよいか。ローカルで、既存の要約を置き換えないときだけ。
+ * クラウド（文字起こしを外部へ送る）と、エンジン未確定（null）は必ず押してもらう。
+ */
+export function shouldAutoStart(engine: Settings["engine"] | null, replaces: boolean): boolean {
+  return engine === "local" && !replaces;
 }
 
 type TemplateCopy = Record<"minutes" | "summary" | "actionItems", { title: string; desc: string }>;
