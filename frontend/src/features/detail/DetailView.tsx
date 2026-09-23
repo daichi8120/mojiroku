@@ -286,6 +286,8 @@ export function DetailView({ id }: { id: string }) {
   // 完了/失敗トースト・サイドバー更新は App が担うので、ここは自分のビュー更新だけに徹する。
   useJobUpdate((u) => {
     if (u.recording_id !== id) return;
+    // 中断を頼んだ直後に処理が終わる・失敗することもある。どの終わり方でも「中断しています…」を外す。
+    if (u.status === "done" || u.status === "failed" || u.status === "canceled") setCanceling(false);
     if (u.status === "done") {
       setJob(null);
       setJobProgress({ done: 0, total: null });
