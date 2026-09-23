@@ -125,6 +125,9 @@ export function DetailView({ id }: { id: string }) {
 
   // 指定テンプレへ preset してモーダルを開く（AIで作成グループ / 再生成 / 空状態 共通）。
   const openModal = (templateId: string) => {
+    // A summary sends the transcript and speakers the view holds now; while a job is
+    // rewriting them (Issue #102) the result would describe the old speakers.
+    if (processing) return;
     setPresetTemplate(templateId);
     setModalOpen(true);
   };
@@ -508,7 +511,9 @@ export function DetailView({ id }: { id: string }) {
   const canDiarize =
     !processing && hasTranscript && speakers.length === 0 && rec.source_type !== "live";
   // Existing speakers can be re-analysed, including meetings (remote track only; Issue #102).
-  const canRediarize = !processing && hasTranscript && speakers.length > 0;
+  // A meeting with no speaker rows (its earlier run found no remote turns) can also retry.
+  const canRediarize =
+    !processing && hasTranscript && (speakers.length > 0 || rec.source_type === "live");
 
   return (
     <div className="flex h-full min-h-0">
@@ -732,7 +737,8 @@ export function DetailView({ id }: { id: string }) {
                     </span>
                     <button
                       onClick={() => openModal(s.template_id)}
-                      className="inline-flex shrink-0 items-center gap-1 text-[11px] text-dim transition-colors hover:text-sub"
+                      disabled={processing}
+                      className="inline-flex disabled:opacity-50 shrink-0 items-center gap-1 text-[11px] text-dim transition-colors hover:text-sub"
                       title={t.detail.regenerate}
                     >
                       <RefreshIcon size={13} />
@@ -877,8 +883,9 @@ export function DetailView({ id }: { id: string }) {
                 translateOn && MOCK_PREVIEW ? () => MOCK_TRANSLATION : undefined
               }
               // 話者が 1 人も居ない録音（話者分離していない）では訂正の選択肢が無いので出さない。
+              // 処理中（話者の再検出など）は、ジョブ完了で上書きされる訂正を受け付けない（Issue #102）。
               onSpeakerClick={
-                speakers.length > 0 ? setFixingSeg : undefined
+                speakers.length > 0 && !processing ? setFixingSeg : undefined
               }
             />
           ) : (
@@ -893,7 +900,11 @@ export function DetailView({ id }: { id: string }) {
       {/* 右ペイン */}
       <aside className="flex w-[222px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface px-[15px] py-4">
         {speakers.length > 0 && (
-          <SpeakerPanel speakers={speakers} recordingId={id} onRenamed={onRenamed} />
+          // Renames and library links made during a re-detection would be replaced when it
+          // finishes, so the panel is inert while a job runs (Issue #102).
+          <div inert={processing} className={processing ? "opacity-60" : undefined}>
+            <SpeakerPanel speakers={speakers} recordingId={id} onRenamed={onRenamed} />
+          </div>
         )}
         {canRediarize && (
           <button
@@ -914,19 +925,22 @@ export function DetailView({ id }: { id: string }) {
           <div className="flex flex-col gap-1.5">
             <button
               onClick={() => openModal("minutes")}
-              className="h-9 w-full rounded-[8px] bg-brand text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-110"
+              disabled={processing}
+              className="h-9 w-full disabled:opacity-50 rounded-[8px] bg-brand text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-110"
             >
               {t.detail.createMinutes}
             </button>
             <button
               onClick={() => openModal("summary")}
-              className="h-[34px] w-full rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
+              disabled={processing}
+              className="h-[34px] w-full disabled:opacity-50 rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createSummary}
             </button>
             <button
               onClick={() => openModal("action_items")}
-              className="h-[34px] w-full rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
+              disabled={processing}
+              className="h-[34px] w-full disabled:opacity-50 rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createActionItems}
             </button>
