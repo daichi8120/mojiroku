@@ -12,6 +12,7 @@
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 /// f32 [-1,1] → i16 量子化（クランプ込み）。ディスク書き出しの量子化の単一の正。
@@ -33,6 +34,9 @@ pub struct SharedPcm {
     /// tracks of a meeting recording (Issue #65). Not sample-exact: it carries about one
     /// buffer of delivery latency.
     first_push_at: std::sync::OnceLock<std::time::Instant>,
+    /// 前回 `take_peak` 以降の最大振幅（|x| の最大, f32 のビット列）。録音画面の音量表示用（Issue #113）。
+    /// 0 以上の f32 はビット列の大小と値の大小が一致するので、`fetch_max` でロックなしに更新できる。
+    peak_bits: AtomicU32,
 }
 
 struct PcmInner {
@@ -49,7 +53,13 @@ impl SharedPcm {
                 data: Vec::new(),
             }),
             first_push_at: std::sync::OnceLock::new(),
+            peak_bits: AtomicU32::new(0),
         }
+    }
+
+    /// 前回呼んでから今までの最大振幅（0.0〜1.0）を返し、0 に戻す。UI が一定間隔で読む。
+    pub fn take_peak(&self) -> f32 {
+        f32::from_bits(self.peak_bits.swap(0, Ordering::Relaxed))
     }
 
     /// 音声コールバック用 append（IO なし）。
@@ -58,6 +68,10 @@ impl SharedPcm {
             return;
         }
         let _ = self.first_push_at.set(std::time::Instant::now());
+        let peak = samples.iter().fold(0f32, |m, &x| m.max(x.abs())).min(1.0);
+        if peak.is_finite() {
+            self.peak_bits.fetch_max(peak.to_bits(), Ordering::Relaxed);
+        }
         if let Ok(mut g) = self.inner.lock() {
             g.data.extend_from_slice(samples);
         }
@@ -178,6 +192,18 @@ impl WavSpoolWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn peak_is_the_loudest_sample_since_the_last_read() {
+        let pcm = SharedPcm::new();
+        assert_eq!(pcm.take_peak(), 0.0);
+        pcm.push(&[0.1, -0.4, 0.2]);
+        pcm.push(&[0.3]);
+        assert_eq!(pcm.take_peak(), 0.4, "negative samples count by magnitude");
+        assert_eq!(pcm.take_peak(), 0.0, "reading resets it");
+        pcm.push(&[2.0]);
+        assert_eq!(pcm.take_peak(), 1.0, "clipped to full scale");
+    }
 
     fn tmp(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("mojiroku-spool-{}-{name}", std::process::id()))

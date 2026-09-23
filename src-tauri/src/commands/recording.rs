@@ -49,6 +49,34 @@ pub(crate) fn start_mic_recording(
     mic::start(&mic, spool)
 }
 
+/// マイク録音を破棄停止（保存しない・Issue #113）。spool WAV も消す。
+#[tauri::command]
+pub(crate) fn cancel_mic_recording(mic: State<'_, mic::MicState>) -> Result<(), String> {
+    let info = mic::stop(&mic)?;
+    let _ = std::fs::remove_file(&info.spool_path);
+    Ok(())
+}
+
+/// 録音中の入力音量（前回の呼び出し以降の最大振幅 0.0〜1.0・Issue #113）。
+/// 録音していないトラックは None。録音画面が一定間隔で読み、実際の音量として表示する
+/// （以前の波形は飾りで、マイクが音を拾っているか分からなかった）。
+#[derive(serde::Serialize)]
+pub(crate) struct RecordingLevels {
+    mic: Option<f32>,
+    system: Option<f32>,
+}
+
+#[tauri::command]
+pub(crate) fn recording_levels(
+    mic: State<'_, mic::MicState>,
+    sys: State<'_, system_audio::SystemAudioState>,
+) -> RecordingLevels {
+    RecordingLevels {
+        mic: mic::live_handle(&mic).map(|(pcm, _, _)| pcm.take_peak()),
+        system: system_audio::live_handle(&sys).map(|(pcm, _)| pcm.take_peak()),
+    }
+}
+
 /// マイク録音停止 → spool WAV を正式名へ rename → 文字起こしジョブを投入して**即座に返す**
 /// （ADR-0024 非同期フリップ）。音声確定（rename）は同期のまま、STT はワーカーへ委譲する。
 #[tauri::command]

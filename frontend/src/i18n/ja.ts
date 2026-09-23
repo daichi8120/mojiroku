@@ -189,6 +189,9 @@ const ja = {
       title: "会議を記録中",
       subtitle: "ローカルで録音中 · 停止すると話者分離つきで文字起こしして保存します",
       meterCapturing: "システム音声＋マイク 録音中",
+      micLevel: "マイク（自分）の入力",
+      systemLevel: "システム音声（相手）の入力",
+      silentWarning: "しばらく音を拾えていません。マイクのミュートや、会議アプリの音声出力先を確認してください。録音は続いています。",
       discard: "破棄",
       privacy: "ボットは参加していません · 音声はこのMacの中だけで処理 · クラウド送信なし",
       transcriptLabel: "ライブ文字起こし",
@@ -270,6 +273,12 @@ const ja = {
   },
 
   recording: {
+    micLevel: "マイクの入力",
+    silentWarning: "マイクの音を拾えていません。マイクがミュートされていないか、入力装置が正しいか確認してください。",
+    discard: "破棄",
+    discarded: "録音を破棄しました",
+    discardConfirmTitle: "この録音を破棄しますか？",
+    discardConfirmBody: "録った音声は保存されず、元に戻せません。",
     status: "録音中 · 自動で文字起こしします",
     statusRecordOnly: "録音中 · 音声だけ保存します",
     stopAndTranscribe: "停止して文字起こし",

@@ -15,6 +15,52 @@ import { MOCK_PREVIEW } from "@/lib/mockData";
 import { CheckIcon, CpuIcon, FileAudioIcon, MicIcon, VideoIcon } from "./icons";
 import { Spinner } from "./ui";
 
+// ── 入力音量メーター（#113） ─────────────────────────────────────────────
+/**
+ * 実際の入力音量（0〜1）をセグメントで描く。緑→黄→赤（大きすぎ）。
+ * value が null（そのトラックを録っていない）なら全部消灯。
+ */
+export function LevelMeter({
+  value,
+  segments = 24,
+  height = 10,
+  label,
+  className,
+}: {
+  value: number | null;
+  segments?: number;
+  height?: number;
+  label: string;
+  className?: string;
+}) {
+  const lit = Math.round((value ?? 0) * segments);
+  return (
+    <div
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round((value ?? 0) * 100)}
+      className={cx("flex items-center gap-[2px]", className)}
+      style={{ height }}
+    >
+      {Array.from({ length: segments }, (_, i) => {
+        const on = i < lit;
+        const zone = i / segments;
+        return (
+          <span
+            key={i}
+            className={cx(
+              "h-full flex-1 rounded-xs",
+              !on ? "bg-border-2" : zone > 0.9 ? "bg-red-light" : zone > 0.75 ? "bg-amber" : "bg-green",
+            )}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 // ── 録音の種類と状態（履歴・サイドバー・#109） ─────────────────────────────
 export function SourceIcon({ type, size = 14 }: { type: SourceType; size?: number }) {
   const { t } = useI18n();

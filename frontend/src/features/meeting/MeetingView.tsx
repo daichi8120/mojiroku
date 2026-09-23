@@ -11,14 +11,15 @@ import { cx } from "@/lib/cx";
 import { useI18n } from "@/i18n";
 import { elapsedSeconds, formatTimestamp } from "@/lib/types";
 import { Button, ConfirmDialog } from "@/components/ui";
-import { PrivacyBar } from "@/components/composite";
+import { LevelMeter, PrivacyBar } from "@/components/composite";
+import { useRecordingLevels } from "@/lib/levels";
 import { ShieldIcon, StopIcon, VideoIcon } from "@/components/icons";
 
 import { LiveTranslationPanel } from "./LiveTranslationPanel";
 import { ModelSetupCard, useLiveModels } from "@/features/setup/ModelSetup";
 
-// システム音声 + マイクのレベルメータ（小さな縦バー）。
-const METER_BARS = [6, 11, 8, 13, 5];
+// 両方のトラックがこの秒数以上無音なら「音を拾えていない」と知らせる。会議は沈黙もあるので長め。
+const MEETING_SILENCE_WARN_SEC = 20;
 
 // 開始時にライブ文字起こしのモデルが無かった会議（開始時刻）。
 const unavailableMeetings = new Set<number>();
@@ -44,6 +45,11 @@ export function MeetingView() {
   const startedAt = meeting.startedAt;
   if (capturing && startedAt !== null && liveModels.ready === false) unavailableMeetings.add(startedAt);
   const liveUnavailable = capturing && startedAt !== null && unavailableMeetings.has(startedAt);
+  const levels = useRecordingLevels(capturing);
+  const meetingSilent =
+    capturing &&
+    (levels.mic?.silentSec ?? 0) >= MEETING_SILENCE_WARN_SEC &&
+    (levels.system?.silentSec ?? 0) >= MEETING_SILENCE_WARN_SEC;
   const liveScrollRef = useRef<HTMLDivElement | null>(null);
 
   // idle のときだけ許可状態を確認して開始ボタン/誘導の出し分けに使う。
@@ -155,20 +161,10 @@ export function MeetingView() {
             <span className="text-[12px] text-body">
               {capturing ? t.meeting.live.meterCapturing : t.app.meetingBar.saving}
             </span>
-            <span className="flex h-3.5 items-end gap-0.5">
-              {METER_BARS.map((h, i) => {
-                const inactive = i === METER_BARS.length - 1;
-                return (
-                  <i
-                    key={i}
-                    className={cx(
-                      "w-[2.5px] rounded-full",
-                      inactive ? "bg-border-3" : "animate-mjpulse bg-green",
-                    )}
-                    style={{ height: h, animationDelay: `${i * 140}ms` }}
-                  />
-                );
-              })}
+            {/* 実際の入力音量（#113）。上=マイク（自分）、下=システム音声（相手）。 */}
+            <span className="flex w-16 flex-col gap-[3px]">
+              <LevelMeter value={levels.mic?.meter ?? 0} segments={12} height={4} label={t.meeting.live.micLevel} />
+              <LevelMeter value={levels.system?.meter ?? 0} segments={12} height={4} label={t.meeting.live.systemLevel} />
             </span>
           </div>
 
@@ -205,6 +201,11 @@ export function MeetingView() {
       {/* プライバシーバー */}
       <div className="px-6 py-2">
         <PrivacyBar>{t.meeting.live.privacy}</PrivacyBar>
+        {meetingSilent && (
+          <p role="alert" className="mt-2 rounded-ctl border border-amber/30 bg-amber/10 px-3 py-2 text-[12px] text-amber">
+            {t.meeting.live.silentWarning}
+          </p>
+        )}
       </div>
 
       {/* 2 カラム */}

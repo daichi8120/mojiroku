@@ -186,6 +186,9 @@ const en: Dict = {
       title: "Recording meeting",
       subtitle: "Recording locally · stopping transcribes with speaker separation and saves",
       meterCapturing: "Recording system audio + mic",
+      micLevel: "Microphone (you) input",
+      systemLevel: "System audio (others) input",
+      silentWarning: "No sound for a while. Check that the microphone is not muted and where the meeting app sends its audio. Recording continues.",
       discard: "Discard",
       privacy: "No bots joined · audio is processed only on this Mac · nothing goes to the cloud",
       transcriptLabel: "Live transcript",
@@ -273,6 +276,12 @@ const en: Dict = {
   },
 
   recording: {
+    micLevel: "Microphone input",
+    silentWarning: "No sound from the microphone. Check that it is not muted and that the right input device is selected.",
+    discard: "Discard",
+    discarded: "Recording discarded",
+    discardConfirmTitle: "Discard this recording?",
+    discardConfirmBody: "The audio is not saved and cannot be recovered.",
     status: "Recording · transcribes automatically",
     statusRecordOnly: "Recording · saves audio only",
     stopAndTranscribe: "Stop & transcribe",
