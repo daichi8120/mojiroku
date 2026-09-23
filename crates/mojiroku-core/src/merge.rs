@@ -23,20 +23,87 @@ pub fn assign_speakers(transcript: &mut Transcript, diar: &DiarizationResult) {
         return;
     }
     for seg in &mut transcript.segments {
-        let mut best: Option<(&str, u64)> = None;
-        for turn in &diar.turns {
-            let ov = overlap_ms(seg.start_ms, seg.end_ms, turn.start_ms, turn.end_ms);
-            if ov == 0 {
-                continue;
-            }
-            if best.map(|(_, bo)| ov > bo).unwrap_or(true) {
-                best = Some((turn.speaker_id.as_str(), ov));
-            }
-        }
-        if let Some((sid, _)) = best {
+        if let Some(sid) = best_turn(seg, diar, 0) {
             seg.speaker_id = Some(sid.to_string());
         }
     }
+}
+
+/// `seg` と最も長く重なる turn の話者。turn は `shift_ms` だけ後ろへずらして比べる。
+fn best_turn<'a>(seg: &Segment, diar: &'a DiarizationResult, shift_ms: u64) -> Option<&'a str> {
+    let mut best: Option<(&str, u64)> = None;
+    for turn in &diar.turns {
+        let ov = overlap_ms(
+            seg.start_ms,
+            seg.end_ms,
+            turn.start_ms + shift_ms,
+            turn.end_ms + shift_ms,
+        );
+        if ov == 0 {
+            continue;
+        }
+        if best.map(|(_, bo)| ov > bo).unwrap_or(true) {
+            best = Some((turn.speaker_id.as_str(), ov));
+        }
+    }
+    best.map(|(sid, _)| sid)
+}
+
+/// Re-diarize a saved meeting (Issue #102): `diar` comes from the system (remote) track
+/// only. Mic segments keep [`SELF_SPEAKER_ID`]; every other segment is reassigned from
+/// scratch, so fragments from an older diarization do not survive.
+///
+/// `system_shift_ms` is how far [`merge_tracks`] moved the system track when the meeting
+/// was saved (the magnitude of a negative `mic_offset_ms`, else 0). Returns the speaker
+/// list in the same shape as [`merge_tracks`]: `self_speaker` first if any mic segment
+/// exists, then the remote speakers labelled 相手N / Guest N.
+pub fn reassign_meeting_speakers(
+    transcript: &mut Transcript,
+    diar: &DiarizationResult,
+    system_shift_ms: u64,
+    self_speaker: Option<Speaker>,
+    lang: Lang,
+) -> Vec<Speaker> {
+    let mut has_self = false;
+    for seg in &mut transcript.segments {
+        if seg.speaker_id.as_deref() == Some(SELF_SPEAKER_ID) {
+            has_self = true;
+            continue;
+        }
+        seg.speaker_id = best_turn(seg, diar, system_shift_ms).map(str::to_string);
+    }
+    let mut speakers = Vec::with_capacity(diar.speakers.len() + 1);
+    if has_self {
+        speakers.push(self_speaker.unwrap_or_else(|| self_speaker_for(lang)));
+    }
+    speakers.extend(
+        diar.speakers
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, s)| guest_speaker(s, i, lang)),
+    );
+    speakers
+}
+
+fn self_speaker_for(lang: Lang) -> Speaker {
+    Speaker {
+        id: SELF_SPEAKER_ID.to_string(),
+        label: match lang {
+            Lang::Ja => "あなた",
+            Lang::En => "You",
+        }
+        .to_string(),
+        display_name: None,
+    }
+}
+
+fn guest_speaker(mut s: Speaker, i: usize, lang: Lang) -> Speaker {
+    s.label = match lang {
+        Lang::Ja => format!("相手{}", i + 1),
+        Lang::En => format!("Guest {}", i + 1),
+    };
+    s
 }
 
 /// 会議モードのデュアルトラック合成で、マイク（自分）に割り当てる予約話者 id。
@@ -90,27 +157,15 @@ pub fn merge_tracks(
 
     let mut speakers = Vec::with_capacity(system_speakers.len() + 1);
     if mic_has_speech {
-        speakers.push(Speaker {
-            id: SELF_SPEAKER_ID.to_string(),
-            label: match lang {
-                Lang::Ja => "あなた",
-                Lang::En => "You",
-            }
-            .to_string(),
-            display_name: None,
-        });
+        speakers.push(self_speaker_for(lang));
     }
     // システム側（相手）は会議文脈に合わせ既定ラベルを「相手N」/「Guest N」に再ラベルする
     // （diarization の既定は「話者N」/「Speaker N」。en は "Speaker N" のままだと通常録音の
     // 既定ラベルと区別が付かないため、会議の相手とわかる "Guest N" を使う）。id は不変
     // （セグメント帰属に使う）。N は system_speakers の順（S1=最も喋った話者）。
     // ユーザー改名（display_name）は別途尊重される。
-    for (i, mut s) in system_speakers.into_iter().enumerate() {
-        s.label = match lang {
-            Lang::Ja => format!("相手{}", i + 1),
-            Lang::En => format!("Guest {}", i + 1),
-        };
-        speakers.push(s);
+    for (i, s) in system_speakers.into_iter().enumerate() {
+        speakers.push(guest_speaker(s, i, lang));
     }
 
     (Transcript { language, segments }, speakers)
@@ -181,6 +236,66 @@ mod tests {
         };
         assign_speakers(&mut t, &diar);
         assert_eq!(t.segments[0].speaker_id.as_deref(), Some("S2"));
+    }
+
+    fn speaker(id: &str, label: &str, name: Option<&str>) -> Speaker {
+        Speaker {
+            id: id.into(),
+            label: label.into(),
+            display_name: name.map(str::to_string),
+        }
+    }
+
+    /// Re-diarizing a meeting touches remote segments only, drops stale remote labels,
+    /// keeps the renamed self speaker, and applies the saved system-track shift.
+    #[test]
+    fn meeting_rediarization_reassigns_remote_segments_only() {
+        let mut mic = seg(0, 1000);
+        mic.speaker_id = Some(SELF_SPEAKER_ID.into());
+        let mut old_fragment = seg(2000, 2500);
+        old_fragment.speaker_id = Some("S7".into());
+        let mut remote = seg(3000, 4000);
+        remote.speaker_id = Some("S1".into());
+        let mut t = Transcript {
+            language: None,
+            segments: vec![mic, old_fragment, remote, seg(9000, 9500)],
+        };
+        // System-track times; the meeting shifted the system track by 500 ms.
+        let diar = DiarizationResult {
+            speakers: vec![speaker("S1", "話者1", None)],
+            turns: vec![turn(0, 1000, "S1"), turn(1500, 3500, "S1")],
+            ..Default::default()
+        };
+        let me = speaker(SELF_SPEAKER_ID, "あなた", Some("Daichi"));
+        let speakers = reassign_meeting_speakers(&mut t, &diar, 500, Some(me), Lang::Ja);
+
+        let ids: Vec<_> = t.segments.iter().map(|s| s.speaker_id.as_deref()).collect();
+        // The mic segment overlaps S1 in time but stays self.
+        assert_eq!(
+            ids,
+            vec![Some(SELF_SPEAKER_ID), Some("S1"), Some("S1"), None]
+        );
+        assert_eq!(speakers.len(), 2);
+        assert_eq!(speakers[0].display_name.as_deref(), Some("Daichi"));
+        assert_eq!(speakers[1].id, "S1");
+        assert_eq!(speakers[1].label, "相手1");
+    }
+
+    #[test]
+    fn meeting_rediarization_applies_the_saved_system_shift() {
+        let mut t = Transcript {
+            language: None,
+            segments: vec![seg(3600, 3900)],
+        };
+        let diar = DiarizationResult {
+            speakers: vec![speaker("S1", "話者1", None)],
+            turns: vec![turn(3000, 3500, "S1")],
+            ..Default::default()
+        };
+        let speakers = reassign_meeting_speakers(&mut t, &diar, 500, None, Lang::Ja);
+        assert_eq!(t.segments[0].speaker_id.as_deref(), Some("S1"));
+        // No mic segment: no self speaker is invented.
+        assert_eq!(speakers.len(), 1);
     }
 
     #[test]

@@ -281,7 +281,7 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
     let rec_dir = resolve_recordings_dir(app)?;
 
     // 既存の本文・source_type・旧話者/声紋を読む（軽い。await をまたがない）。
-    let (mut transcript, source_type, old_pairs) = {
+    let (mut transcript, source_type, old_pairs, self_speaker, mic_offset_ms) = {
         let store = app.state::<SqliteStore>();
         let detail = store
             .get_recording_detail(&id)
@@ -305,15 +305,35 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
                     .map(|(_, v)| (sp.clone(), v.clone()))
             })
             .collect();
-        (detail.transcript, detail.recording.source_type, old_pairs)
+        let self_speaker = detail
+            .speakers
+            .iter()
+            .find(|sp| sp.id == mojiroku_core::merge::SELF_SPEAKER_ID)
+            .cloned();
+        let offset = store
+            .get_mic_offset_ms(&id)
+            .map_err(|e| e.to_string())?
+            .unwrap_or(0);
+        (
+            detail.transcript,
+            detail.recording.source_type,
+            old_pairs,
+            self_speaker,
+            offset,
+        )
     };
 
-    // 対象音声を解決。会議（Live）は**後付け diarize を拒否**する（コマンド側でも弾くが二重の安全網）。
-    // 理由: 会議は取得時に相手＝system 話者分離・自分＝mic のソース帰属で確定済み（ADR-0017）。ここで
-    // system 音声だけ再分離して**全 transcript** に merge すると、mic（自分）セグメントが時間重なりで
-    // 相手話者へ化けて you-vs-them の切り分けを壊す。会議の再分離は無意味かつ破壊的なので通さない。
+    // 対象音声を解決。会議（Live）は **system（相手）トラックだけ**を分離し直す（Issue #102）。
+    // mic（自分）のセグメントは `self` のまま触らない。以前は全 transcript へ merge すると自分の
+    // セグメントが時間重なりで相手話者へ化けるため拒否していたが、`self` を保てば安全に再分離できる。
     let audio = match source_type {
-        SourceType::Live => return Err("error.job.already_diarized".to_string()),
+        SourceType::Live => {
+            let system = rec_dir.join(format!("{id}-system.wav"));
+            if !system.exists() {
+                return Err("error.job.no_pertrack".to_string());
+            }
+            system
+        }
         SourceType::Mic | SourceType::File => {
             find_primary_audio(&rec_dir, &id).ok_or_else(|| "error.job.no_audio".to_string())?
         }
@@ -334,7 +354,25 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
     };
 
     // 本文へ新話者割当をマージ（純関数・text 不変）。
-    mojiroku_core::merge::assign_speakers(&mut transcript, &diar);
+    let speakers = if source_type == SourceType::Live {
+        // merge_tracks は開始が早かった側を後ろへずらして保存している。system 側がずれたのは
+        // mic_offset_ms が負のとき（Issue #65）。
+        let system_shift_ms = if mic_offset_ms < 0 {
+            mic_offset_ms.unsigned_abs()
+        } else {
+            0
+        };
+        mojiroku_core::merge::reassign_meeting_speakers(
+            &mut transcript,
+            &diar,
+            system_shift_ms,
+            self_speaker,
+            lang,
+        )
+    } else {
+        mojiroku_core::merge::assign_speakers(&mut transcript, &diar);
+        diar.speakers.clone()
+    };
 
     // 新 (Speaker, 声紋) ペア → 旧表示名の引き継ぎ remap。
     let new_pairs: Vec<(mojiroku_core::Speaker, Vec<f32>)> = diar
@@ -358,7 +396,7 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
         .replace_speaker_assignments(
             &id,
             &transcript,
-            &diar.speakers,
+            &speakers,
             &diar.embeddings,
             mojiroku_core::models::DEFAULT_DIAR_EMB_MODEL,
             &remap,

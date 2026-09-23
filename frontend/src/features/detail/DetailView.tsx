@@ -257,7 +257,7 @@ export function DetailView({ id }: { id: string }) {
     }
   };
 
-  // 後付け話者分離ジョブ投入（transcript 済み・話者未割当の File/Mic）。
+  // 後付け話者分離ジョブ投入（話者未割当の File/Mic、またはやり直し。Issue #102）。
   const startDiarize = async () => {
     if (starting || processing) return;
     setStarting(true);
@@ -507,6 +507,8 @@ export function DetailView({ id }: { id: string }) {
   const canTranscribe = !processing && !hasTranscript;
   const canDiarize =
     !processing && hasTranscript && speakers.length === 0 && rec.source_type !== "live";
+  // Existing speakers can be re-analysed, including meetings (remote track only; Issue #102).
+  const canRediarize = !processing && hasTranscript && speakers.length > 0;
 
   return (
     <div className="flex h-full min-h-0">
@@ -892,6 +894,16 @@ export function DetailView({ id }: { id: string }) {
       <aside className="flex w-[222px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface px-[15px] py-4">
         {speakers.length > 0 && (
           <SpeakerPanel speakers={speakers} recordingId={id} onRenamed={onRenamed} />
+        )}
+        {canRediarize && (
+          <button
+            onClick={() => void startDiarize()}
+            disabled={starting}
+            title={t.detail.rerunDiarizeDesc}
+            className="-mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-[8px] border border-border-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
+          >
+            {starting ? <Spinner size={13} /> : t.detail.rerunDiarize}
+          </button>
         )}
 
         {/* AIで作成（常設）。各アクションはそのテンプレへ preset してモーダルを開く。 */}
