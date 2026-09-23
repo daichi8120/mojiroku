@@ -722,6 +722,7 @@ const ja = {
     "error.job.no_audio": "この録音の音声ファイルが見つかりません",
     "error.job.no_transcript": "先に文字起こしを実行してください",
     "error.job.no_pertrack": "この録音にはトラック別音声がありません",
+    "error.recording.discard_failed": "録音は止めましたが、音声ファイルを削除できませんでした（次回の起動時に削除されます）",
     "error.job.no_speakers_found": "話者を検出できなかったため、今の話者の割り当てをそのまま残しました",
     "error.job.unknown_kind": "不明なジョブ種別です",
     "error.job.failed": "処理に失敗しました",

@@ -53,8 +53,13 @@ pub(crate) fn start_mic_recording(
 #[tauri::command]
 pub(crate) fn cancel_mic_recording(mic: State<'_, mic::MicState>) -> Result<(), String> {
     let info = mic::stop(&mic)?;
-    let _ = std::fs::remove_file(&info.spool_path);
-    Ok(())
+    // 消せなかったら破棄できたと言わない（録音は止まっているが、音声が残っている）。
+    // 残った spool は次回起動時の掃除でも消える（lib.rs）。
+    match std::fs::remove_file(&info.spool_path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("error.recording.discard_failed: {e}")),
+    }
 }
 
 /// 録音中の入力音量（前回の呼び出し以降の最大振幅 0.0〜1.0・Issue #113）。
