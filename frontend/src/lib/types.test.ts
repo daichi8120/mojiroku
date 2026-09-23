@@ -129,7 +129,12 @@ describe("recordingTitle / formatDateTime (#105)", () => {
     const en = recordingTitle({ ...base, source_type: "live", title: "  " }, "en");
     expect(en.startsWith("Meeting (")).toBe(true);
   });
-  it("shows dates without seconds", () => {
+  it("treats the backend's default titles as untitled", () => {
+    for (const title of ["録音", "Recording", "会議", "Meeting"]) {
+      expect(recordingTitle({ ...base, source_type: "mic", title }, "ja").startsWith("マイク録音（")).toBe(true);
+    }
+  });
+    it("shows dates without seconds", () => {
     const s = formatDateTime("2026-09-23T02:03:45Z", "ja");
     expect(s).not.toMatch(/:\d\d:\d\d/);
   });

@@ -386,12 +386,17 @@ export function formatDateTime(iso: string, lang: Lang): string {
 }
 
 /**
- * 録音の表示名。タイトルが無ければ「マイク録音（9月21日 10:00）」のように種類と日時で作る（#105）。
+ * 録音の表示名。タイトルが無い（または既定名の「録音」「会議」）なら「マイク録音（9月21日 10:00）」の
+ * ように種類と日時で作る（#105）。
  * 一覧・詳細・削除確認で同じ名前を出すため、表示はすべてここを通す。
  */
+// バックエンドがタイトル未指定のマイク録音・会議に付ける既定名（commands/recording.rs）。
+// 名前として意味を持たないので、未設定と同じく種類と日時で表示する（#105 レビュー）。
+const DEFAULT_TITLES = new Set(["録音", "Recording", "会議", "Meeting"]);
+
 export function recordingTitle(rec: Recording, lang: Lang): string {
   const title = rec.title?.trim();
-  if (title) return title;
+  if (title && !DEFAULT_TITLES.has(title)) return title;
   const f = dicts[lang].format;
   const d = new Date(rec.created_at);
   const when = Number.isNaN(d.getTime())
