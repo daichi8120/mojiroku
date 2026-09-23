@@ -149,7 +149,9 @@ function SourceAudioPlayer({
         onTimeUpdate={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onEnded={() => {
+        onEnded={(e) => {
+          // 表示だけでなく実際の再生位置も先頭へ戻す。戻さないと、次の再生や −5 が末尾から始まる。
+          e.currentTarget.currentTime = 0;
           setPlaying(false);
           setCurrentMs(0);
         }}
