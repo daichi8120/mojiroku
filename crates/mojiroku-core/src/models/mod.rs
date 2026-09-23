@@ -119,7 +119,7 @@ pub fn diar_emb_url() -> &'static str {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum SummaryTier {
-    /// 目安 8GB。いまは現行の 7B がここを受け持つ（軽い候補が未採用のため）。
+    /// 目安 8GB。2026-09-23 から Qwen3.5-4B が受け持つ（ADR-0044）。
     Small,
     /// 目安 16GB。
     Medium,
