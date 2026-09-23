@@ -46,6 +46,8 @@ interface ToastItem {
 
 function App() {
   const [route, setRoute] = useState<Route>({ view: "home" });
+  const routeRef = useRef(route);
+  routeRef.current = route;
   const [recents, setRecents] = useState<Recording[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastSeq = useRef(0);
@@ -193,7 +195,11 @@ function App() {
       refreshRecents();
       toast(u.kind === "diarize" ? t.job.diarizeCompleted : t.job.transcribeCompleted, "success");
     } else if (u.status === "failed") {
-      toast(u.error ? translateError(u.error, t) : t.job.failedToast, "error");
+      // その録音の詳細を開いているなら、詳細画面の赤枠（再試行つき）だけにする（#107）。
+      const r = routeRef.current;
+      if (!(r.view === "detail" && r.id === u.recording_id)) {
+        toast(u.error ? translateError(u.error, t) : t.job.failedToast, "error");
+      }
     }
   });
 

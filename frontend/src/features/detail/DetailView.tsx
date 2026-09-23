@@ -509,6 +509,13 @@ export function DetailView({ id }: { id: string }) {
   const meta = [formatDateTime(rec.created_at, lang), formatDuration(rec.duration_ms)];
   const speakers = detail.speakers ?? [];
   const hasTranscript = detail.transcript.segments.length > 0;
+  // 要約・議事録は文字起こしがあって処理中でないときだけ作れる（#107）。押せない理由は title で示す。
+  const canSummarize = hasTranscript && !processing;
+  const summarizeBlockedReason = canSummarize
+    ? undefined
+    : processing
+      ? t.detail.needsJobDone
+      : t.detail.needsTranscript;
   // 後付けアクションの可否（ADR-0024）。処理中は隠す。会議は録音時に話者付与済み＝diarize 不可。
   const canTranscribe = !processing && !hasTranscript;
   const canDiarize =
@@ -588,7 +595,7 @@ export function DetailView({ id }: { id: string }) {
                   質問する
                 </button>
               )}
-              <SharePopover detail={detail} />
+              <SharePopover detail={detail} disabled={!hasTranscript && detail.summaries.length === 0} />
               <button
                 onClick={() => setConfirmDel(true)}
                 aria-label={t.common.delete}
@@ -668,9 +675,25 @@ export function DetailView({ id }: { id: string }) {
           )}
 
           {/* 失敗（ADR-0024）: キー化メッセージを翻訳表示。下の実行ボタンで再試行できる。 */}
+          {/* 失敗はここに 1 回だけ出す（この画面を開いている間は App のトーストを出さない・#107）。 */}
           {jobFailed && job && (
-            <div className="mb-4 rounded-card border border-red/40 bg-red/8 px-4 py-3 text-[13px] text-red-light">
-              {job.error ? translateError(job.error, t) : t.job.failedToast}
+            <div
+              role="alert"
+              className="mb-4 flex items-center justify-between gap-3 rounded-card border border-red/40 bg-red/8 px-4 py-3"
+            >
+              <span className="text-[13px] text-red-light">
+                {job.error ? translateError(job.error, t) : t.job.failedToast}
+              </span>
+              {/* 文字起こしの失敗は下の「文字起こしを実行」がそのまま再試行になるので、ここには出さない。 */}
+              {!canTranscribe && (
+                <button
+                  onClick={() => void (job.kind === "diarize" ? startDiarize() : startTranscribe())}
+                  disabled={starting}
+                  className="h-8 shrink-0 rounded-ctl border border-red/40 px-3 text-[12px] font-medium text-red-light transition-colors hover:bg-red/12 disabled:opacity-50"
+                >
+                  {t.common.retry}
+                </button>
+              )}
             </div>
           )}
 
@@ -714,7 +737,7 @@ export function DetailView({ id }: { id: string }) {
             </div>
           )}
 
-          {/* AI議事録 */}
+          {/* AI議事録。文字起こしが無い間は作れないので、作成の案内も出さない（#107）。 */}
           {detail.summaries.length > 0 ? (
             <div className="mb-4 flex flex-col gap-3">
               {detail.summaries.map((s, i) => (
@@ -765,7 +788,7 @@ export function DetailView({ id }: { id: string }) {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : hasTranscript && !processing ? (
             <button
               onClick={() => openModal("minutes")}
               className="mb-4 flex w-full items-center gap-3 rounded-card border border-dashed border-border-3 bg-surface-2 px-4 py-4 text-left transition-colors hover:bg-hover"
@@ -782,7 +805,7 @@ export function DetailView({ id }: { id: string }) {
                 </span>
               </span>
             </button>
-          )}
+          ) : null}
 
           {/* シリーズ横断ダイジェスト（モック画面へ）。配布時は隠す。 */}
           {MOCK_PREVIEW && (
@@ -800,9 +823,12 @@ export function DetailView({ id }: { id: string }) {
             <TabButton active={tab === "transcript"} onClick={() => setTab("transcript")}>
               {t.detail.tabs.transcript}
             </TabButton>
-            <TabButton active={tab === "translations"} onClick={() => setTab("translations")}>
-              {t.meeting.translation.savedTitle}
-            </TabButton>
+            {/* ライブ翻訳は会議モードにしか無い（#107）。他の録音では空のタブになるだけなので出さない。 */}
+            {rec.source_type === "live" && (
+              <TabButton active={tab === "translations"} onClick={() => setTab("translations")}>
+                {t.meeting.translation.savedTitle}
+              </TabButton>
+            )}
             {/* チャプター/翻訳はモック（未実装）。配布時(MOCK_PREVIEW=false)は丸ごと隠し、
                 実録音に固定ダミーが出ないようにする。 */}
             {MOCK_PREVIEW && (
@@ -888,11 +914,10 @@ export function DetailView({ id }: { id: string }) {
                 speakers.length > 0 && !processing ? setFixingSeg : undefined
               }
             />
+          ) : processing ? (
+            <EmptyState title={t.detail.transcriptPendingTitle} hint={t.detail.transcriptPendingHint} />
           ) : (
-            <EmptyState
-              title={t.detail.noTranscriptTitle}
-              hint={t.detail.noTranscriptHint}
-            />
+            <EmptyState title={t.detail.noTranscriptTitle} hint={t.detail.noTranscriptHint} />
           )}
         </div>
       </div>
@@ -922,12 +947,16 @@ export function DetailView({ id }: { id: string }) {
           <div className="mb-2.5 text-[11px] font-bold tracking-[0.08em] text-dim">
             {t.detail.aiCreate}
           </div>
+          {summarizeBlockedReason && (
+            <p className="mb-2 text-[12px] text-muted">{summarizeBlockedReason}</p>
+          )}
           <div className="flex flex-col gap-1.5">
             {/* 主ボタンは「まだ議事録が無い」ときだけ。作成済みなら他と同じ副ボタンに下げ、
                 画面の主役を本文に譲る（#106）。 */}
             <button
               onClick={() => openModal("minutes")}
-              disabled={processing}
+              disabled={!canSummarize}
+              title={summarizeBlockedReason}
               className={cx(
                 "h-9 w-full rounded-ctl text-[13px] transition-colors disabled:opacity-50",
                 findSummary(detail.summaries, "minutes")
@@ -939,14 +968,16 @@ export function DetailView({ id }: { id: string }) {
             </button>
             <button
               onClick={() => openModal("summary")}
-              disabled={processing}
+              disabled={!canSummarize}
+              title={summarizeBlockedReason}
               className="h-9 w-full disabled:opacity-50 rounded-ctl border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createSummary}
             </button>
             <button
               onClick={() => openModal("action_items")}
-              disabled={processing}
+              disabled={!canSummarize}
+              title={summarizeBlockedReason}
               className="h-9 w-full disabled:opacity-50 rounded-ctl border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createActionItems}

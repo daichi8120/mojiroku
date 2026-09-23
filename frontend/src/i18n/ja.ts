@@ -277,8 +277,12 @@ const ja = {
     tabs: {
       transcript: "文字起こし",
     },
-    noTranscriptTitle: "文字起こしがありません",
-    noTranscriptHint: "このセッションには文字起こし結果がありません。",
+    noTranscriptTitle: "まだ文字起こしされていません",
+    noTranscriptHint: "上の「文字起こしを実行」で、この録音をローカルで文字起こしできます。",
+    transcriptPendingTitle: "文字起こし中です",
+    transcriptPendingHint: "終わるとここに表示されます。ほかの画面に移っても処理は続きます。",
+    needsTranscript: "文字起こしが終わると使えます",
+    needsJobDone: "処理が終わると使えます",
     // 後付け処理（ADR-0024）。
     runTranscribe: "文字起こしを実行",
     runTranscribeDesc: "この録音の音声をローカルで文字起こしします。",
@@ -312,14 +316,12 @@ const ja = {
       registerAndLink: "登録して対応づけ",
     },
     templateModal: {
-      title: "議事録・要約を作成",
-      subtitle: "テンプレートを選んで生成します",
+      titleFor: (what: string) => `${what}を作成`,
       templates: {
         minutes: { title: "議事録", desc: "決定事項・宿題・論点つき" },
         summary: { title: "要約（3行）", desc: "要点だけ短く" },
         actionItems: { title: "アクションアイテム", desc: "担当・期限つきの ToDo" },
       },
-      engineSection: "生成エンジン",
       engineCloud: (provider: string) => `クラウド / ${provider}`,
       engineLocal: "ローカル / Metal",
       cloudBadge: (provider: string) => `クラウド（${provider}）· BYOK`,
@@ -328,14 +330,11 @@ const ja = {
       localBadge: "ローカル · 無料",
       localNote: "すべて Mac の中で処理 · 送信なし。",
       engineHint: "エンジンは 設定 → 要約エンジン で切り替えられます。",
-      footerCloud: (provider: string) => `${provider} で生成 · 文字起こしを送信`,
-      footerLocal: "ローカルモデルで生成 · 追加費用なし",
+      sendAndGenerate: (provider: string) => `${provider} に送信して作成`,
       progressQueued: "他の処理（文字起こしなど）の完了を待っています…",
       progressDownload: (pct: number) => `要約モデルをDL中… ${pct}%`,
       progressGenerating: (engine: string) => `要約を生成中…（${engine}）`,
       created: "作成しました",
-      generating: "生成中…",
-      generate: "生成する",
     },
     share: {
       /** 詳細画面右上のボタン。コピー・書き出し・送信・AI で開くをまとめたメニュー（#105）。 */
