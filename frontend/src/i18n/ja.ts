@@ -300,12 +300,22 @@ const ja = {
     createSummary: "要約（3行）",
     createActionItems: "アクションアイテム",
     mcpNote: "MCP 経由で Claude などからも参照できます",
+    find: {
+      open: "文字起こし内を検索",
+      placeholder: "文字起こし内を検索",
+      count: (i: number, n: number) => `${i} / ${n}`,
+      prev: "前の一致",
+      next: "次の一致",
+    },
     audio: {
       play: "再生",
       pause: "一時停止",
       seek: "再生位置",
       spaceHint: "再生 / 一時停止（スペースキー）",
       follow: "再生位置に戻る",
+      back5: "5 秒戻る",
+      forward15: "15 秒進む",
+      rate: (r: number) => `再生速度 ${r} 倍（押すと切り替え）`,
     },
     speakerPanel: {
       title: "話者",

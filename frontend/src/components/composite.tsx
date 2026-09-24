@@ -46,6 +46,29 @@ export function SpeakerChip({
   );
 }
 
+/** 本文中の query（大文字小文字は区別しない）に印を付ける（#111）。 */
+export function markMatches(text: string, query: string): ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const needle = q.toLowerCase();
+  const out: ReactNode[] = [];
+  let from = 0;
+  let at = lower.indexOf(needle, from);
+  while (at >= 0) {
+    if (at > from) out.push(text.slice(from, at));
+    out.push(
+      <mark key={at} className="rounded-sm bg-amber/30 px-px text-ink">
+        {text.slice(at, at + needle.length)}
+      </mark>,
+    );
+    from = at + needle.length;
+    at = lower.indexOf(needle, from);
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
+
 // ── 話者つき文字起こしリスト ───────────────────────────────────────────────
 export function TranscriptList({
   segments,
@@ -55,6 +78,8 @@ export function TranscriptList({
   onSpeakerClick,
   activeIdx,
   onSeek,
+  query = "",
+  currentMatchIdx = null,
   className,
 }: {
   segments: Segment[];
@@ -74,6 +99,10 @@ export function TranscriptList({
   activeIdx?: number | null;
   /** 時刻を押したときにその位置から再生する（#110）。渡さなければ時刻はただの文字。 */
   onSeek?: (seg: Segment) => void;
+  /** 文字起こし内検索の語（#111）。一致箇所に印を付ける。 */
+  query?: string;
+  /** 検索で今選んでいる発言（Segment.idx）。 */
+  currentMatchIdx?: number | null;
   className?: string;
 }) {
   return (
@@ -88,6 +117,8 @@ export function TranscriptList({
           onSpeakerClick={onSpeakerClick}
           onSeek={onSeek}
           active={activeIdx === seg.idx}
+          query={query}
+          currentMatch={currentMatchIdx === seg.idx}
         />
       ))}
     </ol>
@@ -103,6 +134,8 @@ const TranscriptRow = memo(function TranscriptRow({
   onSpeakerClick,
   onSeek,
   active,
+  query,
+  currentMatch,
 }: {
   seg: Segment;
   speakers?: Speaker[];
@@ -111,6 +144,8 @@ const TranscriptRow = memo(function TranscriptRow({
   onSpeakerClick?: (seg: Segment) => void;
   onSeek?: (seg: Segment) => void;
   active: boolean;
+  query: string;
+  currentMatch: boolean;
 }) {
   const { t, lang } = useI18n();
   return (
@@ -120,6 +155,7 @@ const TranscriptRow = memo(function TranscriptRow({
       className={cx(
         "flex gap-3 rounded-ctl px-1 py-2.5 text-[15px] leading-relaxed transition-colors",
         active && "bg-brand/10",
+        currentMatch && "outline outline-2 outline-amber/60",
       )}
     >
       {showTimestamps &&
@@ -156,7 +192,7 @@ const TranscriptRow = memo(function TranscriptRow({
         </span>
       )}
       <div className="min-w-0">
-        <p className="text-speech break-words">{seg.text}</p>
+        <p className="text-speech break-words">{markMatches(seg.text, query)}</p>
         {ja && (
           <p className="mt-1 flex gap-1.5 text-[13px] text-sub">
             <span className="mt-px shrink-0 rounded bg-cyan/13 px-1 text-[11px] font-medium text-cyan">
