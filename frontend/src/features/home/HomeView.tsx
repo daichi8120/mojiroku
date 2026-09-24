@@ -1,4 +1,5 @@
-// ホーム / 取り込み（Studio 02）。会議モードを主役に、その下にファイル取込・マイク録音。
+// ホーム（#115）。始め方（会議 / マイク / ファイル）→ 今日の予定 → 最近の録音。
+// 以前は配布サイトのような売り文句（特長カード・「Mac の中だけ」の 2 回表示）が並んでいた。
 // 会議録音はアプリ全体の状態（useApp().meeting）。録音中は二重録音を避けてここからは開始させない。
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -7,18 +8,66 @@ import { useApp } from "@/lib/app";
 import { ModelSetupCard } from "@/features/setup/ModelSetup";
 import { cx } from "@/lib/cx";
 import { translateError, useI18n } from "@/i18n";
-import { startMicRecording, transcribeFile } from "@/lib/tauri";
+import { listCalendarEvents, listRecordingRows, startMicRecording, transcribeFile, useJobUpdate } from "@/lib/tauri";
+import { getDiarizePref, setDiarizePref } from "@/lib/prefs";
+import {
+  formatDateShort,
+  formatDurationHuman,
+  formatEventTime,
+  recordingState,
+  recordingTitle,
+  type CalendarEvent,
+  type RecordingRow,
+} from "@/lib/types";
 import { Toggle } from "@/components/ui";
-import { PrivacyBar, ValueProps } from "@/components/composite";
-import { FileAudioIcon, MicIcon, VideoIcon } from "@/components/icons";
+import { PrivacyBar, RecordingStateBadge, SourceIcon } from "@/components/composite";
+import { CalendarIcon, FileAudioIcon, MicIcon, VideoIcon } from "@/components/icons";
+
+const RECENT_COUNT = 5;
+/** 終了時刻の無い予定は、開始からこの時間は「進行中」とみなす。 */
+const OPEN_ENDED_MS = 60 * 60 * 1000;
+
+/** これから・進行中の予定（終わったものは除く）。 */
+export function upcomingEvents(evs: CalendarEvent[], now: number): CalendarEvent[] {
+  return evs.filter((e) => {
+    const start = new Date(e.start).getTime();
+    const end = e.end ? new Date(e.end).getTime() : start + OPEN_ENDED_MS;
+    return end >= now;
+  });
+}
 
 const AUDIO_EXT = ["mp3", "wav", "m4a", "aac", "aiff", "flac", "ogg"];
 const isAudio = (p: string) => AUDIO_EXT.some((x) => p.toLowerCase().endsWith(`.${x}`));
 
 export function HomeView() {
   const { navigate, toast, refreshRecents, meeting, startMeeting } = useApp();
-  const { t } = useI18n();
-  const [diarize, setDiarize] = useState(false);
+  const { t, lang } = useI18n();
+  // 話者分離は既定 ON で、最後の選択を覚える（#115）。会議モードは常に話者分離つき。
+  const [diarize, setDiarizeState] = useState(getDiarizePref);
+  const setDiarize = (on: boolean) => {
+    setDiarizeState(on);
+    setDiarizePref(on);
+  };
+  const [recent, setRecent] = useState<RecordingRow[] | null>(null);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const loadRecent = useCallback(() => {
+    listRecordingRows()
+      .then((rows) => setRecent(rows.slice(0, RECENT_COUNT)))
+      .catch(() => setRecent([]));
+  }, []);
+  // 処理が終わると状態（処理中 → 要約あり など）が変わるので取り直す。
+  useJobUpdate((u) => {
+    if (u.status === "done" || u.status === "failed" || u.status === "canceled") loadRecent();
+  });
+  useEffect(() => {
+    loadRecent();
+    // カレンダー未連携はエラーで返る。そのときは予定の欄ごと出さない。
+    listCalendarEvents()
+      .then((evs) => {
+        setEvents(upcomingEvents(evs, Date.now()).slice(0, 3));
+      })
+      .catch(() => setEvents([]));
+  }, [loadRecent]);
   // 音声だけ保存（後から文字起こし・ADR-0024 増分5）。ON のとき停止/取込は録音行だけ作りジョブは積まない。
   const [recordOnly, setRecordOnly] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -35,12 +84,12 @@ export function HomeView() {
   meetingActiveRef.current = meeting.status !== "idle";
 
   // 会議モード（主役）: idle なら開始 → 会議画面へ。録音中なら会議画面へ戻る。
-  const beginMeeting = useCallback(async () => {
+  const beginMeeting = useCallback(async (title?: string) => {
     if (meeting.status !== "idle") {
       navigate({ view: "meeting" });
       return;
     }
-    const r = await startMeeting();
+    const r = await startMeeting(title);
     // started → 録音中ビュー、denied → 開始画面で許可を誘導（startMeeting がトースト済み）。
     if (r !== "error") navigate({ view: "meeting" });
   }, [meeting.status, startMeeting, navigate]);
@@ -122,130 +171,160 @@ export function HomeView() {
 
   const recording = meeting.status !== "idle";
 
+  const actionCard =
+    "flex items-center gap-3 rounded-card border border-border-2 bg-surface-2 px-4 py-3.5 text-left transition-colors hover:bg-hover disabled:opacity-45";
+
   return (
     <div className="mx-auto flex max-w-[760px] flex-col gap-6 px-8 py-10">
       <header>
-        <h1 className="text-[18px] font-bold text-ink">{t.home.title}</h1>
+        <h1 className="text-[22px] font-bold text-ink">{t.home.title}</h1>
         <p className="mt-1 text-[13px] text-muted">{t.home.subtitle}</p>
       </header>
 
       {/* 初回だけ: 文字起こしモデルの準備（#112）。揃っていれば何も出さない。 */}
       <ModelSetupCard variant="home" />
 
-      {/* 会議モード（主役） */}
-      <button
-        onClick={beginMeeting}
-        className="group relative flex items-center gap-4 overflow-hidden rounded-win border border-brand/30 bg-linear-135 from-brand/18 to-brand-2/10 px-6 py-6 text-left transition-[filter] hover:brightness-[1.06]"
-      >
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-brand/20 text-brand-light">
-          <VideoIcon size={28} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-bold text-ink">{t.home.meetingCard.title}</span>
-          <span className="mt-1 block text-[13px] leading-relaxed text-muted">
-            {t.home.meetingCard.desc}
-          </span>
-        </span>
-        <span
-          className="bg-brand-gradient inline-flex h-10 shrink-0 items-center gap-2 rounded-btn px-5 text-[13px] font-medium text-white"
-        >
-          {recording ? (
-            <>
-              <span className="h-2 w-2 animate-mjpulse rounded-full bg-white/90" />
-              {t.app.meetingBar.backToMeeting}
-            </>
-          ) : (
-            <>
-              <span className="h-2.5 w-2.5 rounded-full bg-white/90" />
-              {t.home.meetingCard.start}
-            </>
-          )}
-        </span>
-      </button>
-
-      {/* その他の取り込み */}
-      <div className="flex items-center gap-3 pt-1">
-        <span className="h-px flex-1 bg-border" />
-        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
-          {t.home.otherImports}
-        </span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-
-      {/* ドラッグ&ドロップ枠 */}
-      <button
-        onClick={pickFile}
-        disabled={busy}
-        className={cx(
-          "flex flex-col items-center justify-center gap-4 rounded-win border-2 border-dashed px-6 py-12 transition-colors",
-          dragOver
-            ? "border-brand bg-selected"
-            : "border-border-2 bg-surface hover:border-border-3 hover:bg-surface-2",
-          busy && "opacity-60",
-        )}
-      >
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand/12 text-brand-light">
-          <FileAudioIcon size={24} />
-        </span>
-        <span className="text-center">
-          <span className="block text-[14px] font-medium text-ink">
-            {t.home.dropTitle}
-          </span>
-          <span className="mt-1 block font-mono text-[12px] text-dim">
-            mp3 / wav / m4a / flac / aac / ogg
-          </span>
-        </span>
-      </button>
-
-      {/* アクション */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* 始め方。会議が主役、マイクとファイルはその下に並べる。 */}
+      <section className="flex flex-col gap-3">
         <button
-          onClick={pickFile}
-          disabled={busy}
-          className="inline-flex h-10 items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-5 text-[13px] font-medium text-ink transition-colors hover:bg-hover disabled:opacity-45"
+          onClick={() => void beginMeeting()}
+          className="group flex items-center gap-4 rounded-win border border-brand/30 bg-linear-135 from-brand/18 to-brand-2/10 px-5 py-5 text-left transition-[filter] hover:brightness-[1.06]"
         >
-          <FileAudioIcon size={17} className="text-brand-light" />
-          {t.home.chooseFile}
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-card bg-brand/20 text-brand-light">
+            <VideoIcon size={24} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-bold text-ink">{t.home.meetingCard.title}</span>
+            <span className="mt-1 block text-[13px] leading-relaxed text-muted">
+              {t.home.meetingCard.desc}
+            </span>
+          </span>
+          <span className="bg-brand-gradient inline-flex h-10 shrink-0 items-center gap-2 rounded-btn px-5 text-[13px] font-medium text-white">
+            {recording ? (
+              <>
+                <span className="h-2 w-2 animate-mjpulse rounded-full bg-white/90" />
+                {t.app.meetingBar.backToMeeting}
+              </>
+            ) : (
+              <>
+                <span className="h-2.5 w-2.5 rounded-full bg-white/90" />
+                {t.home.meetingCard.start}
+              </>
+            )}
+          </span>
         </button>
-        <button
-          onClick={startMic}
-          disabled={busy}
-          className="inline-flex h-10 items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-5 text-[13px] font-medium text-ink transition-colors hover:bg-hover disabled:opacity-45"
-        >
-          <MicIcon size={17} className="text-red-light" />
-          {t.home.recordMic}
-        </button>
-      </div>
 
-      {/* 話者分離（音声だけ保存 ON のときは処理を後回しにするので無効化・後で選び直す） */}
-      <div className="flex items-start gap-3 rounded-card border border-border bg-surface-2 px-4 py-3.5">
-        <Toggle
-          checked={diarize}
-          onChange={setDiarize}
-          disabled={busy || recordOnly}
-          label={t.home.diarize.label}
-        />
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-ink">{t.home.diarize.title}</div>
-          <div className="mt-0.5 text-[12px] text-muted">{t.home.diarize.desc}</div>
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={startMic} disabled={busy} className={actionCard}>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-red/12 text-red-light">
+              <MicIcon size={18} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-semibold text-ink">{t.home.recordMic}</span>
+              <span className="block text-[12px] text-muted">{t.home.recordMicDesc}</span>
+            </span>
+          </button>
+          <button
+            onClick={pickFile}
+            disabled={busy}
+            className={cx(actionCard, dragOver && "border-brand bg-selected")}
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-brand/12 text-brand-light">
+              <FileAudioIcon size={18} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[14px] font-semibold text-ink">{t.home.chooseFile}</span>
+              <span className="block text-[12px] text-muted">{t.home.dropHint}</span>
+            </span>
+          </button>
         </div>
-      </div>
 
-      {/* 音声だけ保存（後から文字起こし・ADR-0024） */}
-      <div className="flex items-start gap-3 rounded-card border border-border bg-surface-2 px-4 py-3.5">
-        <Toggle
-          checked={recordOnly}
-          onChange={setRecordOnly}
-          disabled={busy}
-          label={t.home.recordOnly.label}
-        />
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-ink">{t.home.recordOnly.title}</div>
-          <div className="mt-0.5 text-[12px] text-muted">{t.home.recordOnly.desc}</div>
+        {/* マイク録音とファイル取り込みの設定（会議モードには効かない）。 */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-1 text-[13px] text-body">
+          <label className="flex items-center gap-2" title={t.home.diarize.desc}>
+            <Toggle
+              checked={diarize && !recordOnly}
+              onChange={setDiarize}
+              disabled={busy || recordOnly}
+              label={t.home.diarize.label}
+            />
+            {t.home.diarize.title}
+          </label>
+          <label className="flex items-center gap-2" title={t.home.recordOnly.desc}>
+            <Toggle
+              checked={recordOnly}
+              onChange={setRecordOnly}
+              disabled={busy}
+              label={t.home.recordOnly.label}
+            />
+            {t.home.recordOnly.title}
+          </label>
         </div>
-      </div>
+      </section>
 
-      <ValueProps />
+      {/* 今日の予定（カレンダー連携時だけ）。予定名で会議の記録を始められる。 */}
+      {events.length > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-2 text-[13px] font-semibold text-sub">
+            <CalendarIcon size={14} />
+            {t.home.upcoming}
+          </h2>
+          <ul className="overflow-hidden rounded-card border border-border bg-surface-2">
+            {events.map((ev, i) => (
+              <li
+                key={ev.id + ev.start}
+                className={cx("flex items-center gap-3 px-4 py-2.5", i > 0 && "border-t border-line")}
+              >
+                <span className="w-24 shrink-0 font-mono text-[12px] text-muted tnum">
+                  {formatEventTime(ev.start, lang)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{ev.title}</span>
+                <button
+                  onClick={() => void beginMeeting(ev.title)}
+                  disabled={recording}
+                  className="h-8 shrink-0 rounded-ctl border border-border-2 px-3 text-[12px] text-body transition-colors hover:bg-hover disabled:opacity-45"
+                >
+                  {t.home.recordThisMeeting}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* 最近の録音 */}
+      {recent && recent.length > 0 && (
+        <section>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-[13px] font-semibold text-sub">{t.home.recent}</h2>
+            <button
+              onClick={() => navigate({ view: "history" })}
+              className="text-[12px] text-brand-light hover:underline"
+            >
+              {t.home.seeAll}
+            </button>
+          </div>
+          <ul className="overflow-hidden rounded-card border border-border bg-surface-2">
+            {recent.map((row, i) => (
+              <li key={row.recording.id} className={cx(i > 0 && "border-t border-line")}>
+                <button
+                  onClick={() => navigate({ view: "detail", id: row.recording.id })}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover"
+                >
+                  <SourceIcon type={row.recording.source_type} />
+                  <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
+                    {recordingTitle(row.recording, lang)}
+                  </span>
+                  <RecordingStateBadge state={recordingState(row)} />
+                  <span className="shrink-0 font-mono text-[12px] text-muted tnum">
+                    {formatDateShort(row.recording.created_at, lang)} · {formatDurationHuman(row.recording.duration_ms, lang)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <PrivacyBar>{t.home.privacy}</PrivacyBar>
     </div>

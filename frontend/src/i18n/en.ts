@@ -38,6 +38,8 @@ const en: Dict = {
   },
 
   sidebar: {
+    collapse: "Collapse sidebar",
+    expand: "Expand sidebar",
     newRecording: "New recording",
     nav: {
       meeting: "Meeting mode",
@@ -54,9 +56,14 @@ const en: Dict = {
   },
 
   home: {
+    recordMicDesc: "Transcribe as you speak",
+    dropHint: "Or drag and drop an audio file here",
+    upcoming: "Coming up",
+    recordThisMeeting: "Record this meeting",
+    recent: "Recent recordings",
+    seeAll: "See all",
     title: "New recording",
-    subtitle:
-      "Record meetings as they happen. Import audio files or record from the mic — transcription and summaries all run locally.",
+    subtitle: "Meetings and memos are transcribed and summarised on this Mac.",
     meetingCard: {
       title: "Record a meeting",
       desc: "Captures Zoom, Google Meet, and more from both sides — the other participants (system audio) and you (microphone) — locally. When you stop, it is transcribed with speaker separation and saved.",

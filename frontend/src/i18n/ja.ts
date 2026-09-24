@@ -40,6 +40,8 @@ const ja = {
   },
 
   sidebar: {
+    collapse: "サイドバーを畳む",
+    expand: "サイドバーを広げる",
     newRecording: "新しい録音",
     nav: {
       meeting: "会議モード",
@@ -56,9 +58,14 @@ const ja = {
   },
 
   home: {
+    recordMicDesc: "話しながらその場で文字起こし",
+    dropHint: "ここへドラッグ&ドロップでも取り込めます",
+    upcoming: "これからの予定",
+    recordThisMeeting: "この会議を記録",
+    recent: "最近の録音",
+    seeAll: "すべて見る",
     title: "新しい録音",
-    subtitle:
-      "会議をその場で記録。音声ファイルの取り込みやマイク録音もローカルで文字起こし → 要約まで。",
+    subtitle: "会議もメモも、この Mac の中で文字起こしして議事録まで作ります。",
     meetingCard: {
       title: "会議を記録",
       desc: "Zoom / Google Meet などを、相手（システム音声）と自分（マイク）の両方からローカルでキャプチャ。停止すると話者分離つきで文字起こしして保存します。",

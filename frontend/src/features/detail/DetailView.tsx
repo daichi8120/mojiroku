@@ -54,6 +54,7 @@ import { AskDrawer } from "./AskDrawer";
 import { SavedTranslations } from "./SavedTranslations";
 import { AudioPlayer, type AudioPlayerHandle } from "./AudioPlayer";
 import { Markdown } from "@/lib/markdown";
+import { getDiarizePref, setDiarizePref } from "@/lib/prefs";
 import { findSummary } from "@/lib/templates";
 
 // チャプターはモック（トピック自動分割は未実装・Studio 15）。
@@ -210,7 +211,12 @@ export function DetailView({ id }: { id: string }) {
     done: 0,
     total: null,
   });
-  const [transcribeDiarize, setTranscribeDiarize] = useState(false);
+  // 後から文字起こしするときの話者分離もホームと同じ設定を使う（既定 ON・#115）。
+  const [transcribeDiarize, setTranscribeDiarizeState] = useState(getDiarizePref);
+  const setTranscribeDiarize = (on: boolean) => {
+    setTranscribeDiarizeState(on);
+    setDiarizePref(on);
+  };
   const [canceling, setCanceling] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -1136,25 +1142,7 @@ export function DetailView({ id }: { id: string }) {
 
       {/* 右ペイン */}
       <aside className="flex w-[222px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface px-[15px] py-4">
-        {speakers.length > 0 && (
-          // Renames and library links made during a re-detection would be replaced when it
-          // finishes, so the panel is inert while a job runs (Issue #102).
-          <div inert={processing} className={processing ? "opacity-60" : undefined}>
-            <SpeakerPanel speakers={speakers} recordingId={id} onRenamed={onRenamed} />
-          </div>
-        )}
-        {canRediarize && (
-          <button
-            onClick={() => void startDiarize()}
-            disabled={starting}
-            title={t.detail.rerunDiarizeDesc}
-            className="-mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-ctl border border-border-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
-          >
-            {starting ? <Spinner size={13} /> : t.detail.rerunDiarize}
-          </button>
-        )}
-
-        {/* AIで作成（常設）。各アクションはそのテンプレへ preset してモーダルを開く。 */}
+        {/* AIで作成（常設）。話者が多くても押し出されないよう、話者一覧より上に置く（#115）。 */}
         <div>
           <div className="mb-2.5 text-[11px] font-bold tracking-[0.08em] text-dim">
             {t.detail.aiCreate}
@@ -1196,6 +1184,24 @@ export function DetailView({ id }: { id: string }) {
             </button>
           </div>
         </div>
+
+        {speakers.length > 0 && (
+          // Renames and library links made during a re-detection would be replaced when it
+          // finishes, so the panel is inert while a job runs (Issue #102).
+          <div inert={processing} className={processing ? "opacity-60" : undefined}>
+            <SpeakerPanel speakers={speakers} recordingId={id} onRenamed={onRenamed} />
+          </div>
+        )}
+        {canRediarize && (
+          <button
+            onClick={() => void startDiarize()}
+            disabled={starting}
+            title={t.detail.rerunDiarizeDesc}
+            className="-mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-ctl border border-border-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
+          >
+            {starting ? <Spinner size={13} /> : t.detail.rerunDiarize}
+          </button>
+        )}
 
         <div className="mt-auto rounded-card border border-border bg-surface-2 px-3 py-2.5">
           <div className="flex items-start gap-2">
