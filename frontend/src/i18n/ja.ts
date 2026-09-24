@@ -226,6 +226,7 @@ const ja = {
     /** 発言単位の話者訂正（Issue #19）。 */
     speakerUnknown: "?",
     clickToFixSpeaker: "クリックで話者を訂正",
+    playFromHere: "ここから再生",
     fixSpeakerHeading: "この発言の話者",
     fixSpeakerToUnknown: "話者不明に戻す",
     speakerFixed: "話者を訂正しました",
@@ -303,6 +304,8 @@ const ja = {
       play: "再生",
       pause: "一時停止",
       seek: "再生位置",
+      spaceHint: "再生 / 一時停止（スペースキー）",
+      follow: "再生位置に戻る",
     },
     speakerPanel: {
       title: "話者",

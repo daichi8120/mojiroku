@@ -1,7 +1,7 @@
 // 録音の詳細（Studio 04 + 06 + 10 + 11）。最も大きいビュー。
 // 中央メイン（AI議事録 + 文字起こし/チャプター）+ 右ペイン 222px（話者 + MCP）。
 // 左サイドバーは App が描く。実機能: 取得 / 話者改名 / 話者訂正（発言単位）/ 要約生成 / 共有。
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { getJobStart, getStageStart, markJobStart } from "@/lib/jobClock";
 import { setShownJob } from "@/lib/jobFocus";
 import { useApp } from "@/lib/app";
@@ -23,6 +23,7 @@ import { translateError, useI18n } from "@/i18n";
 import {
   formatDateTime,
   recordingTitle,
+  segmentAt,
   formatDuration,
   type Job,
   type RecordingDetail,
@@ -50,7 +51,7 @@ import { SharePopover } from "./SharePopover";
 import { TemplateModal } from "./TemplateModal";
 import { AskDrawer } from "./AskDrawer";
 import { SavedTranslations } from "./SavedTranslations";
-import { AudioPlayer } from "./AudioPlayer";
+import { AudioPlayer, type AudioPlayerHandle } from "./AudioPlayer";
 import { Markdown } from "@/lib/markdown";
 import { findSummary } from "@/lib/templates";
 
@@ -95,6 +96,56 @@ export function DetailView({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  // 再生と文字起こしの連動（#110）。位置は AudioPlayer から受け取り、行の強調と自動追従に使う。
+  const playerRef = useRef<AudioPlayerHandle>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [playMs, setPlayMs] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  // 再生中は現在行を追いかけてスクロールする。利用者が自分でスクロールしたら追従をやめ、
+  // 「再生位置に戻る」で再開する。
+  const [following, setFollowing] = useState(true);
+  // 自動追従のスクロール中はこの時刻まで。それ以外のスクロール（ホイール・スクロールバー・キー）は
+  // 利用者の操作とみなして追従をやめる。
+  const autoScrollUntil = useRef(0);
+  const seekToSegment = useCallback((seg: Segment) => {
+    setFollowing(true);
+    playerRef.current?.seek(seg.start_ms, true);
+  }, []);
+
+  // 現在行が画面外に出たら中央へ寄せる（再生中かつ追従中だけ）。
+  const followIdx =
+    audioSrc && playing && following && detail
+      ? segmentAt(detail.transcript.segments, playMs)
+      : null;
+  useEffect(() => {
+    if (followIdx == null) return;
+    const box = scrollRef.current;
+    const row = box?.querySelector<HTMLElement>(`[data-seg-idx="${followIdx}"]`);
+    if (!box || !row) return;
+    const b = box.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    if (r.top < b.top + 40 || r.bottom > b.bottom - 40) {
+      autoScrollUntil.current = Date.now() + 800;
+      row.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [followIdx]);
+
+  // スペースキーで再生 / 一時停止。入力欄・ダイアログ・ふつうのボタンの中では奪わない
+  // （ボタンはスペースで押すのが標準の操作）。ただし時刻ボタン（data-seek）に選択が残っているときは
+  // 再生の切り替えにする。押したあと選択がそこに残るので、奪わないと同じ位置へ飛び直してしまう。
+  useEffect(() => {
+    if (!audioSrc) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      const onSeekButton = !!el?.closest("[data-seek]");
+      if (!onSeekButton && el?.closest("input, textarea, select, button, a, [contenteditable=true], [role=dialog]")) return;
+      e.preventDefault();
+      playerRef.current?.toggle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [audioSrc]);
 
   const [tab, setTab] = useState<"transcript" | "chapters" | "translations">("transcript");
   const [translateOn, setTranslateOn] = useState(false);
@@ -515,6 +566,9 @@ export function DetailView({ id }: { id: string }) {
   const meta = [formatDateTime(rec.created_at, lang), formatDuration(rec.duration_ms)];
   const speakers = detail.speakers ?? [];
   const hasTranscript = detail.transcript.segments.length > 0;
+  // 再生中の行（二分探索なので毎回求めてよい）。一度も再生していない間は強調しない。
+  const activeIdx =
+    audioSrc && (playing || playMs > 0) ? segmentAt(detail.transcript.segments, playMs) : null;
   // 要約・議事録は文字起こしがあって処理中でないときだけ作れる（#107）。押せない理由は title で示す。
   const canSummarize = hasTranscript && !processing;
   const summarizeBlockedReason = canSummarize
@@ -616,7 +670,13 @@ export function DetailView({ id }: { id: string }) {
           {/* 再生バー。原本があれば実再生（File/Mic/会議の結合 <id>.wav）、無ければ控えめな装飾。 */}
           <div className="mt-3.5">
             {audioSrc ? (
-              <AudioPlayer src={audioSrc} fallbackDurationMs={rec.duration_ms} />
+              <AudioPlayer
+                ref={playerRef}
+                src={audioSrc}
+                fallbackDurationMs={rec.duration_ms}
+                onTime={setPlayMs}
+                onPlayingChange={setPlaying}
+              />
             ) : (
               <>
                 <div className="flex cursor-default items-center gap-3">
@@ -636,7 +696,14 @@ export function DetailView({ id }: { id: string }) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div
+          ref={scrollRef}
+          className="relative flex-1 overflow-y-auto px-6 py-4"
+          // 利用者が自分でスクロールしたら追従をやめる。自動追従のスクロールは autoScrollUntil で除く。
+          onScroll={() => {
+            if (playing && Date.now() > autoScrollUntil.current) setFollowing(false);
+          }}
+        >
           {/* 処理中（ADR-0024）: ステージ + 進捗。pending はキャンセル可（running は完走）。 */}
           {processing && job && (
             <div className="mb-4 rounded-card border border-border-2 bg-surface-2 px-4 py-3.5">
@@ -919,11 +986,25 @@ export function DetailView({ id }: { id: string }) {
               onSpeakerClick={
                 speakers.length > 0 && !processing ? setFixingSeg : undefined
               }
+              activeIdx={activeIdx}
+              onSeek={audioSrc ? seekToSegment : undefined}
             />
           ) : processing ? (
             <EmptyState title={t.detail.transcriptPendingTitle} hint={t.detail.transcriptPendingHint} />
           ) : (
             <EmptyState title={t.detail.noTranscriptTitle} hint={t.detail.noTranscriptHint} />
+          )}
+
+          {/* 追従をやめている間だけ、再生位置へ戻るボタンを下に浮かべる。 */}
+          {playing && !following && tab === "transcript" && (
+            <div className="pointer-events-none sticky bottom-2 flex justify-center">
+              <button
+                onClick={() => setFollowing(true)}
+                className="pointer-events-auto rounded-full border border-border-3 bg-popover px-3.5 py-1.5 text-[12px] font-medium text-body shadow-pop transition-colors hover:bg-hover"
+              >
+                {t.detail.audio.follow}
+              </button>
+            </div>
           )}
         </div>
       </div>
