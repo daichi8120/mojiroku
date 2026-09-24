@@ -163,20 +163,6 @@ export function HistoryView() {
         <Chip active={filter === "all"} onClick={() => setFilter("all")}>
           {t.history.filters.all}
         </Chip>
-        <Chip
-          className="text-dim"
-          onClick={() => toast(t.history.filters.notReady, "info")}
-        >
-          {t.history.filters.withSummary}
-          <span className="ml-1 text-[11px] text-faint">{t.history.filters.comingSoon}</span>
-        </Chip>
-        <Chip
-          className="text-dim"
-          onClick={() => toast(t.history.filters.notReady, "info")}
-        >
-          {t.history.filters.withSpeakers}
-          <span className="ml-1 text-[11px] text-faint">{t.history.filters.comingSoon}</span>
-        </Chip>
         <Chip active={filter === "week"} onClick={() => setFilter("week")}>
           {t.history.filters.week}
         </Chip>

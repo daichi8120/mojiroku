@@ -8,7 +8,7 @@ import { useApp } from "@/lib/app";
 import { translateError, useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { Button, Modal, ModalHeader, ProgressBar } from "@/components/ui";
-import { CheckIcon, LayersIcon, MessageIcon, PlusIcon } from "@/components/icons";
+import { CheckIcon, LayersIcon, MessageIcon } from "@/components/icons";
 
 const PROVIDER_LABEL: Record<Settings["provider"], string> = {
   anthropic: "Anthropic",
@@ -113,8 +113,6 @@ export function TemplateModal({
 
   useSummarizeProgress((p) => setProgress(p));
 
-  const isCustom = templateId === "custom";
-
   const handleClose = () => {
     if (busy) return; // 生成中は閉じない
     setProgress(null);
@@ -122,10 +120,6 @@ export function TemplateModal({
   };
 
   const generate = async () => {
-    if (isCustom) {
-      toast(t.detail.templateModal.customSoonToast, "info");
-      return;
-    }
     setBusy(true);
     setProgress(null);
     try {
@@ -191,24 +185,6 @@ export function TemplateModal({
           title={t.detail.templateModal.templates.actionItems.title}
           desc={t.detail.templateModal.templates.actionItems.desc}
         />
-        <TemplateOption
-          dashed
-          selected={isCustom}
-          onClick={() => setTemplateId("custom")}
-          icon={<PlusIcon size={17} />}
-          title={t.detail.templateModal.templates.custom.title}
-          desc={t.detail.templateModal.templates.custom.desc}
-        />
-        {isCustom && (
-          <div className="flex flex-col gap-1.5">
-            <textarea
-              disabled
-              placeholder={t.detail.templateModal.customPlaceholder}
-              className="h-20 w-full resize-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2 text-[13px] text-body placeholder:text-dim disabled:opacity-70"
-            />
-            <p className="text-[11px] text-amber">{t.detail.templateModal.customSoonNote}</p>
-          </div>
-        )}
       </div>
 
       <div className="px-4 pb-3.5">
@@ -254,7 +230,7 @@ export function TemplateModal({
               : t.detail.templateModal.footerLocal}
           </span>
         )}
-        <Button variant="primary" onClick={generate} disabled={busy || isCustom}>
+        <Button variant="primary" onClick={generate} disabled={busy}>
           {busy ? t.detail.templateModal.generating : t.detail.templateModal.generate}
         </Button>
       </div>
