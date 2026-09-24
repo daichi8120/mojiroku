@@ -10,6 +10,7 @@ pub mod schemas;
 
 pub mod audio;
 pub mod calendar;
+pub mod cancel;
 pub mod diarization;
 pub mod export;
 pub mod ffi_guard;
@@ -69,10 +70,13 @@ fn download_progress<'a>(
 
 /// `(stage, 0, None)` 形のステージ開始通知を送る薄いヘルパ（各高レベル関数で重複していた
 /// `if let Some(cb) = on_progress { cb("...", 0, None); }` を集約）。
-fn report_stage(on_progress: Option<&StageProgressFn<'_>>, stage: &str) {
+/// 段階の境目。中断が求められていればここで止め（Issue #114）、そうでなければ段階を通知する。
+fn report_stage(on_progress: Option<&StageProgressFn<'_>>, stage: &str) -> Result<()> {
+    cancel::check()?;
     if let Some(cb) = on_progress {
         cb(stage, 0, None);
     }
+    Ok(())
 }
 
 /// VAD モデルを確保（best-effort・DL 進捗は流さない）→ whisper をロード → PCM を文字起こしする
@@ -184,12 +188,12 @@ fn transcribe_file_impl(
     )?;
 
     // 2) デコード（16kHz mono f32）
-    report_stage(on_progress, "decode");
+    report_stage(on_progress, "decode")?;
     let pcm = audio::decode_to_pcm16k_mono(audio_path)?;
 
     // 3) STT。whisper 0-100% を transcribe ステージの done/total(=Some(100)) として流す
     //    （フロントはこの total 有無で ETA を出すか決める）。
-    report_stage(on_progress, "transcribe");
+    report_stage(on_progress, "transcribe")?;
     let pct_adapter;
     let on_pct: Option<&dyn Fn(i32)> = match (emit_pct, on_progress) {
         (true, Some(cb)) => {
@@ -261,12 +265,12 @@ pub fn transcribe_and_diarize_file_with_options(
         models_dir,
         Some(&dl_cb),
     )?;
-    report_stage(on_progress, "decode");
+    report_stage(on_progress, "decode")?;
     let pcm = audio::decode_to_pcm16k_mono(audio_path)?;
 
     // 2) STT（VAD 経由）。話者分離込みの経路では %を出さない（後段 diarization/merge が続き、
     //    %が transcribe だけ 0→100 して見えるのは誤解を招く。経過時間で示す・on_pct=None）。
-    report_stage(on_progress, "transcribe");
+    report_stage(on_progress, "transcribe")?;
     let mut transcript = transcribe_pcm(
         &model_path,
         models_dir,
@@ -277,14 +281,16 @@ pub fn transcribe_and_diarize_file_with_options(
     )?;
 
     // 3) diarization（同じ原音声 PCM。VAD を通さない）
-    report_stage(on_progress, "diarization");
+    report_stage(on_progress, "diarization")?;
     let (seg, emb) = ensure_diar_models(models_dir, Some(&dl_cb))?;
     let diarizer = diarization::SherpaDiarizer::new(seg, emb, diarization::DEFAULT_THRESHOLD, lang);
     use diarization::Diarizer;
     let diar = diarizer.diarize(&pcm, 16_000)?;
+    // sherpa-onnx は途中で止められないので、終わった直後に確かめる（Issue #114 レビュー）。
+    cancel::check()?;
 
     // 4) マージ（話者 turn → Segment.speaker_id）
-    report_stage(on_progress, "merge");
+    report_stage(on_progress, "merge")?;
     merge::assign_speakers(&mut transcript, &diar);
     Ok((transcript, diar.speakers, diar.embeddings))
 }
@@ -353,6 +359,7 @@ pub fn transcribe_meeting_dual_track_with_options(
     // mic 側は %を抑止（会議は system STT/diarization/mic STT/merge と多段。mic の 0→100 だけ
     //    出すと全体進捗と誤読される。会議は経過時間で示す・emit_pct=false）。
     let mic = transcribe_file_impl(mic_path, models_dir, options, on_progress, false)?;
+    cancel::check()?;
     // ソース合成（マイク=self、システム=diarization 話者を保持、時系列マージ）。
     // system 話者 id は merge_tracks で不変＝声紋（system_embeddings）の id とも整合する。
     let (transcript, speakers) =
@@ -377,14 +384,16 @@ pub fn diarize_file(
     let (seg, emb) = ensure_diar_models(models_dir, Some(&dl_cb))?;
 
     // 2) 原音声を 16k mono へデコード（VAD は通さない）
-    report_stage(on_progress, "decode");
+    report_stage(on_progress, "decode")?;
     let pcm = audio::decode_to_pcm16k_mono(audio_path)?;
 
     // 3) 話者分離
-    report_stage(on_progress, "diarization");
+    report_stage(on_progress, "diarization")?;
     let diarizer = diarization::SherpaDiarizer::new(seg, emb, diarization::DEFAULT_THRESHOLD, lang);
     use diarization::Diarizer;
-    diarizer.diarize(&pcm, 16_000)
+    let diar = diarizer.diarize(&pcm, 16_000)?;
+    cancel::check()?;
+    Ok(diar)
 }
 
 // 注: ローカル要約（llama.cpp）のオーケストレーションは、whisper.cpp との ggml シンボル衝突のため

@@ -173,6 +173,20 @@ unsafe extern "C" fn whisper_progress_trampoline(
     }
 }
 
+/// whisper.cpp の abort コールバック（Issue #114）。`user_data` は中断フラグ（`AtomicBool`）を指す。
+///
+/// ⚠️ ggml の計算スレッドから呼ばれうるので、読むのは `Sync` な `AtomicBool` だけにする。
+/// ⚠️ 非パニック必須（plain `extern "C"`。unwind が C++ フレームへ抜けるとプロセス abort）。
+///
+/// whisper-rs の `set_abort_callback_safe` は使わない。0.16 では保存した `Box<Box<dyn FnMut>>` を
+/// トランポリンが `&mut F` として読み、型が食い違う。
+unsafe extern "C" fn whisper_abort_trampoline(user_data: *mut std::os::raw::c_void) -> bool {
+    if user_data.is_null() {
+        return false;
+    }
+    (*(user_data as *const std::sync::atomic::AtomicBool)).load(std::sync::atomic::Ordering::Relaxed)
+}
+
 impl WhisperStt {
     /// 進捗コールバック付き文字起こし（whisper 0-100% を `on_pct` へ）。FFI 例外シールドは
     /// [`SttEngine::transcribe`] と同じ。`on_pct=None` なら素の transcribe と等価。
@@ -367,10 +381,30 @@ impl WhisperStt {
             }
         }
 
+        // 中断（Issue #114）。このスレッドに中断フラグが結び付いていれば、推論中も
+        // whisper.cpp の abort コールバックで見る。`cancel_flag` は関数末尾まで生存する
+        // （full() 中の user_data 参照より長命）。
+        crate::cancel::check()?;
+        let cancel_flag = crate::cancel::current();
+        if let Some(flag) = &cancel_flag {
+            // SAFETY: user_data は `cancel_flag`（Arc）が指す AtomicBool で、full() の完了まで生きる。
+            // トランポリンは AtomicBool を読むだけ（別スレッドから呼ばれても安全）。
+            unsafe {
+                params.set_abort_callback(Some(whisper_abort_trampoline));
+                params.set_abort_callback_user_data(
+                    std::sync::Arc::as_ptr(flag) as *mut std::os::raw::c_void,
+                );
+            }
+        }
+
         // progress_ctx は named local として関数末尾まで生存する（full() 中の user_data 参照より長命）。
-        state
-            .full(params, &pcm)
-            .map_err(|e| CoreError::Model(format!("full: {e:?}")))?;
+        let full = state.full(params, &pcm);
+        if full.is_err() {
+            // 中断で止まった whisper はエラーを返す。失敗ではなく中断として返す。
+            crate::cancel::check()?;
+        }
+        full.map_err(|e| CoreError::Model(format!("full: {e:?}")))?;
+        drop(cancel_flag);
 
         let mut segments = Vec::new();
         for seg in state.as_iter() {

@@ -192,7 +192,9 @@ function App() {
     }
     // 状態（失敗など）をサイドバーに反映する。
     if (u.status === "done" || u.status === "failed" || u.status === "canceled") refreshRecents();
-    if (u.status === "done") {
+    if (u.status === "canceled") {
+      toast(t.job.canceledToast, "info");
+    } else if (u.status === "done") {
       toast(u.kind === "diarize" ? t.job.diarizeCompleted : t.job.transcribeCompleted, "success");
     } else if (u.status === "failed") {
       // 詳細画面がこのジョブを表示しているなら、そちらの赤枠（再試行つき）だけにする（#107）。

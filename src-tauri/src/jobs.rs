@@ -10,6 +10,8 @@
 //! どちらも `set_job_failed` に落としてループは次のジョブへ進む。ここで JoinError を握り潰さずに
 //! 伝播させると、ワーカータスクごと死んで以後の全ジョブが pending のまま永久に止まる。
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::path::{Path, PathBuf};
 
 use mojiroku_core::store::{Job, SqliteStore};
@@ -31,7 +33,12 @@ const CARRY_DISPLAY_NAME_MIN_COS: f32 = 0.5;
 #[derive(Default)]
 pub struct JobQueue {
     notify: tokio::sync::Notify,
+    /// 実行中のジョブ id と中断フラグ（Issue #114）。`cancel_job` が立て、コアが見て止まる。
+    running: std::sync::Mutex<Option<(String, Arc<AtomicBool>)>>,
 }
+
+/// 中断で止まったジョブの結果（エラーではなく canceled として記録する印）。
+pub const JOB_CANCELED: &str = "error.job.canceled";
 
 impl JobQueue {
     pub fn new() -> Self {
@@ -41,6 +48,17 @@ impl JobQueue {
     /// 新しい pending を積んだら呼ぶ。眠っているワーカーを 1 回起こす。
     pub fn wake(&self) {
         self.notify.notify_one();
+    }
+
+    /// 実行中のジョブなら中断を求めて true。別のジョブ・実行中でなければ false。
+    pub fn request_cancel(&self, job_id: &str) -> bool {
+        match self.running.lock().unwrap().as_ref() {
+            Some((id, flag)) if id == job_id => {
+                flag.store(true, Ordering::Relaxed);
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -113,15 +131,24 @@ async fn run_one_job(app: &AppHandle, job: Job) {
             None,
         );
     }
+    // 中断フラグを登録（順番待ちの間に押されても効くよう、permit を待つ前に）。
+    let cancel = Arc::new(AtomicBool::new(false));
+    *app.state::<JobQueue>().running.lock().unwrap() = Some((job_id.clone(), Arc::clone(&cancel)));
+
     // 重い ML を全体 1 本に直列化（既存セマフォ流用・ADR-0021）。permit は処理完了で手放す。
     let permit = acquire_heavy_job_permit().await;
 
-    let result = match kind.as_str() {
-        "transcribe" => run_transcribe(app, &job).await,
-        "diarize" => run_diarize(app, &job).await,
-        other => Err(format!("error.job.unknown_kind: {other}")),
+    let result = if cancel.load(Ordering::Relaxed) {
+        Err(JOB_CANCELED.to_string())
+    } else {
+        match kind.as_str() {
+            "transcribe" => run_transcribe(app, &job, Arc::clone(&cancel)).await,
+            "diarize" => run_diarize(app, &job, Arc::clone(&cancel)).await,
+            other => Err(format!("error.job.unknown_kind: {other}")),
+        }
     };
     drop(permit); // 重い区間はここまで（以降の判定/emit は軽い）
+    *app.state::<JobQueue>().running.lock().unwrap() = None;
 
     // 結果を終端状態へ書き戻す（running のまま残さない＝再起動時の無限リトライを防ぐ）。
     let store = app.state::<SqliteStore>();
@@ -131,6 +158,13 @@ async fn run_one_job(app: &AppHandle, job: Job) {
                 eprintln!("[jobs] set_job_done 失敗: {e}");
             }
             emit_lifecycle(app, &job_id, &recording_id, &kind, "done", None, None);
+        }
+        // 中断（Issue #114）。本文は書き換えていない（保存は処理の最後）ので、録音は元の状態のまま。
+        Err(msg) if msg == JOB_CANCELED => {
+            if let Err(e) = store.set_job_canceled(&job_id) {
+                eprintln!("[jobs] set_job_canceled 失敗: {e}");
+            }
+            emit_lifecycle(app, &job_id, &recording_id, &kind, "canceled", None, None);
         }
         Err(msg) => {
             eprintln!("[jobs] ジョブ失敗 kind={kind} recording={recording_id}: {msg}");
@@ -179,7 +213,7 @@ fn emit_lifecycle(
 
 /// 文字起こしジョブ。source_type に応じて音声トラックを解決し、STT（+ opt-in 話者分離）を回して
 /// `replace_transcript` で本文を差し替える。会議は per-track が揃えばデュアルトラック。
-async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
+async fn run_transcribe(app: &AppHandle, job: &Job, cancel: Arc<AtomicBool>) -> Result<(), String> {
     let id = job.recording_id.clone();
     let models_dir = resolve_models_dir(app)?;
     let rec_dir = resolve_recordings_dir(app)?;
@@ -208,6 +242,7 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
     let progress = job_progress_callback(app.clone(), job.id.clone(), id.clone(), job.kind.clone());
 
     // 重い core 呼び出しは spawn_blocking。panic は下の JoinError 分岐で failed に落とす。
+    let cancel_for_worker = Arc::clone(&cancel);
     let handle = tauri::async_runtime::spawn_blocking(move || -> Result<
         (
             mojiroku_core::Transcript,
@@ -216,6 +251,7 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
         ),
         String,
     > {
+        let _cancel = mojiroku_core::cancel::scope(cancel_for_worker);
         let cb = progress;
         let options = mojiroku_core::TranscriptionOptions {
             language: stt_lang.as_deref(),
@@ -253,6 +289,10 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
         Err(join) => return Err(format!("error.job.failed: {join}")),
     };
 
+    // 中断が処理の最後の瞬間に来ていたら、書き込まない（Issue #114 レビュー）。
+    if cancel.load(Ordering::Relaxed) {
+        return Err(JOB_CANCELED.to_string());
+    }
     // 本文・話者を差し替え（duration=0 の file はここで最終 segment 末尾に確定）。
     let store = app.state::<SqliteStore>();
     store
@@ -273,7 +313,7 @@ async fn run_transcribe(app: &AppHandle, job: &Job) -> Result<(), String> {
 
 /// 後付け（再）話者分離ジョブ。既存本文に新しい話者割当をマージし、旧表示名を声紋 cosine で
 /// ベスト努力引き継ぎして `replace_speaker_assignments` で差し替える（要約は stale マーク）。
-async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
+async fn run_diarize(app: &AppHandle, job: &Job, cancel: Arc<AtomicBool>) -> Result<(), String> {
     use mojiroku_core::SourceType;
 
     let id = job.recording_id.clone();
@@ -347,8 +387,10 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
     let lang = mojiroku_core::lang::Lang::from_code(&job.params.lang);
     let progress = job_progress_callback(app.clone(), job.id.clone(), id.clone(), job.kind.clone());
 
+    let cancel_for_worker = Arc::clone(&cancel);
     let handle = tauri::async_runtime::spawn_blocking(
         move || -> Result<mojiroku_core::diarization::DiarizationResult, String> {
+            let _cancel = mojiroku_core::cancel::scope(cancel_for_worker);
             let cb = progress;
             mojiroku_core::diarize_file(&audio, &models_dir, lang, Some(&cb)).map_err(core_err)
         },
@@ -357,6 +399,10 @@ async fn run_diarize(app: &AppHandle, job: &Job) -> Result<(), String> {
         Ok(r) => r?,
         Err(join) => return Err(format!("error.job.failed: {join}")),
     };
+    // 話者分離の直後に来た中断は、話者の割り当てを書き換える前にここで止める（Issue #114 レビュー）。
+    if cancel.load(Ordering::Relaxed) {
+        return Err(JOB_CANCELED.to_string());
+    }
 
     // A re-run that finds no speech turns would erase every existing speaker. Keep the
     // current assignments and report it instead (Issue #102).

@@ -128,9 +128,16 @@ pub(crate) fn list_jobs(
         .map_err(|e| e.to_string())
 }
 
-/// pending ジョブをキャンセルする。running は中断不可（`spawn_blocking` 内）なので完走する
-/// （キャンセルできたら true、できなかった=既に running/終端なら false）。
+/// ジョブをキャンセルする。pending はその場で canceled、running は中断を求め、ワーカーが
+/// 止まった時点で canceled として `job://update` を出す（Issue #114）。受け付けたら true。
 #[tauri::command]
-pub(crate) fn cancel_job(store: State<'_, SqliteStore>, job_id: String) -> Result<bool, String> {
-    store.cancel_job(&job_id).map_err(|e| e.to_string())
+pub(crate) fn cancel_job(
+    store: State<'_, SqliteStore>,
+    queue: State<'_, crate::jobs::JobQueue>,
+    job_id: String,
+) -> Result<bool, String> {
+    if store.cancel_job(&job_id).map_err(|e| e.to_string())? {
+        return Ok(true);
+    }
+    Ok(queue.request_cancel(&job_id))
 }

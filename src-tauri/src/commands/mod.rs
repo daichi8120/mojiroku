@@ -120,6 +120,7 @@ pub(crate) async fn acquire_heavy_job_permit() -> tokio::sync::SemaphorePermit<'
 pub(crate) fn core_err(e: mojiroku_core::CoreError) -> String {
     use mojiroku_core::CoreError;
     match e {
+        CoreError::Cancelled => crate::jobs::JOB_CANCELED.to_string(),
         CoreError::Model(m) | CoreError::Calendar(m) | CoreError::Db(m)
             if m.starts_with("error.") =>
         {
