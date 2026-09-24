@@ -126,7 +126,7 @@ export function SpeakerPanel({
           <span className="truncate text-green-light">{libName(s.linked_library_id)}</span>
           <button
             onClick={() => void unlink(sp.id)}
-            className="ml-auto border-0 bg-transparent text-[10.5px] text-dim transition-colors hover:text-sub"
+            className="ml-auto border-0 bg-transparent text-[11px] text-dim transition-colors hover:text-sub"
           >
             {t.detail.speakerPanel.unlink}
           </button>
@@ -150,11 +150,11 @@ export function SpeakerPanel({
                     onClick={() =>
                       void link(sp.id, l.id, l.id === suggestedId ? (s?.confidence ?? 1) : 1)
                     }
-                    className="flex items-center gap-1.5 rounded border-0 bg-transparent px-1.5 py-1 text-left text-[11.5px] text-ink transition-colors hover:bg-hover"
+                    className="flex items-center gap-1.5 rounded border-0 bg-transparent px-1.5 py-1 text-left text-[12px] text-ink transition-colors hover:bg-hover"
                   >
                     <span className="truncate">{l.name}</span>
                     {l.id === suggestedId && s?.confidence != null && (
-                      <span className="ml-auto shrink-0 rounded bg-green/15 px-1.5 py-0.5 font-mono text-[10px] text-green tnum">
+                      <span className="ml-auto shrink-0 rounded bg-green/15 px-1.5 py-0.5 font-mono text-[11px] text-green tnum">
                         {Math.round(s.confidence * 100)}%
                       </span>
                     )}
@@ -171,12 +171,13 @@ export function SpeakerPanel({
                 else if (e.key === "Escape") setPicker(null);
               }}
               placeholder={t.detail.speakerPanel.registerPlaceholder}
-              className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-muted focus:border-brand"
+              className="min-w-0 flex-1 rounded border border-border bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-muted focus:border-brand"
             />
             <button
               onClick={() => void registerAndLink(sp.id)}
               disabled={!regName.trim()}
               title={t.detail.speakerPanel.registerAndLink}
+              aria-label={t.detail.speakerPanel.registerAndLink}
               className="flex shrink-0 items-center rounded border-0 bg-brand/15 p-1 text-brand-light transition-colors hover:bg-brand/25 disabled:opacity-40"
             >
               <PlusIcon size={13} />
@@ -187,6 +188,7 @@ export function SpeakerPanel({
                 setRegName("");
               }}
               title={t.common.close}
+              aria-label={t.common.close}
               className="flex shrink-0 items-center rounded border-0 bg-transparent p-1 text-muted transition-colors hover:text-sub"
             >
               <XIcon size={13} />
@@ -210,7 +212,7 @@ export function SpeakerPanel({
             <CheckIcon size={11} />
             <span className="truncate">{s.top_name}</span>
             {s.confidence != null && (
-              <span className="font-mono text-[10px] text-green tnum">
+              <span className="font-mono text-[11px] text-green tnum">
                 {Math.round(s.confidence * 100)}%
               </span>
             )}
@@ -221,7 +223,7 @@ export function SpeakerPanel({
             setPicker(sp.id);
             setRegName("");
           }}
-          className="ml-auto border-0 bg-transparent text-[10.5px] text-dim transition-colors hover:text-sub"
+          className="ml-auto border-0 bg-transparent text-[11px] text-dim transition-colors hover:text-sub"
         >
           {s?.top_name ? t.detail.speakerPanel.someoneElse : t.detail.speakerPanel.link}
         </button>
@@ -259,7 +261,7 @@ export function SpeakerPanel({
                     }
                     void commit(sp);
                   }}
-                  className="min-w-0 flex-1 rounded-md border border-border-3 bg-surface-2 px-2 py-1 text-[12.5px] text-ink outline-none focus:border-brand"
+                  className="min-w-0 flex-1 rounded-md border border-border-3 bg-surface-2 px-2 py-1 text-[13px] text-ink outline-none focus:border-brand"
                 />
               ) : (
                 <SpeakerChip

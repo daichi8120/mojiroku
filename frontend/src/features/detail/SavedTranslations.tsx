@@ -10,7 +10,7 @@ export function SavedTranslationRows({ rows }: { rows: SavedLiveTranslation[] })
     <p className="mb-4 text-[11px] text-muted">{copy.savedHint}</p>
     {rows.length === 0 && <p className="text-[13px] text-muted">{copy.savedEmpty}</p>}
     {rows.map((row) => <div key={`${row.source_id}:${row.target}`} className="border-b border-line py-3">
-      <span className="text-[10px] text-faint">{row.target === "ja" ? copy.japanese : copy.english}</span>
+      <span className="text-[11px] text-faint">{row.target === "ja" ? copy.japanese : copy.english}</span>
       <p className="mt-1 whitespace-pre-wrap text-[12px] text-muted">{row.source_text}</p>
       <p className="mt-1 whitespace-pre-wrap text-[14px] leading-relaxed text-speech">{row.translation}</p>
     </div>)}

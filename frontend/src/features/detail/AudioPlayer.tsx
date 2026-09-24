@@ -99,7 +99,7 @@ function SourceAudioPlayer({ src, fallbackDurationMs }: { src: string; fallbackD
           style={{ left: `${pct}%` }}
         />
       </div>
-      <span className="shrink-0 font-mono text-[11.5px] text-muted tnum">
+      <span className="shrink-0 font-mono text-[12px] text-muted tnum">
         {formatDuration(currentMs)} / {formatDuration(durationMs)}
       </span>
     </div>

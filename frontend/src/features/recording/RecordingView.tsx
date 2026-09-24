@@ -70,7 +70,7 @@ export function RecordingView({
       <button
         onClick={stop}
         disabled={stopping}
-        className="inline-flex h-12 items-center gap-2.5 rounded-full bg-red px-7 text-[14px] font-medium text-white shadow-[0_0_0_4px_rgba(239,68,68,0.18)] transition-colors hover:bg-red-light disabled:opacity-60"
+        className="inline-flex h-12 items-center gap-2.5 rounded-full bg-danger px-7 text-[14px] font-medium text-white ring-4 ring-red/20 transition-colors hover:bg-red-light disabled:opacity-60"
       >
         <StopIcon size={18} />
         {recordOnly ? t.recording.stopAndSaveOnly : t.recording.stopAndTranscribe}

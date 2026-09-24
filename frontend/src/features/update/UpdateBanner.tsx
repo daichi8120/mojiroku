@@ -43,7 +43,7 @@ export function UpdateBanner() {
   };
 
   return (
-    <div className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-[10px] border border-border-3 bg-surface px-4 py-2.5 text-[12.5px] text-body shadow-[0_20px_50px_rgba(0,0,0,0.5)]">
+    <div className="fixed left-1/2 top-4 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-btn border border-border-3 bg-surface px-4 py-2.5 text-[13px] text-body shadow-pop">
       <span className="font-medium">{t.update.newVersion(update.version)}</span>
       {update.body ? (
         <span className="max-w-[280px] truncate text-body/60">{update.body}</span>

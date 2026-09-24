@@ -199,7 +199,7 @@ export function SettingsView() {
             key={key}
             onClick={() => goto(key)}
             className={cx(
-              "mb-0.5 flex w-full items-center rounded-lg px-3 py-2.5 text-left text-[12.5px] transition-colors",
+              "mb-0.5 flex w-full items-center rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors",
               active === key
                 ? "bg-selected font-semibold text-ink"
                 : "text-sub hover:bg-hover",
@@ -243,9 +243,9 @@ export function SettingsView() {
                   />
                   {(!isDownloaded(LIVE_MODEL_FILE, transcriptionModel.live_ready) || !isDownloaded(VAD_MODEL_FILE, transcriptionModel.live_ready)) && (
                     <div className="border-b border-line px-4 py-3">
-                      <p className="mb-2 text-[11.5px] text-muted">{t.settings.models.liveModelMissing}</p>
-                      {!isDownloaded(LIVE_MODEL_FILE) && <div className="mb-2 flex items-center justify-between gap-3 text-[11.5px] text-sub"><span>Whisper turbo · 574 MB</span>{downloadControl(LIVE_MODEL_FILE)}</div>}
-                      {!isDownloaded(VAD_MODEL_FILE) && <div className="flex items-center justify-between gap-3 text-[11.5px] text-sub"><span>Silero VAD · 0.89 MB</span>{downloadControl(VAD_MODEL_FILE)}</div>}
+                      <p className="mb-2 text-[12px] text-muted">{t.settings.models.liveModelMissing}</p>
+                      {!isDownloaded(LIVE_MODEL_FILE) && <div className="mb-2 flex items-center justify-between gap-3 text-[12px] text-sub"><span>Whisper turbo · 574 MB</span>{downloadControl(LIVE_MODEL_FILE)}</div>}
+                      {!isDownloaded(VAD_MODEL_FILE) && <div className="flex items-center justify-between gap-3 text-[12px] text-sub"><span>Silero VAD · 0.89 MB</span>{downloadControl(VAD_MODEL_FILE)}</div>}
                     </div>
                   )}
                 </>
@@ -287,6 +287,9 @@ export function SettingsView() {
                   <SelectRow
                     title={t.settings.models.pickerLabel}
                     desc={t.settings.models.pickerDesc}
+                    // 選択肢が長い（モデル名 · サイズ · 要ダウンロード）ので縦に積む。横並びだと
+                    // 最小幅 920px の英語表示で説明文が 1 語ずつ折り返していた（#104）。
+                    stacked
                     value={summaryChoice?.file ?? ""}
                     onChange={(v) => patch({ local_summary_model: v })}
                     options={[
@@ -301,7 +304,7 @@ export function SettingsView() {
                     last
                   />
                   {summaryChoice?.exceeds_tier && (
-                    <div className="border-t border-line px-4 py-2.5 text-[11.5px]">
+                    <div className="border-t border-line px-4 py-2.5 text-[12px]">
                       {summaryChoice.exceeds_tier && (
                         <p className="text-amber">{t.settings.models.exceedsTier}</p>
                       )}
@@ -340,12 +343,12 @@ export function SettingsView() {
               <div className="mt-3.5 animate-mjfade rounded-card border border-border bg-surface p-4">
                 <div className="flex gap-2.5">
                   <div className="w-[150px] shrink-0">
-                    <div className="mb-1.5 text-[11.5px] text-sub">{t.settings.engine.provider}</div>
+                    <div className="mb-1.5 text-[12px] text-sub">{t.settings.engine.provider}</div>
                     <div className="relative">
                       <select
                         value={provider}
                         onChange={(e) => changeProvider(e.target.value as Settings["provider"])}
-                        className="w-full appearance-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 pr-8 text-[12.5px] text-body focus:border-brand focus:outline-none"
+                        className="w-full appearance-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 pr-8 text-[13px] text-body focus:border-brand focus:outline-none"
                       >
                         <option value="anthropic">Anthropic</option>
                         <option value="openai">OpenAI</option>
@@ -357,7 +360,7 @@ export function SettingsView() {
                     </div>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="mb-1.5 text-[11.5px] text-sub">
+                    <div className="mb-1.5 text-[12px] text-sub">
                       {t.settings.engine.model}{" "}
                       <span className="text-faint">{t.settings.engine.modelEmptyHint}</span>
                     </div>
@@ -366,14 +369,14 @@ export function SettingsView() {
                       value={cfg?.model ?? ""}
                       onChange={(e) => patch({ model: e.target.value })}
                       placeholder={MODEL_PLACEHOLDER[provider]}
-                      className="w-full rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 font-mono text-[12.5px] text-body placeholder:text-faint focus:border-brand focus:outline-none"
+                      className="w-full rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 font-mono text-[13px] text-body placeholder:text-faint focus:border-brand focus:outline-none"
                     />
                   </div>
                 </div>
 
                 {/* API キー（キーチェーン保管） */}
                 <div className="mt-3">
-                  <div className="mb-1.5 flex items-center gap-2 text-[11.5px] text-sub">
+                  <div className="mb-1.5 flex items-center gap-2 text-[12px] text-sub">
                     {t.settings.engine.apiKey}
                     {keySaved && (
                       <StatusBadge tone="green">{t.settings.engine.keySavedBadge}</StatusBadge>
@@ -390,7 +393,7 @@ export function SettingsView() {
                       onKeyDown={(e) => {
                         if (e.key === "Enter") saveKey();
                       }}
-                      className="min-w-0 flex-1 rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 font-mono text-[12.5px] tracking-wide text-body placeholder:text-faint focus:border-brand focus:outline-none"
+                      className="min-w-0 flex-1 rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5 font-mono text-[13px] tracking-wide text-body placeholder:text-faint focus:border-brand focus:outline-none"
                     />
                     <Button
                       size="sm"
@@ -428,7 +431,7 @@ export function SettingsView() {
             {engine === "cloud" ? (
               <div className="mt-3.5 flex items-start gap-2.5 rounded-card border border-amber/30 bg-amber/10 p-4">
                 <ShieldIcon size={18} className="mt-px shrink-0 text-amber" />
-                <div className="text-[12.5px] leading-relaxed text-body">
+                <div className="text-[13px] leading-relaxed text-body">
                   {t.settings.privacy.cloudIntro}
                   <strong className="font-semibold">{t.settings.privacy.cloudByokStrong}</strong>
                   {t.settings.privacy.cloudByokRest(PROVIDER_LABEL[provider])}
@@ -441,7 +444,7 @@ export function SettingsView() {
             ) : (
               <div className="mt-3.5 flex items-start gap-2.5 rounded-card border border-green/25 bg-green/10 p-4">
                 <ShieldIcon size={18} className="mt-px shrink-0 text-green" />
-                <div className="text-[12.5px] leading-relaxed text-body">
+                <div className="text-[13px] leading-relaxed text-body">
                   {t.settings.privacy.localIntro}
                   <strong className="font-semibold">{t.settings.privacy.localExportStrong}</strong>
                   {t.settings.privacy.localExportRest}
@@ -594,8 +597,8 @@ function ModelRow({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] font-semibold text-ink">{name}</div>
-        <div className="mt-0.5 truncate text-[11.5px] text-muted">
+        <div className="text-[14px] font-semibold text-ink">{name}</div>
+        <div className="mt-0.5 truncate text-[12px] text-muted">
           {model} · <span className="font-mono">{size}</span>
         </div>
       </div>
@@ -610,7 +613,7 @@ function ModelRow({
       ) : null}
       {download ?? (action && <button
         onClick={onAction}
-        className="text-[11.5px] text-sub transition-colors hover:text-ink"
+        className="text-[12px] text-sub transition-colors hover:text-ink"
       >
         {action}
       </button>)}
@@ -676,7 +679,7 @@ function EngineCard({
         </span>
         <span
           className={cx(
-            "min-w-0 truncate text-[13.5px] font-bold",
+            "min-w-0 truncate text-[14px] font-bold",
             active ? "text-ink" : "text-body",
           )}
         >
@@ -684,14 +687,14 @@ function EngineCard({
         </span>
         <span
           className={cx(
-            "ml-auto shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 text-[10.5px]",
+            "ml-auto shrink-0 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px]",
             badgeTone === "green" ? "bg-green/12 text-green" : "bg-brand/15 text-brand-light",
           )}
         >
           {badge}
         </span>
       </div>
-      <div className="mt-2 text-[11.5px] leading-relaxed text-sub">{desc}</div>
+      <div className="mt-2 text-[12px] leading-relaxed text-sub">{desc}</div>
     </button>
   );
 }
@@ -725,7 +728,7 @@ function SelectRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           aria-label={title}
-          className={cx("max-w-full appearance-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2 pr-8 text-[12.5px] text-body focus:border-brand focus:outline-none", stacked && "w-full")}
+          className={cx("max-w-full appearance-none rounded-btn border border-border-2 bg-surface-2 px-3 py-2 pr-8 text-[13px] text-body focus:border-brand focus:outline-none", stacked && "w-full")}
         >
           {options.map((o) => (
             <option key={o.value} value={o.value}>

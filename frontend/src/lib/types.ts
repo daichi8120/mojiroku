@@ -239,23 +239,21 @@ export interface StartingMeeting {
   end: string | null;
 }
 
-// ── 話者の配色（ダーク） ───────────────────────────────────────────────
-// Design の話者色は「文字=濃色 / 地=その 14〜15% 透過 / ドット=中間色」。
-// speaker_id の採番 S1.. を順に割り当てる。田中=indigo, 佐藤=teal, 鈴木=amber, 山本=pink…
+// ── 話者の配色 ────────────────────────────────────────────────────────
+// 「文字=濃色 / 地=その 14〜15% 透過 / ドット=中間色」。実際の色は index.css の --spk-N-*
+// （ライト/ダークで切り替わる）。speaker_id の採番 S1.. を順に割り当てる。
 export interface SpeakerInk {
   text: string;
   bg: string;
   dot: string;
 }
 
-export const SPEAKER_PALETTE: SpeakerInk[] = [
-  { text: "#a5b4fc", bg: "rgba(99,102,241,0.15)", dot: "#818cf8" }, // indigo
-  { text: "#5eead4", bg: "rgba(34,211,238,0.14)", dot: "#22d3ee" }, // teal / cyan
-  { text: "#fcd34d", bg: "rgba(245,158,11,0.15)", dot: "#fbbf24" }, // amber
-  { text: "#f9a8d4", bg: "rgba(244,114,182,0.15)", dot: "#f472b6" }, // pink
-  { text: "#c4b5fd", bg: "rgba(167,139,250,0.15)", dot: "#a78bfa" }, // purple
-  { text: "#6ee7b7", bg: "rgba(52,211,153,0.14)", dot: "#34d399" }, // green
-];
+const SPEAKER_COLORS = 8;
+export const SPEAKER_PALETTE: SpeakerInk[] = Array.from({ length: SPEAKER_COLORS }, (_, i) => ({
+  text: `var(--spk-${i + 1}-text)`,
+  bg: `var(--spk-${i + 1}-bg)`,
+  dot: `var(--spk-${i + 1}-dot)`,
+}));
 
 /** speaker_id（"S1" 等）→ パレットの添字。解析できなければ id ハッシュで散らす。 */
 export function speakerIndex(id: string): number {
@@ -295,7 +293,7 @@ export function speakingSpeakerNames(detail: RecordingDetail): string[] {
 /** 話者チップの inline style（文字色 + 地色）。 */
 export function speakerChipStyle(id: string | null): { color: string; background: string } {
   // 話者不明は色を割り当てない（特定の人に見えてしまうため）。控えめな中間色。
-  if (id === null) return { color: "var(--mj-sub)", background: "rgba(148,163,184,0.14)" };
+  if (id === null) return { color: "var(--color-sub)", background: "var(--spk-none-bg)" };
   const ink = speakerInk(id);
   return { color: ink.text, background: ink.bg };
 }
