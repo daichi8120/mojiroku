@@ -23,6 +23,7 @@ import type { RecordingDetail } from "@/lib/types";
 import { Popover, DropdownCaret } from "@/components/ui";
 import {
   ClockIcon,
+  ArrowUpRightIcon,
   CopyIcon,
   MessageIcon,
   SendIcon,
@@ -227,10 +228,10 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
           onClick={toggle}
           aria-haspopup="menu"
           aria-expanded={open}
-          className="bg-brand-gradient inline-flex h-7 items-center gap-1.5 rounded-tag px-2.5 text-[12px] font-semibold text-white transition-[filter] hover:brightness-110"
+          className="inline-flex h-8 items-center gap-1.5 rounded-ctl border border-border-2 bg-surface-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover"
         >
-          <CopyIcon size={13} />
-          {t.common.copy}
+          <ArrowUpRightIcon size={13} />
+          {t.detail.share.button}
           <DropdownCaret />
         </button>
       )}

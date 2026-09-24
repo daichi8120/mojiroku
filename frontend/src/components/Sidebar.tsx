@@ -3,7 +3,7 @@ import { useApp, type ViewKind } from "@/lib/app";
 import { useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { openFeedbackForm } from "@/lib/feedback";
-import { formatDurationHuman, type Recording } from "@/lib/types";
+import { formatDurationHuman, recordingTitle, type Recording } from "@/lib/types";
 import { LocalStatus } from "./composite";
 import {
   BrandMark,
@@ -128,7 +128,7 @@ export function Sidebar({
               >
                 <span className="flex items-center gap-1.5">
                   <span className="truncate text-[13px] text-body">
-                    {r.title || t.common.untitled}
+                    {recordingTitle(r, lang)}
                   </span>
                   {activeJobIds?.has(r.id) && (
                     <span

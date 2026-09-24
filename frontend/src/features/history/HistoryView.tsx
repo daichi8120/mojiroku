@@ -7,7 +7,7 @@ import { cx } from "@/lib/cx";
 import { translateError, useI18n } from "@/i18n";
 import { deleteRecording, listRecordings, renameRecording, searchRecordings } from "@/lib/tauri";
 import type { SearchHit } from "@/lib/types";
-import { formatDateShort, formatDurationHuman } from "@/lib/types";
+import { formatDateShort, formatDurationHuman, recordingTitle } from "@/lib/types";
 import { Chip, ConfirmDialog, Spinner } from "@/components/ui";
 import { EmptyState } from "@/components/composite";
 import { CheckIcon, ClockIcon, PencilIcon, SearchIcon, TrashIcon, XIcon } from "@/components/icons";
@@ -236,12 +236,12 @@ export function HistoryView() {
                           cancelEdit();
                         }
                       }}
-                      placeholder={t.common.untitledRecording}
+                      placeholder={recordingTitle({ ...r, title: null }, lang)}
                       className="min-w-0 flex-1 rounded-tag border border-border-3 bg-surface-2 px-2.5 py-1.5 text-[14px] font-semibold text-ink outline-none focus:border-brand"
                     />
                   ) : (
                     <div className="min-w-0 truncate text-[14px] font-semibold text-ink">
-                      {r.title || t.common.untitled}
+                      {recordingTitle(r, lang)}
                     </div>
                   )}
                   <div className="flex shrink-0 items-center gap-2">
@@ -327,7 +327,7 @@ export function HistoryView() {
         title={t.history.deleteConfirmTitle}
         body={
           pending
-            ? t.history.deleteConfirmBody(pending.recording.title || t.common.untitled)
+            ? t.history.deleteConfirmBody(recordingTitle(pending.recording, lang))
             : undefined
         }
         busy={deleting}
