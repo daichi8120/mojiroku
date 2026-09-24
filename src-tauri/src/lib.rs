@@ -99,6 +99,7 @@ pub fn run() {
             commands::transcription::transcription_model_info,
             commands::transcription::download_live_transcription_models,
             commands::history::list_recordings,
+            commands::history::list_recording_rows,
             commands::history::search_recordings,
             commands::history::get_recording,
             commands::history::delete_recording,

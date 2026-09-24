@@ -6,12 +6,52 @@ import {
   formatTimestamp,
   speakerChipStyle,
   speakerName,
+  type RecordingState,
   type Segment,
+  type SourceType,
   type Speaker,
 } from "@/lib/types";
 import { MOCK_PREVIEW } from "@/lib/mockData";
-import { CheckIcon, CpuIcon } from "./icons";
+import { CheckIcon, CpuIcon, FileAudioIcon, MicIcon, VideoIcon } from "./icons";
 import { Spinner } from "./ui";
+
+// ── 録音の種類と状態（履歴・サイドバー・#109） ─────────────────────────────
+export function SourceIcon({ type, size = 14 }: { type: SourceType; size?: number }) {
+  const { t } = useI18n();
+  const label = t.format.sourceKind[type];
+  const Icon = type === "live" ? VideoIcon : type === "mic" ? MicIcon : FileAudioIcon;
+  return (
+    <span role="img" aria-label={label} title={label} className="inline-flex shrink-0 text-muted">
+      <Icon size={size} />
+    </span>
+  );
+}
+
+const STATE_TONE: Record<RecordingState, string> = {
+  processing: "bg-brand/14 text-brand-lighter",
+  failed: "bg-red/13 text-red-light",
+  untranscribed: "bg-hover text-sub",
+  noSpeech: "bg-hover text-sub",
+  summarized: "bg-green/13 text-green",
+  transcribed: "",
+};
+
+/** 状態バッジ。「文字起こし済み」は既定の状態なので何も出さない。 */
+export function RecordingStateBadge({ state }: { state: RecordingState }) {
+  const { t } = useI18n();
+  if (state === "transcribed") return null;
+  return (
+    <span
+      className={cx(
+        "inline-flex shrink-0 items-center gap-1 rounded-tag px-1.5 py-0.5 text-[11px] font-medium",
+        STATE_TONE[state],
+      )}
+    >
+      {state === "processing" && <Spinner size={10} />}
+      {t.history.state[state]}
+    </span>
+  );
+}
 
 // ── 話者チップ / ドット ───────────────────────────────────────────────────
 export function SpeakerChip({

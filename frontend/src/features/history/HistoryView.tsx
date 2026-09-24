@@ -5,14 +5,14 @@ import type { ReactNode } from "react";
 import { useApp } from "@/lib/app";
 import { cx } from "@/lib/cx";
 import { translateError, useI18n } from "@/i18n";
-import { deleteRecording, listRecordings, renameRecording, searchRecordings } from "@/lib/tauri";
-import type { SearchHit } from "@/lib/types";
-import { formatDateShort, formatDurationHuman, recordingTitle } from "@/lib/types";
+import { deleteRecording, listRecordingRows, renameRecording, searchRecordings, useJobUpdate } from "@/lib/tauri";
+import type { RecordingRow, SearchHit } from "@/lib/types";
+import { formatDateShort, formatDurationHuman, recordingState, recordingTitle } from "@/lib/types";
 import { Chip, ConfirmDialog, Spinner } from "@/components/ui";
-import { EmptyState } from "@/components/composite";
+import { EmptyState, RecordingStateBadge, SourceIcon } from "@/components/composite";
 import { CheckIcon, ClockIcon, PencilIcon, SearchIcon, TrashIcon, XIcon } from "@/components/icons";
 
-type Filter = "all" | "week";
+type Filter = "all" | "summary" | "speakers" | "week";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // FTS5 snippet の [..] マッチ部分を <mark> に。ダーク: 文字=brand-tint / 地=indigo 25%。
@@ -53,6 +53,8 @@ export function HistoryView() {
   const [editValue, setEditValue] = useState("");
   const [savingRename, setSavingRename] = useState(false);
   const reqId = useRef(0);
+  // 状態（処理中・失敗…）と絞り込み用の集計。検索結果にも id で引き当てる（#109）。
+  const [rowsById, setRowsById] = useState<Map<string, RecordingRow>>(new Map());
 
   const searching = query.trim().length > 0;
 
@@ -61,16 +63,26 @@ export function HistoryView() {
       const my = ++reqId.current;
       try {
         const trimmed = q.trim();
-        const next: SearchHit[] = trimmed
-          ? await searchRecordings(trimmed)
-          : (await listRecordings()).map((r) => ({ recording: r, snippet: "" }));
-        if (my === reqId.current) setItems(next);
+        const [rows, hits] = await Promise.all([
+          listRecordingRows(),
+          trimmed ? searchRecordings(trimmed) : Promise.resolve(null),
+        ]);
+        const next: SearchHit[] = hits ?? rows.map((r) => ({ recording: r.recording, snippet: "" }));
+        if (my === reqId.current) {
+          setRowsById(new Map(rows.map((r) => [r.recording.id, r])));
+          setItems(next);
+        }
       } catch (e) {
         if (my === reqId.current) toast(translateError(e, t), "error");
       }
     },
     [toast, t],
   );
+
+  // ジョブが終わる・失敗すると状態が変わるので取り直す。
+  useJobUpdate((u) => {
+    if (u.status !== "running") void load(query);
+  });
 
   // 250ms デバウンス（マウント時の初回 load も兼ねる）。
   useEffect(() => {
@@ -124,13 +136,20 @@ export function HistoryView() {
     [savingRename, editValue, load, query, refreshRecents, toast, t],
   );
 
-  // 「今週」はクライアント側で created_at が直近 7 日以内に絞り込み。
+  // 絞り込みはクライアント側（件数は多くない）。「今週」は直近 7 日。
   const filtered = useMemo(() => {
     const list = items ?? [];
-    if (filter !== "week") return list;
-    const since = Date.now() - WEEK_MS;
-    return list.filter((h) => new Date(h.recording.created_at).getTime() >= since);
-  }, [items, filter]);
+    if (filter === "all") return list;
+    if (filter === "week") {
+      const since = Date.now() - WEEK_MS;
+      return list.filter((h) => new Date(h.recording.created_at).getTime() >= since);
+    }
+    return list.filter((h) => {
+      const row = rowsById.get(h.recording.id);
+      if (!row) return false;
+      return filter === "summary" ? row.summary_count > 0 : row.speaker_count > 0;
+    });
+  }, [items, filter, rowsById]);
 
   const count = filtered.length;
 
@@ -163,6 +182,12 @@ export function HistoryView() {
         <Chip active={filter === "all"} onClick={() => setFilter("all")}>
           {t.history.filters.all}
         </Chip>
+        <Chip active={filter === "summary"} onClick={() => setFilter("summary")}>
+          {t.history.filters.withSummary}
+        </Chip>
+        <Chip active={filter === "speakers"} onClick={() => setFilter("speakers")}>
+          {t.history.filters.withSpeakers}
+        </Chip>
         <Chip active={filter === "week"} onClick={() => setFilter("week")}>
           {t.history.filters.week}
         </Chip>
@@ -184,17 +209,18 @@ export function HistoryView() {
           title={
             searching
               ? t.history.empty.noMatch(query.trim())
-              : filter === "week" && (items?.length ?? 0) > 0
-                ? t.history.empty.noneThisWeek
+              : filter !== "all" && (items?.length ?? 0) > 0
+                ? t.history.empty.noneFiltered
                 : t.history.empty.none
           }
-          hint={searching || filter === "week" ? undefined : t.history.empty.hint}
+          hint={searching || filter !== "all" ? undefined : t.history.empty.hint}
         />
       ) : (
         <div className="flex flex-col gap-2.5">
           {filtered.map((h) => {
             const r = h.recording;
             const isEditing = editing === r.id;
+            const row = rowsById.get(r.id);
             return (
               <div
                 key={r.id}
@@ -226,8 +252,19 @@ export function HistoryView() {
                       className="min-w-0 flex-1 rounded-tag border border-border-3 bg-surface-2 px-2.5 py-1.5 text-[14px] font-semibold text-ink outline-none focus:border-brand"
                     />
                   ) : (
-                    <div className="min-w-0 truncate text-[14px] font-semibold text-ink">
-                      {recordingTitle(r, lang)}
+                    <div className="flex min-w-0 items-center gap-2">
+                      <SourceIcon type={r.source_type} />
+                      {/* 行全体はマウスで押せる。キーボードではタイトルのボタンで開く。 */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate({ view: "detail", id: r.id });
+                        }}
+                        className="min-w-0 truncate text-left text-[14px] font-semibold text-ink"
+                      >
+                        {recordingTitle(r, lang)}
+                      </button>
+                      {row && <RecordingStateBadge state={recordingState(row)} />}
                     </div>
                   )}
                   <div className="flex shrink-0 items-center gap-2">

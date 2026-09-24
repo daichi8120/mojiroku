@@ -96,9 +96,17 @@ const en: Dict = {
     countMatch: (n: number) => (n === 1 ? "1 match" : `${n} matches`),
     empty: {
       noMatch: (q: string) => `No results for “${q}”`,
-      noneThisWeek: "No recordings this week",
+      noneFiltered: "No recordings match this filter",
       none: "No recordings yet",
       hint: "Transcribe audio from Home and it will show up here",
+    },
+    state: {
+      processing: "Processing",
+      failed: "Failed",
+      untranscribed: "Not transcribed",
+      noSpeech: "No speech",
+      summarized: "Has summary",
+      transcribed: "Transcribed",
     },
     deleted: "Deleted",
     renamed: "Title updated",
