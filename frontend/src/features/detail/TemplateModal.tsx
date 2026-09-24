@@ -1,12 +1,11 @@
 // 議事録・要約の生成モーダル（Studio 06・実機能）。
 // テンプレ選択 → summarize で生成。生成エンジン（ローカル/クラウド BYOK）は設定（settings.json）に従う。
 // ここでは実エンジンを読み取り専用で表示する（実際の送信先を正しく伝えるため）。
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { getSettings, summarize, useSummarizeProgress } from "@/lib/tauri";
 import type { Progress, Settings, Summary, Transcript } from "@/lib/types";
 import { useApp } from "@/lib/app";
 import { translateError, useI18n } from "@/i18n";
-import { cx } from "@/lib/cx";
 import { Button, Modal, ModalHeader, ProgressBar } from "@/components/ui";
 import { CheckIcon, LayersIcon, MessageIcon } from "@/components/icons";
 
@@ -15,54 +14,22 @@ const PROVIDER_LABEL: Record<Settings["provider"], string> = {
   openai: "OpenAI",
 };
 
-function TemplateOption({
-  icon,
-  title,
-  desc,
-  selected,
-  dashed,
-  onClick,
-}: {
-  icon: ReactNode;
-  title: string;
-  desc: string;
-  selected: boolean;
-  dashed?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cx(
-        "flex w-full items-center gap-3 rounded-btn border px-3 py-3 text-left transition-colors",
-        selected
-          ? "border-brand bg-selected"
-          : dashed
-            ? "border-dashed border-border-3 hover:bg-hover"
-            : "border-border-2 hover:bg-hover",
-      )}
-    >
-      <span
-        className={cx(
-          "flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl",
-          selected ? "bg-brand/18 text-brand-lighter" : "bg-hover text-muted",
-        )}
-      >
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block text-[14px] font-semibold text-ink">{title}</span>
-        <span className="mt-px block text-[12px] text-muted">{desc}</span>
-      </span>
-      {selected && (
-        <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-brand text-white">
-          <CheckIcon size={11} />
-        </span>
-      )}
-    </button>
-  );
-}
+const TEMPLATE_ICON: Record<string, ReactNode> = {
+  minutes: <LayersIcon size={17} />,
+  summary: <MessageIcon size={17} />,
+  action_items: <CheckIcon size={17} />,
+};
 
+/**
+ * 議事録・要約・アクションアイテムの生成ダイアログ（#107）。
+ *
+ * テンプレは開いた導線（右パネルのボタン / 空状態 / 再生成）が決める。以前はここでもう一度
+ * 選ばせていたが、同じ選択を二度させるだけだった。
+ * - ローカル: 設定を読み終えたらそのまま生成を始め、進捗を出す。
+ * - クラウド（BYOK）: 文字起こしが外部へ送られるので、警告を見せてボタンを押すまで始めない。
+ *   設定が読めなかったときも同じ扱い（どちらのエンジンか分からないまま送らない）。
+ * - 既存の要約を置き換える（再生成）ときも、押し間違いで数分の生成が始まらないよう確認する。
+ */
 export function TemplateModal({
   open,
   onClose,
@@ -70,6 +37,7 @@ export function TemplateModal({
   transcript,
   onCreated,
   presetTemplate = "minutes",
+  replaces = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -77,34 +45,46 @@ export function TemplateModal({
   transcript: Transcript;
   onCreated: (summary: Summary) => void;
   presetTemplate?: string;
+  /** このテンプレの要約が既にある（生成すると置き換える）。 */
+  replaces?: boolean;
 }) {
   const { toast } = useApp();
   const { t } = useI18n();
-  const [templateId, setTemplateId] = useState("minutes");
-
-  // 開いた瞬間に、開いた導線が指定したテンプレへ合わせる（議事録/要約/アクション/再生成）。
-  useEffect(() => {
-    if (open) setTemplateId(presetTemplate);
-  }, [open, presetTemplate]);
+  const tm = t.detail.templateModal;
+  const templateId = presetTemplate;
   // 生成エンジンは設定（settings.json）が唯一の真実。summarize コマンドが engine を見て
   // ローカル/クラウドへ分岐する。ここでは実エンジンを読み取り専用で表示するだけ。
-  const [engine, setEngine] = useState<Settings["engine"]>("local");
+  const [engine, setEngine] = useState<Settings["engine"] | null>(null);
   const [provider, setProvider] = useState<Settings["provider"]>("anthropic");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const startedRef = useRef(false);
+  // 今回開いたときの設定を読み終えたか。前回開いたときの engine が state に残っていても、
+  // 読み終えるまでは自動で始めない（設定がクラウドに変わっていたら送ってしまうため）。
+  const loadedRef = useRef(false);
 
   // モーダルを開くたびに最新の設定を読む（設定画面で変更され得るため）。
   useEffect(() => {
     if (!open) return;
+    startedRef.current = false;
+    loadedRef.current = false;
+    setEngine(null);
+    setError(null);
     let active = true;
     getSettings()
       .then((s) => {
         if (!active) return;
-        setEngine(s.engine);
         setProvider(s.provider);
+        loadedRef.current = true;
+        setEngine(s.engine);
       })
       .catch(() => {
-        /* 取得失敗時はローカル表示のまま（保守的） */
+        // 読めないときはクラウド扱い（自動では始めない）。
+        if (active) {
+          loadedRef.current = true;
+          setEngine("cloud");
+        }
       });
     return () => {
       active = false;
@@ -120,120 +100,126 @@ export function TemplateModal({
   };
 
   const generate = async () => {
+    startedRef.current = true;
     setBusy(true);
+    setError(null);
     setProgress(null);
     try {
       const summary = await summarize(transcript, recordingId, templateId);
       onCreated(summary);
-      toast(t.detail.templateModal.created, "success");
+      toast(tm.created, "success");
       setProgress(null);
       onClose(); // 成功時は busy ガードを通さず直接閉じる
     } catch (e) {
-      toast(translateError(e, t), "error");
+      setError(translateError(e, t));
     } finally {
       setBusy(false);
     }
   };
 
+  // ローカルは開いたらすぐ始める（1 回だけ。失敗後の再試行はボタンで）。
+  useEffect(() => {
+    if (open && loadedRef.current && shouldAutoStart(engine, replaces) && !startedRef.current) {
+      void generate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, engine, replaces]);
+
   const isCloud = engine === "cloud";
-  const engineLabel = isCloud
-    ? t.detail.templateModal.engineCloud(PROVIDER_LABEL[provider])
-    : t.detail.templateModal.engineLocal;
+  const engineLabel = isCloud ? tm.engineCloud(PROVIDER_LABEL[provider]) : tm.engineLocal;
   const pct = progress && progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
   const progressLabel =
     progress?.stage === "queued"
-      ? t.detail.templateModal.progressQueued
+      ? tm.progressQueued
       : progress?.stage === "download_llm"
-        ? t.detail.templateModal.progressDownload(pct)
-        : t.detail.templateModal.progressGenerating(engineLabel);
+        ? tm.progressDownload(pct)
+        : tm.progressGenerating(engineLabel);
   const progressValue =
     progress && progress.total ? progress.done / progress.total : progress ? 0.5 : 0.08;
+  const label = templateLabelFor(templateId, tm.templates);
 
   return (
-    <Modal open={open} onClose={handleClose} width={452}>
+    <Modal open={open} onClose={handleClose} width={420}>
       <ModalHeader
         title={
-          <span className="flex flex-col">
-            <span>{t.detail.templateModal.title}</span>
-            <span className="text-[11px] font-normal text-muted">
-              {t.detail.templateModal.subtitle}
+          <span className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-ctl bg-brand/15 text-brand-light">
+              {TEMPLATE_ICON[templateId] ?? <LayersIcon size={17} />}
+            </span>
+            <span className="flex flex-col">
+              <span>{tm.titleFor(label.title)}</span>
+              <span className="text-[12px] font-normal text-muted">{label.desc}</span>
             </span>
           </span>
         }
         onClose={handleClose}
       />
 
-      <div className="flex flex-col gap-2 px-4 py-3.5">
-        <TemplateOption
-          selected={templateId === "minutes"}
-          onClick={() => setTemplateId("minutes")}
-          icon={<LayersIcon size={17} />}
-          title={t.detail.templateModal.templates.minutes.title}
-          desc={t.detail.templateModal.templates.minutes.desc}
-        />
-        <TemplateOption
-          selected={templateId === "summary"}
-          onClick={() => setTemplateId("summary")}
-          icon={<MessageIcon size={17} />}
-          title={t.detail.templateModal.templates.summary.title}
-          desc={t.detail.templateModal.templates.summary.desc}
-        />
-        <TemplateOption
-          selected={templateId === "action_items"}
-          onClick={() => setTemplateId("action_items")}
-          icon={<CheckIcon size={17} />}
-          title={t.detail.templateModal.templates.actionItems.title}
-          desc={t.detail.templateModal.templates.actionItems.desc}
-        />
-      </div>
-
-      <div className="px-4 pb-3.5">
-        <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.06em] text-dim">
-          {t.detail.templateModal.engineSection}
-        </div>
+      <div className="px-5 py-4">
         {isCloud ? (
           <div className="rounded-btn border border-amber/30 bg-amber/10 px-3 py-2.5">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 shrink-0 rounded-full bg-amber" />
               <span className="text-[13px] font-semibold text-ink">
-                {t.detail.templateModal.cloudBadge(PROVIDER_LABEL[provider])}
+                {tm.cloudBadge(PROVIDER_LABEL[provider])}
               </span>
             </div>
-            <p className="mt-1.5 text-[11px] text-amber">
-              {t.detail.templateModal.cloudWarn(PROVIDER_LABEL[provider])}
-            </p>
+            <p className="mt-1.5 text-[12px] text-amber">{tm.cloudWarn(PROVIDER_LABEL[provider])}</p>
           </div>
         ) : (
-          <div className="rounded-btn border border-border-2 bg-surface-2 px-3 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-green" />
-              <span className="text-[13px] font-semibold text-ink">
-                {t.detail.templateModal.localBadge}
-              </span>
-            </div>
-            <p className="mt-1.5 text-[11px] text-green">{t.detail.templateModal.localNote}</p>
+          <div className="flex items-center gap-2 text-[12px] text-muted">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-green" />
+            {tm.localBadge} · {tm.localNote}
           </div>
         )}
-        <p className="mt-1.5 text-[11px] text-faint">{t.detail.templateModal.engineHint}</p>
-      </div>
 
-      <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3.5">
-        {busy ? (
-          <div className="min-w-0 flex-1">
-            <div className="mb-1.5 text-[11px] text-sub">{progressLabel}</div>
+        {busy && (
+          <div className="mt-4">
+            <div className="mb-1.5 text-[12px] text-sub">{progressLabel}</div>
             <ProgressBar value={progressValue} tone="green" />
           </div>
-        ) : (
-          <span className="text-[11px] text-dim">
-            {isCloud
-              ? t.detail.templateModal.footerCloud(PROVIDER_LABEL[provider])
-              : t.detail.templateModal.footerLocal}
-          </span>
         )}
-        <Button variant="primary" onClick={generate} disabled={busy}>
-          {busy ? t.detail.templateModal.generating : t.detail.templateModal.generate}
-        </Button>
+        {error && !busy && (
+          <p role="alert" className="mt-4 rounded-btn border border-red/40 bg-red/8 px-3 py-2 text-[13px] text-red-light">
+            {error}
+          </p>
+        )}
+        {replaces && !busy && !error && (
+          <p className="mt-3 text-[13px] text-body">{tm.replaceNote(label.title)}</p>
+        )}
+        <p className="mt-3 text-[11px] text-faint">{tm.engineHint}</p>
       </div>
+
+      {engine !== null && (!shouldAutoStart(engine, replaces) || error) && !busy && (
+        <div className="flex justify-end gap-2 border-t border-border px-5 py-3.5">
+          <Button variant="secondary" size="sm" onClick={handleClose}>
+            {t.common.cancel}
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => void generate()}>
+            {error
+              ? t.common.retry
+              : isCloud
+                ? tm.sendAndGenerate(PROVIDER_LABEL[provider])
+                : t.detail.regenerate}
+          </Button>
+        </div>
+      )}
     </Modal>
   );
+}
+
+/**
+ * 開いただけで生成を始めてよいか。ローカルで、既存の要約を置き換えないときだけ。
+ * クラウド（文字起こしを外部へ送る）と、エンジン未確定（null）は必ず押してもらう。
+ */
+export function shouldAutoStart(engine: Settings["engine"] | null, replaces: boolean): boolean {
+  return engine === "local" && !replaces;
+}
+
+type TemplateCopy = Record<"minutes" | "summary" | "actionItems", { title: string; desc: string }>;
+
+function templateLabelFor(id: string, copy: TemplateCopy) {
+  if (id === "summary") return copy.summary;
+  if (id === "action_items") return copy.actionItems;
+  return copy.minutes;
 }

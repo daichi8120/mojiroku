@@ -3,6 +3,7 @@ import { AppCtx, type MeetingState, type MeetingStartResult, type Route, type To
 import { I18nCtx, detectLocale, dicts, resolveLocale, translateError, useI18n, type Locale } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { clearJobStart, markJobStart, markStageStart } from "@/lib/jobClock";
+import { isJobShown } from "@/lib/jobFocus";
 import {
   cancelMeetingRecording,
   checkSystemAudioPermission,
@@ -193,7 +194,10 @@ function App() {
       refreshRecents();
       toast(u.kind === "diarize" ? t.job.diarizeCompleted : t.job.transcribeCompleted, "success");
     } else if (u.status === "failed") {
-      toast(u.error ? translateError(u.error, t) : t.job.failedToast, "error");
+      // 詳細画面がこのジョブを表示しているなら、そちらの赤枠（再試行つき）だけにする（#107）。
+      if (!isJobShown(u.job_id)) {
+        toast(u.error ? translateError(u.error, t) : t.job.failedToast, "error");
+      }
     }
   });
 

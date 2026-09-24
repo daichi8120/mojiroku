@@ -120,7 +120,7 @@ function LinkRow({
   );
 }
 
-export function SharePopover({ detail }: { detail: RecordingDetail }) {
+export function SharePopover({ detail, disabled = false }: { detail: RecordingDetail; disabled?: boolean }) {
   const { toast } = useApp();
   const { t, lang } = useI18n();
   // Notion 送信中フラグ。ポップオーバーは close で unmount されるが、SharePopover 自体は
@@ -226,9 +226,11 @@ export function SharePopover({ detail }: { detail: RecordingDetail }) {
       trigger={({ open, toggle }) => (
         <button
           onClick={toggle}
+          disabled={disabled}
+          title={disabled ? t.detail.needsTranscript : undefined}
           aria-haspopup="menu"
           aria-expanded={open}
-          className="inline-flex h-8 items-center gap-1.5 rounded-ctl border border-border-2 bg-surface-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover"
+          className="inline-flex h-8 items-center gap-1.5 rounded-ctl border border-border-2 bg-surface-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-45"
         >
           <ArrowUpRightIcon size={13} />
           {t.detail.share.button}
