@@ -100,6 +100,8 @@ pub fn run() {
             commands::transcription::download_live_transcription_models,
             commands::history::list_recordings,
             commands::history::list_recording_rows,
+            commands::recording::cancel_mic_recording,
+            commands::recording::recording_levels,
             commands::history::search_recordings,
             commands::history::get_recording,
             commands::history::delete_recording,

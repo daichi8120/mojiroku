@@ -65,6 +65,8 @@ export const transcribeFile = (path: string, diarize: boolean, recordOnly = fals
 
 /** マイク録音開始（cpal, default device）。 */
 export const startMicRecording = () => invoke<void>("start_mic_recording");
+/** マイク録音を保存せずに止める（#113）。 */
+export const cancelMicRecording = () => invoke<void>("cancel_mic_recording");
 
 /**
  * マイク録音停止 → WAV 保存確定 → 文字起こしジョブを投入して即返す（ADR-0024）。diarize で話者分離。
