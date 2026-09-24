@@ -50,6 +50,8 @@ import { TemplateModal } from "./TemplateModal";
 import { AskDrawer } from "./AskDrawer";
 import { SavedTranslations } from "./SavedTranslations";
 import { AudioPlayer } from "./AudioPlayer";
+import { Markdown } from "@/lib/markdown";
+import { findSummary } from "@/lib/templates";
 
 // チャプターはモック（トピック自動分割は未実装・Studio 15）。
 const CHAPTERS = [
@@ -745,9 +747,7 @@ export function DetailView({ id }: { id: string }) {
                       {t.detail.regenerate}
                     </button>
                   </div>
-                  <div className="whitespace-pre-wrap text-[15px] leading-[1.8] text-body">
-                    {s.content}
-                  </div>
+                  <Markdown text={s.content} />
                   {s.action_items.length > 0 && (
                     <ul className="mt-3 flex flex-col gap-1.5">
                       {s.action_items.map((a, j) => (
@@ -923,10 +923,17 @@ export function DetailView({ id }: { id: string }) {
             {t.detail.aiCreate}
           </div>
           <div className="flex flex-col gap-1.5">
+            {/* 主ボタンは「まだ議事録が無い」ときだけ。作成済みなら他と同じ副ボタンに下げ、
+                画面の主役を本文に譲る（#106）。 */}
             <button
               onClick={() => openModal("minutes")}
               disabled={processing}
-              className="h-9 w-full disabled:opacity-50 rounded-ctl bg-brand text-[13px] font-semibold text-white transition-[filter] hover:brightness-110"
+              className={cx(
+                "h-9 w-full rounded-ctl text-[13px] transition-colors disabled:opacity-50",
+                findSummary(detail.summaries, "minutes")
+                  ? "border border-border-2 text-body hover:bg-hover"
+                  : "bg-brand-2 font-semibold text-white hover:brightness-110",
+              )}
             >
               {t.detail.createMinutes}
             </button>
