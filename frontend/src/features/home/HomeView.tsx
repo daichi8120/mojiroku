@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useApp } from "@/lib/app";
+import { ModelSetupCard } from "@/features/setup/ModelSetup";
 import { cx } from "@/lib/cx";
 import { translateError, useI18n } from "@/i18n";
 import { startMicRecording, transcribeFile } from "@/lib/tauri";
@@ -127,6 +128,9 @@ export function HomeView() {
         <h1 className="text-[18px] font-bold text-ink">{t.home.title}</h1>
         <p className="mt-1 text-[13px] text-muted">{t.home.subtitle}</p>
       </header>
+
+      {/* 初回だけ: 文字起こしモデルの準備（#112）。揃っていれば何も出さない。 */}
+      <ModelSetupCard variant="home" />
 
       {/* 会議モード（主役） */}
       <button
