@@ -36,10 +36,16 @@ The sidecar is called with a 48-token budget, the value the prompt was tuned wit
 
 ## Evidence
 
-Local run on 14 real meetings with Qwen3.5-4B (the small tier, ADR-0044), 48 tokens,
-`--no-think`: all 14 outputs were usable Japanese titles, with no simplified Chinese and
-no dates, in 4–58 s depending on transcript length. The meeting content stays private;
+Local run on 20 real meetings with Qwen3.5-4B (the small tier, ADR-0044), 48 tokens,
+`--no-think`: 20/20 outputs were well-formed single-line Japanese titles, with no
+simplified Chinese and no dates, in 4–59 s depending on transcript length. 4 of them
+contain a mis-heard proper noun and 1 lists participant names, the known limitation
+noted in `title.rs`. A wrong name in a title is easy to spot and rename, and is still
+more useful than a list of identical 「会議」 entries. The meeting content stays private;
 only the counts are recorded here.
+
+The length cap is language-aware (40 characters for Japanese, 60 for English) to match
+the instructions; the Windows-31J logit bias (ADR-0043) applies to Japanese only.
 
 ## Consequences
 

@@ -11,9 +11,14 @@
 use crate::lang::Lang;
 use crate::schemas::{Recording, SourceType, SummaryTemplate, TemplateKind, Transcript};
 
-/// タイトルとして受け入れる最大文字数。指示は 20〜30 字を狙うが、超えたぶんを切り詰めると
-/// 意味の壊れた断片が残るので、**切らずに捨てて既定タイトルへ倒す**。
-const MAX_TITLE_CHARS: usize = 40;
+/// タイトルとして受け入れる最大文字数。指示（日本語は 30 字まで、英語は 60 字まで）より少し
+/// 余裕を持たせる。超えたぶんを切り詰めると意味の壊れた断片が残るので、**切らずに捨てて既定タイトルへ倒す**。
+fn max_title_chars(lang: Lang) -> usize {
+    match lang {
+        Lang::Ja => 40,
+        Lang::En => 60,
+    }
+}
 
 /// ⚠️ この文面は実データ 19 本で 3 版試した結果（Issue #4）。変更するなら測り直すこと。
 /// 効いた指示: 固有名詞を「強制」せず「自信がなければ使うな」に緩める（聞き取り誤りの人名が
@@ -85,7 +90,7 @@ pub fn build_title_prompt(transcript: &Transcript, lang: Lang) -> String {
 ///
 /// **中国語・英語の混入は検出しない。** 語としては自然に見えるので機械的に弾けず、
 /// モデル選択の問題として Issue #4 に既知の限界として記録してある。
-pub fn sanitize_title(raw: &str) -> Option<String> {
+pub fn sanitize_title(raw: &str, lang: Lang) -> Option<String> {
     let body = strip_thinking(raw)?;
 
     let line = body.lines().map(str::trim).find(|l| !l.is_empty())?;
@@ -95,7 +100,7 @@ pub fn sanitize_title(raw: &str) -> Option<String> {
     let line = strip_wrappers(line);
     let line = line.trim().trim_end_matches(['。', '.']).trim();
 
-    if line.is_empty() || line.chars().count() > MAX_TITLE_CHARS {
+    if line.is_empty() || line.chars().count() > max_title_chars(lang) {
         return None;
     }
     Some(line.to_string())
@@ -155,11 +160,24 @@ fn strip_wrappers(line: &str) -> &str {
 mod tests {
     use super::*;
 
+    fn ja(raw: &str) -> Option<String> {
+        sanitize_title(raw, Lang::Ja)
+    }
+
+    /// 英語の指示は「60 字まで」なので、英語は 40 字を超えても受け入れる。
+    #[test]
+    fn english_titles_get_the_longer_limit() {
+        let t = "Release checklist review and auto-title rollout"; // 47 chars
+        assert_eq!(sanitize_title(t, Lang::En).as_deref(), Some(t));
+        assert_eq!(ja(t), None);
+        assert_eq!(sanitize_title(&"x".repeat(61), Lang::En), None);
+    }
+
     #[test]
     fn strips_markdown_from_cloud_outputs() {
-        assert_eq!(sanitize_title("# 週次定例の進捗確認").as_deref(), Some("週次定例の進捗確認"));
-        assert_eq!(sanitize_title("**Weekly sync on release plan**").as_deref(), Some("Weekly sync on release plan"));
-        assert_eq!(sanitize_title("## **タイトル: 「採用面談」**").as_deref(), Some("採用面談"));
+        assert_eq!(ja("# 週次定例の進捗確認").as_deref(), Some("週次定例の進捗確認"));
+        assert_eq!(ja("**Weekly sync on release plan**").as_deref(), Some("Weekly sync on release plan"));
+        assert_eq!(ja("## **タイトル: 「採用面談」**").as_deref(), Some("採用面談"));
     }
 
     // ── 実測の出力をそのまま固定する（Issue #4・2026-08-24 の 10 本から） ──
@@ -168,11 +186,11 @@ mod tests {
     fn accepts_real_outputs_as_is() {
         // 綺麗に 1 行で返ってきたもの。そのまま通す。
         assert_eq!(
-            sanitize_title("インターンシップ面談"),
+            ja("インターンシップ面談"),
             Some("インターンシップ面談".to_string())
         );
         assert_eq!(
-            sanitize_title("作業スケジュール自動生成システム"),
+            ja("作業スケジュール自動生成システム"),
             Some("作業スケジュール自動生成システム".to_string())
         );
     }
@@ -183,11 +201,11 @@ mod tests {
         // モデル選択の問題として扱う（Issue #4）。ここで落とすと「会議」に戻るだけで、
         // 利用者にとって改善にならない。
         assert_eq!(
-            sanitize_title("LLM評価軸探讨"),
+            ja("LLM評価軸探讨"),
             Some("LLM評価軸探讨".to_string())
         );
         assert_eq!(
-            sanitize_title("論文進捗 discuss"),
+            ja("論文進捗 discuss"),
             Some("論文進捗 discuss".to_string())
         );
     }
@@ -195,7 +213,7 @@ mod tests {
     #[test]
     fn takes_first_line_when_explanation_follows() {
         assert_eq!(
-            sanitize_title("開発会議\nこの会議では次期リリースについて話し合われました。"),
+            ja("開発会議\nこの会議では次期リリースについて話し合われました。"),
             Some("開発会議".to_string())
         );
     }
@@ -204,7 +222,7 @@ mod tests {
     fn strips_thinking_block() {
         // 推論モデル（Qwen3 系）。思考を抜けた先の答えを取る。
         assert_eq!(
-            sanitize_title("<think>\nWe need a short title.\n</think>\n\nインターン面談"),
+            ja("<think>\nWe need a short title.\n</think>\n\nインターン面談"),
             Some("インターン面談".to_string())
         );
     }
@@ -214,36 +232,36 @@ mod tests {
         // 思考の途中で max_tokens が尽きた場合。答えが存在しないので既定タイトルへ倒す。
         // 実測: Qwen3-Swallow-8B-SFT は 512 トークンでも思考が終わらなかった。
         assert_eq!(
-            sanitize_title("<think>\nWe need to produce a short Japanese title (20-30"),
+            ja("<think>\nWe need to produce a short Japanese title (20-30"),
             None
         );
     }
 
     #[test]
     fn strips_wrappers_and_labels() {
-        assert_eq!(sanitize_title("「開発定例」"), Some("開発定例".to_string()));
-        assert_eq!(sanitize_title("\"開発定例\""), Some("開発定例".to_string()));
+        assert_eq!(ja("「開発定例」"), Some("開発定例".to_string()));
+        assert_eq!(ja("\"開発定例\""), Some("開発定例".to_string()));
         assert_eq!(
-            sanitize_title("タイトル: 開発定例"),
+            ja("タイトル: 開発定例"),
             Some("開発定例".to_string())
         );
         assert_eq!(
-            sanitize_title("タイトル：「開発定例」"),
+            ja("タイトル：「開発定例」"),
             Some("開発定例".to_string())
         );
         // 句点は落とす（タイトルに文末記号は要らない）。
-        assert_eq!(sanitize_title("開発定例。"), Some("開発定例".to_string()));
+        assert_eq!(ja("開発定例。"), Some("開発定例".to_string()));
     }
 
     #[test]
     fn rejects_empty_and_overlong() {
-        assert_eq!(sanitize_title(""), None);
-        assert_eq!(sanitize_title("   \n  "), None);
-        assert_eq!(sanitize_title("「」"), None);
+        assert_eq!(ja(""), None);
+        assert_eq!(ja("   \n  "), None);
+        assert_eq!(ja("「」"), None);
         // 40 字ちょうどは通し、41 字は捨てる。切り詰めると意味の壊れた断片が残るので捨てる。
         let forty = "あ".repeat(40);
-        assert_eq!(sanitize_title(&forty), Some(forty.clone()));
-        assert_eq!(sanitize_title(&"あ".repeat(41)), None);
+        assert_eq!(ja(&forty), Some(forty.clone()));
+        assert_eq!(ja(&"あ".repeat(41)), None);
     }
 
     #[test]

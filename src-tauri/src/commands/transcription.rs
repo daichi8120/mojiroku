@@ -318,10 +318,12 @@ pub(crate) async fn generate_title(
             .ok_or_else(|| "error.title.model_missing".to_string())?;
         let _heavy_permit = acquire_heavy_job(&app, "title://progress").await;
         let prompt = mojiroku_core::summarize::build_title_prompt(&transcript, lang);
-        run_local_llm(&app, &model_path, &prompt, lang, Some(TITLE_MAX_TOKENS)).await?
+        run_local_llm(&app, &model_path, &prompt, lang, Some(TITLE_MAX_TOKENS))
+            .await
+            .map_err(|e| e.replacen("error.summarize.sidecar_failed", "error.title.sidecar_failed", 1))?
     };
 
-    let title = mojiroku_core::summarize::sanitize_title(&raw)
+    let title = mojiroku_core::summarize::sanitize_title(&raw, lang)
         .ok_or_else(|| "error.title.not_generated".to_string())?;
     store
         .rename_recording(&recording_id, Some(&title))

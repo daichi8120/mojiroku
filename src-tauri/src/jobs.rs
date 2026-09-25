@@ -363,7 +363,7 @@ async fn run_title(app: &AppHandle, job: &Job) -> Result<(), String> {
             return Ok(());
         }
     };
-    let Some(title) = mojiroku_core::summarize::sanitize_title(&raw) else {
+    let Some(title) = mojiroku_core::summarize::sanitize_title(&raw, lang) else {
         eprintln!("[jobs] タイトルとして使える出力が無かった（既定名のまま）");
         return Ok(());
     };
