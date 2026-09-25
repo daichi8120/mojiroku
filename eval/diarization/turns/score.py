@@ -7,7 +7,9 @@ Metrics
 - straddling segments: segments that cover two or more reference turns by at
   least MIN_OVERLAP each, i.e. one line holding "A's tail + B's reply".
 - mislabelled time: share of reference speech whose segment carries the wrong
-  speaker (predicted ids are mapped to A/B by largest total overlap).
+  speaker. Predicted ids are mapped one-to-one to reference speakers (the
+  assignment with the largest total overlap); extra predicted ids stay distinct
+  and count as wrong, so one person split into several ids is not "perfect".
 - turn order: edit distance between the reference speaker sequence and the
   predicted one, after merging consecutive same-speaker lines, divided by the
   reference length (0 = same order).
@@ -23,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import difflib
+import itertools
 import json
 import sys
 import unicodedata
@@ -66,9 +69,18 @@ def score(ref_path: str, pred_path: str) -> dict:
     for s in segs:
         for t in turns:
             ov[s["spk"]][t["speaker"]] += overlap(s["start"], s["end"], t["start"], t["end"])
-    mapping = {p: max(r, key=r.get) for p, r in ov.items() if p is not None and r and max(r.values()) > 0}
+    preds = sorted(p for p in ov if p is not None)
+    refs = sorted({t["speaker"] for t in turns})
+    mapping: dict[str, str] = {}
+    best = -1.0
+    # Speaker counts are tiny, so an exhaustive one-to-one assignment is fine.
+    for perm in itertools.permutations(preds, min(len(preds), len(refs))):
+        total = sum(ov[p][r] for p, r in zip(perm, refs))
+        if total > best:
+            best, mapping = total, {p: r for p, r in zip(perm, refs)}
     for s in segs:
-        s["ref_spk"] = mapping.get(s["spk"])
+        # Unmatched ids keep their own label: wrong for every turn, and a separate run.
+        s["ref_spk"] = mapping.get(s["spk"], f"extra:{s['spk']}" if s["spk"] else None)
 
     straddling = 0
     for s in segs:

@@ -44,10 +44,10 @@ python3 eval/diarization/turns/score.py \
 
 ## Baseline (develop, 2026-09-25, Whisper turbo, pyannote seg-3.0 + TitaNet)
 
-| | straddling | mislabelled | order error | short replies | recall |
-|---|---:|---:|---:|---:|---:|
-| ja (58.8 s, 15 turns) | 0 | 1.7 % | 0.13 | 2/3 | 0.955 |
-| en (46.1 s, 15 turns) | 0 | 6.8 % | 0.40 | 1/4 | 1.000 |
+| | straddling | mislabelled | order error | short replies | recall | speakers |
+|---|---:|---:|---:|---:|---:|---:|
+| ja (58.8 s, 15 turns) | 0 | 1.7 % | 0.13 | 2/3 | 0.955 | 2 |
+| en (46.1 s, 15 turns) | 0 | 6.8 % | 0.40 | 1/4 | 1.000 | 2 |
 
 **Whisper already breaks lines at turn changes** (no line spans two turns), so
 splitting lines at diarization turn boundaries would not change these results.

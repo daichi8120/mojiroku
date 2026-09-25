@@ -41,6 +41,16 @@ class ScoreTest(unittest.TestCase):
         self.assertGreater(r["turn_order_error"], 0)
         self.assertGreater(r["mislabelled_time"], 0)
 
+    def test_split_speaker_is_not_perfect(self):
+        # A/B/A labelled S1/S2/S3: the second A is a different id, so it is wrong
+        pred = write(self.dir / "p.json", [
+            self.seg(0, 4, "S1", "one two three"), self.seg(4.2, 4.8, "S2", "yes"), self.seg(5, 9, "S3", "four five six"),
+        ])
+        r = score(self.ref, pred)
+        self.assertGreater(r["mislabelled_time"], 0.4)
+        self.assertGreater(r["turn_order_error"], 0)
+        self.assertEqual(r["speakers_found"], 3)
+
     def test_straddling_line(self):
         pred = write(self.dir / "p.json", [
             self.seg(0, 4.8, "S1", "one two three yes"), self.seg(5, 9, "S1", "four five six"),
