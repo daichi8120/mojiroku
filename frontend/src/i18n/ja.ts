@@ -706,6 +706,7 @@ const ja = {
     "error.summarize.api_key_missing": "クラウド要約には API キーが必要です（設定 → 要約エンジン）",
     "error.summarize.sidecar_failed": "ローカル要約の実行に失敗しました",
     "error.title.sidecar_failed": "ローカルでのタイトル生成に失敗しました",
+    "error.title.changed": "生成中にタイトルが変更されたため、生成したタイトルは使いませんでした",
     "error.title.not_generated": "タイトルを作れませんでした。もう一度試すか、手で入力してください",
     "error.title.model_missing":
       "要約モデルがまだありません。先に要約を一度作ると、タイトルも生成できるようになります",

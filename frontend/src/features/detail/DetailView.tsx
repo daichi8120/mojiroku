@@ -592,6 +592,7 @@ export function DetailView({ id }: { id: string }) {
 
   // タイトル編集開始（現在の生タイトルを初期値に）。
   const beginEditTitle = () => {
+    if (generatingTitle) return; // 生成結果と手入力がぶつからないように
     setTitleValue(detail?.recording.title ?? "");
     setEditingTitle(true);
   };
@@ -739,6 +740,7 @@ export function DetailView({ id }: { id: string }) {
                   <h1 className="truncate text-[18px] font-bold text-ink">{title}</h1>
                   <button
                     onClick={beginEditTitle}
+                    disabled={generatingTitle}
                     aria-label={t.history.renameTitle}
                     title={t.history.renameTitle}
                     className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-dim opacity-0 transition-all hover:bg-surface-2 hover:text-body group-hover/title:opacity-100"

@@ -50,12 +50,10 @@ pub fn title_template(lang: Lang) -> SummaryTemplate {
 /// これ以外のタイトル（カレンダーの予定名・利用者が付けた名前・ファイル名）は自動生成で上書きしない。
 pub const DEFAULT_TITLES: [&str; 4] = ["録音", "Recording", "会議", "Meeting"];
 
-/// タイトルが未設定か既定名か。
+/// タイトルがバックエンドの既定名か。**未設定（`None`）は含めない。** 録音は必ず既定名つきで
+/// 作られるので、`None` は利用者がタイトルを消した結果であり、その選択を上書きしない。
 pub fn is_default_title(title: Option<&str>) -> bool {
-    match title.map(str::trim) {
-        None | Some("") => true,
-        Some(t) => DEFAULT_TITLES.contains(&t),
-    }
+    title.is_some_and(|t| DEFAULT_TITLES.contains(&t.trim()))
 }
 
 /// 自動生成するのに必要な最小の発言数と文字数。短いメモからは中身のない題名しか出ない。
@@ -96,7 +94,7 @@ pub fn sanitize_title(raw: &str, lang: Lang) -> Option<String> {
     let line = body.lines().map(str::trim).find(|l| !l.is_empty())?;
     // クラウドのモデルは議事録向けのシステムプロンプトで動くので、Markdown の見出し・太字で返しうる。
     let line = strip_markdown(line);
-    let line = strip_label(line);
+    let line = strip_markdown(strip_label(line));
     let line = strip_wrappers(line);
     let line = line.trim().trim_end_matches(['。', '.']).trim();
 
@@ -178,6 +176,7 @@ mod tests {
         assert_eq!(ja("# 週次定例の進捗確認").as_deref(), Some("週次定例の進捗確認"));
         assert_eq!(ja("**Weekly sync on release plan**").as_deref(), Some("Weekly sync on release plan"));
         assert_eq!(ja("## **タイトル: 「採用面談」**").as_deref(), Some("採用面談"));
+        assert_eq!(sanitize_title("Title: **Weekly sync**", Lang::En).as_deref(), Some("Weekly sync"));
     }
 
     // ── 実測の出力をそのまま固定する（Issue #4・2026-08-24 の 10 本から） ──
@@ -320,7 +319,8 @@ mod tests {
         let long = transcript(6, "今週のリリース範囲を確認しました");
         assert!(should_auto_title(&rec(SourceType::Mic, Some("録音")), &long));
         assert!(should_auto_title(&rec(SourceType::Live, Some("Meeting")), &long));
-        assert!(should_auto_title(&rec(SourceType::Mic, None), &long));
+        // a title the user cleared is a choice, not a default
+        assert!(!should_auto_title(&rec(SourceType::Mic, None), &long));
         // calendar or hand-written titles and file names stay
         assert!(!should_auto_title(&rec(SourceType::Live, Some("週次定例")), &long));
         assert!(!should_auto_title(&rec(SourceType::File, Some("interview_0918")), &long));

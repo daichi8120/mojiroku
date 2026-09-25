@@ -145,7 +145,7 @@ async fn run_one_job(app: &AppHandle, job: Job) {
         match kind.as_str() {
             "transcribe" => run_transcribe(app, &job, Arc::clone(&cancel)).await,
             "diarize" => run_diarize(app, &job, Arc::clone(&cancel)).await,
-            TITLE_JOB_KIND => run_title(app, &job).await,
+            TITLE_JOB_KIND => run_title(app, &job, Arc::clone(&cancel)).await,
             other => Err(format!("error.job.unknown_kind: {other}")),
         }
     };
@@ -339,7 +339,7 @@ fn enqueue_auto_title(app: &AppHandle, store: &SqliteStore, job: &Job) {
 /// タイトル自動生成ジョブ（Issue #4）。**失敗しても録音には何も起きない**ので、生成できなかった
 /// 場合はログだけ残して成功として終える（失敗の印を出すほどのことではない）。
 /// 生成の前後でタイトルが既定名のままか確かめ直し、利用者が付けた名前は上書きしない。
-async fn run_title(app: &AppHandle, job: &Job) -> Result<(), String> {
+async fn run_title(app: &AppHandle, job: &Job, cancel: Arc<AtomicBool>) -> Result<(), String> {
     let id = &job.recording_id;
     let transcript = {
         let store = app.state::<SqliteStore>();
@@ -367,6 +367,11 @@ async fn run_title(app: &AppHandle, job: &Job) -> Result<(), String> {
         eprintln!("[jobs] タイトルとして使える出力が無かった（既定名のまま）");
         return Ok(());
     };
+    // 生成中に中断されていたら書き込まない（ADR-0046）。一覧に出ないので通常は起きないが、
+    // `cancel_job` はジョブ id さえあれば呼べる。
+    if cancel.load(Ordering::Relaxed) {
+        return Err(JOB_CANCELED.to_string());
+    }
     let store = app.state::<SqliteStore>();
     let still_default = store
         .get_recording_detail(id)

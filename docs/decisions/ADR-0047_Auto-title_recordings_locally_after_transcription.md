@@ -20,7 +20,8 @@ meetings earlier in Issue #4, but nothing called them.
 2. **Only default names are replaced.** The job runs for microphone recordings and
    meetings whose title is one of the default names, with at least 5 segments and 80
    characters of text (`should_auto_title`). File imports keep their file names, and
-   calendar or hand-typed titles are never touched. The title is checked again right
+   calendar or hand-typed titles are never touched, and neither is a title the user cleared
+   (stored as `NULL`; recordings are always created with a default name). The title is checked again right
    before saving, so a rename made while the title was being generated wins.
 3. **It is a background job (`kind = "title"`)** queued after a successful
    transcription, so it shares the single heavy-job slot with transcription and speaker
@@ -30,7 +31,8 @@ meetings earlier in Issue #4, but nothing called them.
 4. **The detail view has an explicit 「タイトルを生成」 button.** Because the user asked
    for it, it follows the summary engine setting, including cloud (with a confirmation
    before sending). The local path uses the cached model and reports
-   `error.title.model_missing` rather than downloading one.
+   `error.title.model_missing` rather than downloading one. Title editing is disabled while
+   it runs, and a title changed elsewhere in the meantime is kept (`error.title.changed`).
 
 The sidecar is called with a 48-token budget, the value the prompt was tuned with.
 

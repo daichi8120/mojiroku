@@ -698,6 +698,7 @@ const en: Dict = {
     "error.summarize.api_key_missing": "Cloud summarization requires an API key (Settings → Summary engine)",
     "error.summarize.sidecar_failed": "Local summarization failed",
     "error.title.sidecar_failed": "Local title generation failed",
+    "error.title.changed": "The title was changed while generating, so the generated one was not used",
     "error.title.not_generated": "Couldn't create a title. Try again or type one yourself",
     "error.title.model_missing":
       "The summary model isn't downloaded yet. Create a summary once, and title generation will work too",

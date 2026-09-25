@@ -300,11 +300,12 @@ pub(crate) async fn generate_title(
 ) -> Result<String, String> {
     let cfg = load_settings(&app)?;
     let lang = mojiroku_core::lang::Lang::from_code(cfg.effective_language());
-    let transcript = store
+    let detail = store
         .get_recording_detail(&recording_id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "error.recording.not_found".to_string())?
-        .transcript;
+        .ok_or_else(|| "error.recording.not_found".to_string())?;
+    let original_title = detail.recording.title;
+    let transcript = detail.transcript;
     if transcript.segments.is_empty() {
         return Err("error.job.no_transcript".to_string());
     }
@@ -325,6 +326,14 @@ pub(crate) async fn generate_title(
 
     let title = mojiroku_core::summarize::sanitize_title(&raw, lang)
         .ok_or_else(|| "error.title.not_generated".to_string())?;
+    // 生成の間に別の画面で名前を変えていたら、そちらを残す。
+    let current_title = store
+        .get_recording_detail(&recording_id)
+        .map_err(|e| e.to_string())?
+        .and_then(|d| d.recording.title);
+    if current_title != original_title {
+        return Err("error.title.changed".to_string());
+    }
     store
         .rename_recording(&recording_id, Some(&title))
         .map_err(|e| e.to_string())?;
