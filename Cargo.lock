@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "mojiroku"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2621,6 +2621,7 @@ dependencies = [
 name = "mojiroku-llm"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "libc",
  "llama-cpp-2",
 ]

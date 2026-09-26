@@ -76,7 +76,7 @@ export function AskDrawer({
       {/* ヘッダ */}
       <div className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[8px] bg-brand text-white">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-ctl bg-brand text-white">
             <SparklesIcon size={15} />
           </span>
           <div className="min-w-0">
@@ -86,7 +86,7 @@ export function AskDrawer({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {/* ローカル / BYOK は表示のみ */}
-          <div className="flex items-center gap-1 rounded-[8px] border border-border-2 bg-surface-2 p-1">
+          <div className="flex items-center gap-1 rounded-ctl border border-border-2 bg-surface-2 p-1">
             <span className="rounded-md bg-brand px-2.5 py-1 text-[11px] font-semibold text-white">
               ローカル
             </span>
@@ -115,7 +115,7 @@ export function AskDrawer({
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4"
       >
         {messages.length === 0 && (
-          <div className="mt-6 text-center text-[12.5px] leading-relaxed text-muted">
+          <div className="mt-6 text-center text-[13px] leading-relaxed text-muted">
             この録音について質問できます。
             <br />
             下のサジェストから試してみてください。
@@ -125,26 +125,26 @@ export function AskDrawer({
           m.role === "user" ? (
             <div
               key={m.id}
-              className="max-w-[78%] self-end rounded-[14px_14px_4px_14px] bg-brand px-3.5 py-2.5 text-[13.5px] leading-relaxed text-white"
+              className="max-w-[78%] self-end rounded-[14px_14px_4px_14px] bg-brand px-3.5 py-2.5 text-[14px] leading-relaxed text-white"
             >
               {m.text}
             </div>
           ) : (
             <div key={m.id} className="max-w-[86%] self-start">
               <div className="mb-1.5 flex items-center gap-1.5">
-                <span className="flex h-5 w-5 items-center justify-center rounded-[6px] bg-[rgba(99,102,241,0.16)] text-brand-lighter">
+                <span className="flex h-5 w-5 items-center justify-center rounded-tag bg-brand/16 text-brand-lighter">
                   <SparklesIcon size={11} />
                 </span>
                 <span className="text-[11px] text-faint">mojiroku · ローカル生成</span>
               </div>
-              <div className="rounded-[4px_14px_14px_14px] border border-border-2 bg-surface-2 px-4 py-3 text-[13.5px] leading-relaxed text-speech">
+              <div className="rounded-[4px_14px_14px_14px] border border-border-2 bg-surface-2 px-4 py-3 text-[14px] leading-relaxed text-speech">
                 <p className="whitespace-pre-wrap">{m.text}</p>
                 {m.cites && m.cites.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {m.cites.map((c) => (
                       <span
                         key={c}
-                        className="rounded-md bg-[rgba(34,211,238,0.12)] px-1.5 py-0.5 font-mono text-[11px] text-teal"
+                        className="rounded-md bg-cyan/12 px-1.5 py-0.5 font-mono text-[11px] text-teal"
                       >
                         {c}
                       </span>
@@ -164,7 +164,7 @@ export function AskDrawer({
             <button
               key={s}
               onClick={() => send(s)}
-              className="rounded-full border border-border-2 bg-surface-2 px-3 py-1.5 text-[11.5px] text-body transition-colors hover:bg-hover"
+              className="rounded-full border border-border-2 bg-surface-2 px-3 py-1.5 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {s}
             </button>
@@ -175,19 +175,19 @@ export function AskDrawer({
             e.preventDefault();
             send(input);
           }}
-          className="flex items-center gap-2.5 rounded-[12px] border border-border-3 bg-surface-2 px-3 py-2"
+          className="flex items-center gap-2.5 rounded-card border border-border-3 bg-surface-2 px-3 py-2"
         >
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="この録音について質問する…"
-            className="min-w-0 flex-1 bg-transparent text-[13.5px] text-ink outline-none placeholder:text-dim"
+            className="min-w-0 flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-dim"
           />
           <span className="shrink-0 text-[11px] text-dim">引用つき</span>
           <button
             type="submit"
             aria-label="送信"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-brand text-white transition-[filter] hover:brightness-110"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-ctl bg-brand text-white transition-[filter] hover:brightness-110"
           >
             <SendIcon size={14} />
           </button>

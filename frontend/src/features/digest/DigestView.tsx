@@ -25,12 +25,12 @@ export function DigestView() {
       {/* ヘッダ */}
       <header className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-brand/15 text-brand-light">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-light">
             <LayersIcon size={18} />
           </span>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[17px] font-bold text-ink">{DIGEST.series}</h1>
+              <h1 className="text-[18px] font-bold text-ink">{DIGEST.series}</h1>
               <Badge tone="indigo">シリーズ</Badge>
               <PreviewTag />
             </div>
@@ -41,7 +41,7 @@ export function DigestView() {
         </div>
         <button
           onClick={() => navigate({ view: "history" })}
-          className="shrink-0 text-[11.5px] text-sub transition-colors hover:text-ink"
+          className="shrink-0 text-[12px] text-sub transition-colors hover:text-ink"
         >
           履歴へ
         </button>
@@ -51,7 +51,7 @@ export function DigestView() {
       <section>
         <div className="flex items-center justify-between">
           <SectionLabel>過去のセッション</SectionLabel>
-          <span className="text-[11.5px] text-muted">
+          <span className="text-[12px] text-muted">
             過去{DIGEST.sessions.length}回 · 9月
           </span>
         </div>
@@ -71,7 +71,7 @@ export function DigestView() {
                   />
                   <span
                     className={cx(
-                      "font-mono text-[10px]",
+                      "font-mono text-[11px]",
                       active ? "text-brand-light" : "text-faint",
                     )}
                   >
@@ -139,7 +139,7 @@ export function DigestView() {
                 i < DIGEST.openActions.length - 1 && "border-b border-line",
               )}
             >
-              <span className="h-4 w-4 shrink-0 rounded-[5px] border-2 border-border-2" />
+              <span className="h-4 w-4 shrink-0 rounded-tag border-2 border-border-2" />
               <span className="flex-1 text-[13px] text-body">{a.text}</span>
               <span
                 className="shrink-0 text-[12px] font-medium"
@@ -149,7 +149,7 @@ export function DigestView() {
               </span>
               <span
                 className={cx(
-                  "shrink-0 font-mono text-[10.5px]",
+                  "shrink-0 font-mono text-[11px]",
                   a.overdue ? "text-red-light" : "text-muted",
                 )}
               >
@@ -162,11 +162,11 @@ export function DigestView() {
 
       {/* 繰り返し出る話題 */}
       <section className="flex flex-wrap items-center gap-2">
-        <span className="text-[11.5px] text-muted">繰り返し出る話題</span>
+        <span className="text-[12px] text-muted">繰り返し出る話題</span>
         {DIGEST.recurring.map((r) => (
           <span
             key={r.topic}
-            className="rounded-full border border-border bg-surface-2 px-3 py-1 text-[11.5px] text-body"
+            className="rounded-full border border-border bg-surface-2 px-3 py-1 text-[12px] text-body"
           >
             {r.topic} <span className="font-mono font-medium text-brand-light">×{r.count}</span>
           </span>

@@ -1,11 +1,13 @@
-// 録音中（Studio 03）。マイクは Home で開始済み。タイマー + ライブ波形 + 停止。
+// 録音中（Studio 03）。マイクは Home で開始済み。タイマー + 実際の入力音量 + 停止 / 破棄。
 // 停止 → stop_mic_recording（音声確定＋ジョブ投入で即返す） → 詳細へ（進捗は DetailView が job://update で表示）。
 import { useEffect, useRef, useState } from "react";
 import { translateError, useI18n } from "@/i18n";
 import { useApp } from "@/lib/app";
-import { stopMicRecording } from "@/lib/tauri";
+import { cancelMicRecording, stopMicRecording } from "@/lib/tauri";
 import { elapsedSeconds, formatDuration } from "@/lib/types";
-import { Waveform } from "@/components/composite";
+import { SILENCE_WARN_SEC, useRecordingLevels } from "@/lib/levels";
+import { LevelMeter } from "@/components/composite";
+import { ConfirmDialog } from "@/components/ui";
 import { StopIcon } from "@/components/icons";
 
 export function RecordingView({
@@ -25,6 +27,10 @@ export function RecordingView({
   // 停止を押した時刻。以降は表示を止める（バックエンドの確定待ちの間もカウントし続けないため）。
   const [stoppedAt, setStoppedAt] = useState<number | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // 実際のマイク入力（#113）。無音が続いたら、停止してから気づく前に知らせる。
+  const levels = useRecordingLevels(!stopping);
+  const silent = (levels.mic?.silentSec ?? 0) >= SILENCE_WARN_SEC;
   const [, forceTick] = useState(0);
   const timer = useRef<number | null>(null);
 
@@ -54,6 +60,18 @@ export function RecordingView({
     }
   };
 
+  const discard = async () => {
+    setConfirmDiscard(false);
+    setStopping(true);
+    try {
+      await cancelMicRecording();
+      toast(t.recording.discarded, "info");
+    } catch (e) {
+      toast(translateError(e, t), "error");
+    }
+    navigate({ view: "home" });
+  };
+
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-8 px-8 py-12">
       <div className="flex items-center gap-2.5 text-[14px] text-red-light">
@@ -65,22 +83,48 @@ export function RecordingView({
         {formatDuration(elapsed * 1000)}
       </div>
 
-      <Waveform active bars={56} height={56} className="w-full max-w-[520px]" />
+      <div className="flex w-full max-w-[520px] flex-col items-center gap-2">
+        <LevelMeter value={levels.mic?.meter ?? 0} segments={32} height={14} label={t.recording.micLevel} className="w-full" />
+        <p
+          role={silent ? "alert" : undefined}
+          className={silent ? "text-[13px] text-amber" : "text-[12px] text-muted"}
+        >
+          {silent ? t.recording.silentWarning : t.recording.micLevel}
+        </p>
+      </div>
 
-      <button
-        onClick={stop}
-        disabled={stopping}
-        className="inline-flex h-12 items-center gap-2.5 rounded-full bg-red px-7 text-[14px] font-medium text-white shadow-[0_0_0_4px_rgba(239,68,68,0.18)] transition-colors hover:bg-red-light disabled:opacity-60"
-      >
-        <StopIcon size={18} />
-        {recordOnly ? t.recording.stopAndSaveOnly : t.recording.stopAndTranscribe}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setConfirmDiscard(true)}
+          disabled={stopping}
+          className="h-12 rounded-full border border-border-2 px-5 text-[14px] text-sub transition-colors hover:bg-hover hover:text-ink disabled:opacity-60"
+        >
+          {t.recording.discard}
+        </button>
+        <button
+          onClick={stop}
+          disabled={stopping}
+          className="inline-flex h-12 items-center gap-2.5 rounded-full bg-danger px-7 text-[14px] font-medium text-white ring-4 ring-red/20 transition-colors hover:bg-red-light disabled:opacity-60"
+        >
+          <StopIcon size={18} />
+          {recordOnly ? t.recording.stopAndSaveOnly : t.recording.stopAndTranscribe}
+        </button>
+      </div>
 
       <p className="text-[12px] text-muted">
         {recordOnly
           ? t.recording.recordOnlyHint
           : `${diarize ? t.recording.diarizeOn : t.recording.diarizeOff} · ${t.recording.footer}`}
       </p>
+
+      <ConfirmDialog
+        open={confirmDiscard}
+        title={t.recording.discardConfirmTitle}
+        body={t.recording.discardConfirmBody}
+        confirmLabel={t.recording.discard}
+        onConfirm={() => void discard()}
+        onCancel={() => setConfirmDiscard(false)}
+      />
     </div>
   );
 }

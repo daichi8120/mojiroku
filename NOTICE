@@ -108,7 +108,11 @@ mojiroku は初回利用時にユーザーの端末へモデルを取得しま�
                16GB 以上   Qwen3.5-9B-Q4_K_M.gguf  (約 5.7GB)
                            https://huggingface.co/unsloth/Qwen3.5-9B-GGUF
 
-               それ未満    Qwen2.5-7B-Instruct-Q4_K_M.gguf  (約 4.7GB)
+               それ未満    Qwen3.5-4B-Q4_K_M.gguf  (約 2.7GB)
+                           https://huggingface.co/unsloth/Qwen3.5-4B-GGUF
+
+               設定から選べるモデル
+                           Qwen2.5-7B-Instruct-Q4_K_M.gguf  (約 4.7GB)
                            https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF
 
                既に取得済みのモデルがある場合は、それをそのまま使います

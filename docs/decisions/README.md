@@ -64,3 +64,9 @@
 - [ADR-0040: Preserve brief speakers during cleanup](ADR-0040_Preserve_brief_speakers_during_cleanup.md)
 
 - [ADR-0041: Control speaker fragmentation](ADR-0041_Control_speaker_fragmentation.md)
+- [ADR-0042: Judge short-turn speakers against the anchor's own short turns](ADR-0042_Judge_short_turn_speakers_against_the_anchors_own_short_turns.md)
+- [ADR-0043: Block simplified Chinese characters in Japanese output](ADR-0043_Block_simplified_Chinese_characters_in_Japanese_output.md)
+- [ADR-0044: Qwen3.5-4B for the small summary tier](ADR-0044_Qwen3.5-4B_for_the_small_summary_tier.md)
+- [ADR-0045: Follow the macOS appearance with one token set](ADR-0045_Follow_the_macOS_appearance_with_one_token_set.md)
+- [ADR-0046: Cancel running jobs cooperatively](ADR-0046_Cancel_running_jobs_cooperatively.md)
+- [ADR-0047: Auto-title recordings locally after transcription](ADR-0047_Auto-title_recordings_locally_after_transcription.md)

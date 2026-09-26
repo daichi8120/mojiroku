@@ -7,12 +7,9 @@ const en: Dict = {
     cancel: "Cancel",
     delete: "Delete",
     close: "Close",
-    copy: "Copy",
     open: "Open",
     retry: "Retry",
     loading: "Loading…",
-    untitled: "(Untitled)",
-    untitledRecording: "Untitled recording",
     clickToRename: "Click to rename",
   },
 
@@ -41,6 +38,8 @@ const en: Dict = {
   },
 
   sidebar: {
+    collapse: "Collapse sidebar",
+    expand: "Expand sidebar",
     newRecording: "New recording",
     nav: {
       meeting: "Meeting mode",
@@ -57,9 +56,14 @@ const en: Dict = {
   },
 
   home: {
+    recordMicDesc: "Transcribe as you speak",
+    dropHint: "Or drag and drop an audio file here",
+    upcoming: "Coming up",
+    recordThisMeeting: "Record this meeting",
+    recent: "Recent recordings",
+    seeAll: "See all",
     title: "New recording",
-    subtitle:
-      "Record meetings as they happen. Import audio files or record from the mic — transcription and summaries all run locally.",
+    subtitle: "Meetings and memos are transcribed and summarised on this Mac.",
     meetingCard: {
       title: "Record a meeting",
       desc: "Captures Zoom, Google Meet, and more from both sides — the other participants (system audio) and you (microphone) — locally. When you stop, it is transcribed with speaker separation and saved.",
@@ -94,23 +98,53 @@ const en: Dict = {
       withSummary: "Has summary",
       withSpeakers: "Has speakers",
       week: "This week",
-      comingSoon: "Soon",
-      notReady: "This filter will be available after the history metadata upgrade",
     },
     count: (n: number) => (n === 1 ? "1 item" : `${n} items`),
     countMatch: (n: number) => (n === 1 ? "1 match" : `${n} matches`),
     empty: {
       noMatch: (q: string) => `No results for “${q}”`,
-      noneThisWeek: "No recordings this week",
+      noneFiltered: "No recordings match this filter",
       none: "No recordings yet",
       hint: "Transcribe audio from Home and it will show up here",
+    },
+    state: {
+      processing: "Processing",
+      failed: "Failed",
+      untranscribed: "Not transcribed",
+      noSpeech: "No speech",
+      summarized: "Has summary",
+      transcribed: "Transcribed",
     },
     deleted: "Deleted",
     renamed: "Title updated",
     renameTitle: "Rename",
+    generateTitle: "Generate a title from the transcript",
+    titleGenerated: "Title generated",
+    generateTitleCloudTitle: "Generate the title in the cloud?",
+    generateTitleCloudBody:
+      "Your summary engine is set to cloud, so the transcript will be sent to the cloud AI to create the title.",
+    generateTitleCloudConfirm: "Send and generate",
     deleteConfirmTitle: "Delete this recording?",
     deleteConfirmBody: (title: string) =>
       `“${title}”, along with its transcript and summaries, will be deleted. This cannot be undone.`,
+  },
+
+  setup: {
+    readyNextMeeting: "The model is ready. This meeting has no live transcript, but it is transcribed when you stop and save. Live transcripts appear from your next meeting.",
+    whisperName: "Transcription model (Whisper large-v3-turbo)",
+    vadName: "Silence detection (Silero VAD)",
+    home: {
+      title: "Set up the transcription model first",
+      body: "Transcription runs on this Mac, so the model is downloaded once. Getting it now means your first recording is transcribed right away and live transcription works in meetings.",
+    },
+    meeting: {
+      title: "Live transcription needs a model",
+      body: "You can record and save without it. To see the transcript during the meeting, download it first.",
+    },
+    live: {
+      title: "No live transcript for this meeting",
+      body: "The transcription model is not downloaded yet. Recording continues and is transcribed when you stop and save. Download it now to see live transcripts from your next meeting.",
+    },
   },
 
   meeting: {
@@ -165,6 +199,9 @@ const en: Dict = {
       title: "Recording meeting",
       subtitle: "Recording locally · stopping transcribes with speaker separation and saves",
       meterCapturing: "Recording system audio + mic",
+      micLevel: "Microphone (you) input",
+      systemLevel: "System audio (others) input",
+      silentWarning: "No sound for a while. Check that the microphone is not muted and where the meeting app sends its audio. Recording continues.",
       discard: "Discard",
       privacy: "No bots joined · audio is processed only on this Mac · nothing goes to the cloud",
       transcriptLabel: "Live transcript",
@@ -174,8 +211,6 @@ const en: Dict = {
       warmupHint: "Live transcription will appear here once someone starts speaking",
       aiNotesLabel: "Live AI notes",
       aiNotesAfterStop: "Created after you stop",
-      aiNotesSoon:
-        "Real-time notes during the meeting are coming soon. When you “Stop & save”, system audio (the other side) is transcribed with speaker separation, together with your mic (you).",
       aiNotesDetail:
         "After saving, you can create AI minutes, summaries, and action items locally from the detail view.",
     },
@@ -203,11 +238,16 @@ const en: Dict = {
 
   // Background jobs (ADR-0024). Detail-view processing state + completion/failure toasts.
   job: {
+    canceling: "Stopping…",
+    canceledToast: "Processing stopped",
+    cancelConfirmTitle: "Stop processing?",
+    cancelConfirmBody: "Partial results are not saved. The recording stays and you can run it again later.",
+    cancelConfirm: "Stop",
     processing: "Processing locally",
     queued: "Queued (waiting for another task to finish)",
     elapsed: "Elapsed",
     remaining: (min: number) => (min <= 1 ? "~1 min left" : `~${min} min left`),
-    cancel: "Cancel",
+    cancel: "Stop",
     transcribeCompleted: "Transcription complete",
     diarizeCompleted: "Speaker separation complete",
     failedToast: "Processing failed",
@@ -231,6 +271,7 @@ const en: Dict = {
     /** 発言単位の話者訂正（Issue #19）。 */
     speakerUnknown: "?",
     clickToFixSpeaker: "Click to fix the speaker",
+    playFromHere: "Play from here",
     fixSpeakerHeading: "Speaker for this line",
     fixSpeakerToUnknown: "Set to unknown",
     speakerFixed: "Speaker corrected",
@@ -253,6 +294,12 @@ const en: Dict = {
   },
 
   recording: {
+    micLevel: "Microphone input",
+    silentWarning: "No sound from the microphone. Check that it is not muted and that the right input device is selected.",
+    discard: "Discard",
+    discarded: "Recording discarded",
+    discardConfirmTitle: "Discard this recording?",
+    discardConfirmBody: "The audio is not saved and cannot be recovered.",
     status: "Recording · transcribes automatically",
     statusRecordOnly: "Recording · saves audio only",
     stopAndTranscribe: "Stop & transcribe",
@@ -288,14 +335,21 @@ const en: Dict = {
     tabs: {
       transcript: "Transcript",
     },
-    noTranscriptTitle: "No transcript",
-    noTranscriptHint: "This session has no transcription results.",
+    noTranscriptTitle: "Not transcribed yet",
+    noTranscriptHint: "Use “Transcribe” above to transcribe this recording on this Mac.",
+    transcriptPendingTitle: "Transcribing",
+    transcriptPendingHint: "The transcript appears here when it is done. Processing continues if you leave this screen.",
+    needsTranscript: "Available once the recording is transcribed",
+    needsJobDone: "Available when processing finishes",
     // Post-hoc processing (ADR-0024).
     runTranscribe: "Transcribe",
     runTranscribeDesc: "Transcribe this recording's audio locally.",
     runTranscribeDiarize: "Separate speakers too",
     runDiarize: "Separate speakers",
     runDiarizeDesc: "Analyze who spoke and assign it to the transcript afterwards.",
+    rerunDiarize: "Redetect speakers",
+    rerunDiarizeDesc:
+      "Analyze the speakers again. Names you gave are kept when the voice matches. In meetings, your own lines stay as they are.",
     summaryStale: "May be out of date",
     summaryStaleTitle: "The transcript or speakers were updated. Regenerating is recommended.",
     aiCreate: "Create with AI",
@@ -303,10 +357,22 @@ const en: Dict = {
     createSummary: "Summary (3 lines)",
     createActionItems: "Action items",
     mcpNote: "Also available from Claude and other tools via MCP",
+    find: {
+      open: "Find in transcript",
+      placeholder: "Find in transcript",
+      count: (i: number, n: number) => `${i} / ${n}`,
+      prev: "Previous match",
+      next: "Next match",
+    },
     audio: {
       play: "Play",
       pause: "Pause",
       seek: "Playback position",
+      spaceHint: "Play / pause (Space)",
+      follow: "Back to playback position",
+      back5: "Back 5 seconds",
+      forward15: "Forward 15 seconds",
+      rate: (r: number) => `Playback speed ${r}× (click to change)`,
     },
     speakerPanel: {
       title: "Speakers",
@@ -320,18 +386,12 @@ const en: Dict = {
       registerAndLink: "Register and link",
     },
     templateModal: {
-      title: "Create minutes & summary",
-      subtitle: "Pick a template to generate",
+      titleFor: (what: string) => `Create ${what.toLowerCase()}`,
       templates: {
         minutes: { title: "Minutes", desc: "Decisions, action items, and open questions" },
         summary: { title: "Summary (3 lines)", desc: "Just the key points, kept short" },
         actionItems: { title: "Action items", desc: "To-dos with owners and due dates" },
-        custom: { title: "Custom prompt…", desc: "Save your own format (soon)" },
       },
-      customPlaceholder: "e.g. Summarize in 5 points: conclusion → reasoning → next steps",
-      customSoonToast: "Custom prompts are coming soon",
-      customSoonNote: "Custom prompts are coming soon.",
-      engineSection: "Generation engine",
       engineCloud: (provider: string) => `Cloud / ${provider}`,
       engineLocal: "Local / Metal",
       cloudBadge: (provider: string) => `Cloud (${provider}) · BYOK`,
@@ -340,16 +400,15 @@ const en: Dict = {
       localBadge: "Local · Free",
       localNote: "Everything is processed on your Mac · nothing is uploaded.",
       engineHint: "You can switch engines in Settings → Summary engine.",
-      footerCloud: (provider: string) => `Generates with ${provider} · transcript is sent`,
-      footerLocal: "Generates with the local model · no extra cost",
+      sendAndGenerate: (provider: string) => `Send to ${provider} and create`,
+      replaceNote: (what: string) => `This replaces the current ${what.toLowerCase()}.`,
       progressQueued: "Waiting for another task (transcription, …) to finish…",
       progressDownload: (pct: number) => `Downloading summary model… ${pct}%`,
       progressGenerating: (engine: string) => `Generating summary… (${engine})`,
       created: "Created",
-      generating: "Generating…",
-      generate: "Generate",
     },
     share: {
+      button: "Share",
       secCopy: "Copy",
       minutesMd: "Minutes (Markdown)",
       minutesMdSub: "With headings and bullet lists",
@@ -508,7 +567,6 @@ const en: Dict = {
       fetch: "Download",
       savedBadge: "Downloaded",
       onDemandBadge: "On demand",
-      manageSoon: "Model management is coming soon",
       pickerLabel: "Model for summaries",
       pickerDesc: "Switching downloads that model at the next summary. Models already on this Mac are kept.",
       auto: (label: string) => `Match this Mac (${label})`,
@@ -561,15 +619,7 @@ const en: Dict = {
         " (Notion = summary + transcript / Slack = summary only — sent even with local summaries); (3) ",
       localAiStrong: "open in an AI (ChatGPT / Claude)",
       localAiRest: " (includes the transcript). None of this happens automatically.",
-      saveRecordings: {
-        title: "Keep recordings on this Mac",
-        desc: "Used for history and full-text search",
-      },
-      sendUsage: {
-        title: "Send usage data",
-        desc: "Off by default. Anonymous bug reports only",
-      },
-      note: "These values are stored on this Mac. Applying them to behavior (stop saving, sending) is coming soon.",
+      storage: "Recordings, transcripts and summaries are stored on this Mac. They leave it only through the actions above, and then the destination (Notion and others) keeps a copy. No usage data is sent.",
     },
     general: {
       desc: "App info and feedback.",
@@ -608,6 +658,8 @@ const en: Dict = {
     eventTomorrow: (time: string) => `Tomorrow ${time}`,
     weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
     listSeparator: ", ",
+    untitledTitle: (kind: string, when: string) => `${kind} (${when})`,
+    sourceKind: { file: "Audio file", mic: "Mic recording", live: "Meeting" } as Record<"file" | "mic" | "live", string>,
   },
 
   // ⚠️ Output strings for export/print/AI prompts (distinct from in-app UI labels).
@@ -645,6 +697,11 @@ const en: Dict = {
     "error.system_audio.no_display": "No display found",
     "error.summarize.api_key_missing": "Cloud summarization requires an API key (Settings → Summary engine)",
     "error.summarize.sidecar_failed": "Local summarization failed",
+    "error.title.sidecar_failed": "Local title generation failed",
+    "error.title.changed": "The title was changed while generating, so the generated one was not used",
+    "error.title.not_generated": "Couldn't create a title. Try again or type one yourself",
+    "error.title.model_missing":
+      "The summary model isn't downloaded yet. Create a summary once, and title generation will work too",
     "error.model.download": "Model download failed (check your network connection)",
     // Certificate verification failure. Usually a traffic-inspecting middlebox, not the connection.
     "error.model.download_tls":
@@ -680,7 +737,9 @@ const en: Dict = {
     "error.job.no_audio": "The audio file for this recording was not found",
     "error.job.no_transcript": "Transcribe this recording first",
     "error.job.no_pertrack": "This recording has no per-track audio",
-    "error.job.already_diarized": "Meetings are already speaker-separated at record time",
+    "error.recording.discard_failed": "Recording stopped, but the audio file could not be deleted (it is removed at the next launch)",
+    "error.job.canceled": "Processing stopped",
+    "error.job.no_speakers_found": "No speakers were detected, so the current speaker assignments were kept",
     "error.job.unknown_kind": "Unknown job kind",
     "error.job.failed": "Processing failed",
   } as Record<string, string>,

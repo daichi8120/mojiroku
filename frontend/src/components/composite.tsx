@@ -1,17 +1,103 @@
 // 複数ビューで再利用する複合コンポーネント。
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import {
   formatTimestamp,
   speakerChipStyle,
   speakerName,
+  type RecordingState,
   type Segment,
+  type SourceType,
   type Speaker,
 } from "@/lib/types";
 import { MOCK_PREVIEW } from "@/lib/mockData";
-import { CheckIcon, CpuIcon } from "./icons";
+import { CheckIcon, CpuIcon, FileAudioIcon, MicIcon, VideoIcon } from "./icons";
 import { Spinner } from "./ui";
+
+// ── 入力音量メーター（#113） ─────────────────────────────────────────────
+/**
+ * 実際の入力音量（0〜1）をセグメントで描く。緑→黄→赤（大きすぎ）。
+ * value が null（そのトラックを録っていない）なら全部消灯。
+ */
+export function LevelMeter({
+  value,
+  segments = 24,
+  height = 10,
+  label,
+  className,
+}: {
+  value: number | null;
+  segments?: number;
+  height?: number;
+  label: string;
+  className?: string;
+}) {
+  const lit = Math.round((value ?? 0) * segments);
+  return (
+    <div
+      role="meter"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round((value ?? 0) * 100)}
+      className={cx("flex items-center gap-[2px]", className)}
+      style={{ height }}
+    >
+      {Array.from({ length: segments }, (_, i) => {
+        const on = i < lit;
+        const zone = i / segments;
+        return (
+          <span
+            key={i}
+            className={cx(
+              "h-full flex-1 rounded-xs",
+              !on ? "bg-border-2" : zone > 0.9 ? "bg-red-light" : zone > 0.75 ? "bg-amber" : "bg-green",
+            )}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// ── 録音の種類と状態（履歴・サイドバー・#109） ─────────────────────────────
+export function SourceIcon({ type, size = 14 }: { type: SourceType; size?: number }) {
+  const { t } = useI18n();
+  const label = t.format.sourceKind[type];
+  const Icon = type === "live" ? VideoIcon : type === "mic" ? MicIcon : FileAudioIcon;
+  return (
+    <span role="img" aria-label={label} title={label} className="inline-flex shrink-0 text-muted">
+      <Icon size={size} />
+    </span>
+  );
+}
+
+const STATE_TONE: Record<RecordingState, string> = {
+  processing: "bg-brand/14 text-brand-lighter",
+  failed: "bg-red/13 text-red-light",
+  untranscribed: "bg-hover text-sub",
+  noSpeech: "bg-hover text-sub",
+  summarized: "bg-green/13 text-green",
+  transcribed: "",
+};
+
+/** 状態バッジ。「文字起こし済み」は既定の状態なので何も出さない。 */
+export function RecordingStateBadge({ state }: { state: RecordingState }) {
+  const { t } = useI18n();
+  if (state === "transcribed") return null;
+  return (
+    <span
+      className={cx(
+        "inline-flex shrink-0 items-center gap-1 rounded-tag px-1.5 py-0.5 text-[11px] font-medium",
+        STATE_TONE[state],
+      )}
+    >
+      {state === "processing" && <Spinner size={10} />}
+      {t.history.state[state]}
+    </span>
+  );
+}
 
 // ── 話者チップ / ドット ───────────────────────────────────────────────────
 export function SpeakerChip({
@@ -46,6 +132,29 @@ export function SpeakerChip({
   );
 }
 
+/** 本文中の query（大文字小文字は区別しない）に印を付ける（#111）。 */
+export function markMatches(text: string, query: string): ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  const lower = text.toLowerCase();
+  const needle = q.toLowerCase();
+  const out: ReactNode[] = [];
+  let from = 0;
+  let at = lower.indexOf(needle, from);
+  while (at >= 0) {
+    if (at > from) out.push(text.slice(from, at));
+    out.push(
+      <mark key={at} className="rounded-sm bg-amber/30 px-px text-ink">
+        {text.slice(at, at + needle.length)}
+      </mark>,
+    );
+    from = at + needle.length;
+    at = lower.indexOf(needle, from);
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
+
 // ── 話者つき文字起こしリスト ───────────────────────────────────────────────
 export function TranscriptList({
   segments,
@@ -53,6 +162,10 @@ export function TranscriptList({
   showTimestamps = true,
   translate,
   onSpeakerClick,
+  activeIdx,
+  onSeek,
+  query = "",
+  currentMatchIdx = null,
   className,
 }: {
   segments: Segment[];
@@ -68,51 +181,116 @@ export function TranscriptList({
    * 他の利用箇所には影響しない。
    */
   onSpeakerClick?: (seg: Segment) => void;
+  /** 再生中の発言（Segment.idx）。強調表示する（#110）。 */
+  activeIdx?: number | null;
+  /** 時刻を押したときにその位置から再生する（#110）。渡さなければ時刻はただの文字。 */
+  onSeek?: (seg: Segment) => void;
+  /** 文字起こし内検索の語（#111）。一致箇所に印を付ける。 */
+  query?: string;
+  /** 検索で今選んでいる発言（Segment.idx）。 */
+  currentMatchIdx?: number | null;
   className?: string;
 }) {
-  const { t, lang } = useI18n();
   return (
     <ol className={cx("divide-y divide-line", className)}>
-      {segments.map((seg) => {
-        const ja = translate?.(seg) ?? null;
-        return (
-          <li key={seg.idx} className="flex gap-3 px-1 py-2.5 text-[13.5px]">
-            {showTimestamps && (
-              <span className="shrink-0 pt-0.5 font-mono text-[11px] text-dim tnum">
-                {formatTimestamp(seg.start_ms)}
-              </span>
-            )}
-            {(seg.speaker_id || onSpeakerClick) && (
-              <span className="shrink-0 self-start">
-                <SpeakerChip
-                  id={seg.speaker_id}
-                  name={
-                    seg.speaker_id
-                      ? speakerName(seg.speaker_id, speakers, lang)
-                      : t.composite.speakerUnknown
-                  }
-                  onClick={onSpeakerClick ? () => onSpeakerClick(seg) : undefined}
-                  title={onSpeakerClick ? t.composite.clickToFixSpeaker : undefined}
-                />
-              </span>
-            )}
-            <div className="min-w-0">
-              <p className="text-speech break-words">{seg.text}</p>
-              {ja && (
-                <p className="mt-1 flex gap-1.5 text-[13px] text-sub">
-                  <span className="mt-px shrink-0 rounded bg-[rgba(34,211,238,0.13)] px-1 text-[10px] font-medium text-cyan">
-                    {t.composite.translated}
-                  </span>
-                  <span>{ja}</span>
-                </p>
-              )}
-            </div>
-          </li>
-        );
-      })}
+      {segments.map((seg) => (
+        <TranscriptRow
+          key={seg.idx}
+          seg={seg}
+          speakers={speakers}
+          showTimestamps={showTimestamps}
+          translated={translate?.(seg) ?? null}
+          onSpeakerClick={onSpeakerClick}
+          onSeek={onSeek}
+          active={activeIdx === seg.idx}
+          query={query}
+          currentMatch={currentMatchIdx === seg.idx}
+        />
+      ))}
     </ol>
   );
 }
+
+// 行ごとに memo する。再生中は位置が 1 秒に数回変わるが、描き直すのは強調が移った 2 行だけで済む。
+const TranscriptRow = memo(function TranscriptRow({
+  seg,
+  speakers,
+  showTimestamps,
+  translated: ja,
+  onSpeakerClick,
+  onSeek,
+  active,
+  query,
+  currentMatch,
+}: {
+  seg: Segment;
+  speakers?: Speaker[];
+  showTimestamps: boolean;
+  translated: string | null;
+  onSpeakerClick?: (seg: Segment) => void;
+  onSeek?: (seg: Segment) => void;
+  active: boolean;
+  query: string;
+  currentMatch: boolean;
+}) {
+  const { t, lang } = useI18n();
+  return (
+    <li
+      data-seg-idx={seg.idx}
+      aria-current={active ? "true" : undefined}
+      className={cx(
+        "flex gap-3 rounded-ctl px-1 py-2.5 text-[15px] leading-relaxed transition-colors",
+        active && "bg-brand/10",
+        currentMatch && "outline outline-2 outline-amber/60",
+      )}
+    >
+      {showTimestamps &&
+        (onSeek ? (
+          <button
+            data-seek
+            onClick={() => onSeek(seg)}
+            title={t.composite.playFromHere}
+            aria-label={`${t.composite.playFromHere} ${formatTimestamp(seg.start_ms)}`}
+            className={cx(
+              "h-fit shrink-0 rounded-tag px-1 pt-1 font-mono text-[11px] tnum transition-colors hover:bg-hover hover:text-brand-light",
+              active ? "text-brand-light" : "text-dim",
+            )}
+          >
+            {formatTimestamp(seg.start_ms)}
+          </button>
+        ) : (
+          <span className="shrink-0 pt-1 font-mono text-[11px] text-dim tnum">
+            {formatTimestamp(seg.start_ms)}
+          </span>
+        ))}
+      {(seg.speaker_id || onSpeakerClick) && (
+        <span className="shrink-0 self-start">
+          <SpeakerChip
+            id={seg.speaker_id}
+            name={
+              seg.speaker_id
+                ? speakerName(seg.speaker_id, speakers, lang)
+                : t.composite.speakerUnknown
+            }
+            onClick={onSpeakerClick ? () => onSpeakerClick(seg) : undefined}
+            title={onSpeakerClick ? t.composite.clickToFixSpeaker : undefined}
+          />
+        </span>
+      )}
+      <div className="min-w-0">
+        <p className="text-speech break-words">{markMatches(seg.text, query)}</p>
+        {ja && (
+          <p className="mt-1 flex gap-1.5 text-[13px] text-sub">
+            <span className="mt-px shrink-0 rounded bg-cyan/13 px-1 text-[11px] font-medium text-cyan">
+              {t.composite.translated}
+            </span>
+            <span>{ja}</span>
+          </p>
+        )}
+      </div>
+    </li>
+  );
+});
 
 // ── ライブ波形（mjbar） ────────────────────────────────────────────────────
 export function Waveform({
@@ -140,7 +318,7 @@ export function Waveform({
             style={{
               height: height * (active ? 1 : base * 0.6),
               transformOrigin: "center",
-              background: i % 2 === 0 ? "#818cf8" : "#22d3ee",
+              background: i % 2 === 0 ? "var(--color-brand-light)" : "var(--color-cyan)",
               animation: active
                 ? `mjbar ${0.8 + (i % 5) * 0.16}s ease-in-out ${(i % 7) * 0.05}s infinite`
                 : "none",
@@ -168,9 +346,9 @@ export function Pipeline({ steps }: { steps: PipeStep[] }) {
         <li
           key={s.key}
           className={cx(
-            "flex items-center gap-3 rounded-[10px] border px-3 py-2.5 text-[13px]",
+            "flex items-center gap-3 rounded-btn border px-3 py-2.5 text-[13px]",
             s.state === "active"
-              ? "border-brand/50 bg-selected text-ink shadow-[0_0_0_3px_rgba(99,102,241,0.12)]"
+              ? "border-brand/50 bg-selected text-ink ring-[3px] ring-brand/12"
               : s.state === "done"
                 ? "border-border bg-surface-2 text-sub"
                 : "border-border bg-surface-2 text-dim",
@@ -178,7 +356,7 @@ export function Pipeline({ steps }: { steps: PipeStep[] }) {
         >
           <span className="flex h-5 w-5 shrink-0 items-center justify-center">
             {s.state === "done" ? (
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(52,211,153,0.16)] text-green">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-green/16 text-green">
                 <CheckIcon size={13} />
               </span>
             ) : s.state === "active" ? (
@@ -220,7 +398,7 @@ export function LocalStatus({ className }: { className?: string }) {
   return (
     <div
       className={cx(
-        "flex items-center gap-2 rounded-[10px] border border-border bg-surface-2 px-3 py-2 text-[11px] text-muted",
+        "flex items-center gap-2 rounded-btn border border-border bg-surface-2 px-3 py-2 text-[11px] text-muted",
         className,
       )}
     >
@@ -233,7 +411,7 @@ export function LocalStatus({ className }: { className?: string }) {
 // ── 「送信なし」緑の安心バー ───────────────────────────────────────────────
 export function PrivacyBar({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-center gap-2 rounded-[10px] border border-[rgba(52,211,153,0.25)] bg-[rgba(16,26,22,0.6)] px-3.5 py-2 text-[12px] text-green-light">
+    <div className="flex items-center gap-2 rounded-btn border border-green/25 bg-green/10 px-3.5 py-2 text-[12px] text-green-light">
       <span className="h-1.5 w-1.5 rounded-full bg-green" />
       {children}
     </div>
@@ -267,7 +445,7 @@ export function PreviewTag({ className }: { className?: string }) {
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 rounded-md border border-amber/30 bg-[rgba(245,158,11,0.12)] px-2 py-0.5 text-[10.5px] font-medium text-amber",
+        "inline-flex items-center gap-1 rounded-md border border-amber/30 bg-amber/12 px-2 py-0.5 text-[11px] font-medium text-amber",
         className,
       )}
       title={t.composite.previewTagTitle}

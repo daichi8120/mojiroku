@@ -75,6 +75,9 @@ export interface StartJobResult {
   job_id: string | null;
 }
 
+/** 文字起こし後のタイトル自動生成ジョブ（Issue #4）。裏方なので通知や処理中の表示に出さない。 */
+export const TITLE_JOB_KIND = "title";
+
 /** job://update イベントのペイロード。Rust 側 JobUpdate に対応（相関付けに job_id/recording_id）。 */
 export interface JobUpdate {
   job_id: string;
@@ -124,6 +127,35 @@ export interface RecordingDetail {
   /** 進行中（pending|running）のジョブ（あれば）。詳細ビューを「処理中」で開くための同梱（ADR-0024）。
    *  未処理/完了のみなら null。旧 DB 互換のため optional。 */
   active_job?: Job | null;
+}
+
+/** 履歴一覧の 1 行（#109）。Rust 側 store::RecordingRow に対応。 */
+export interface RecordingRow {
+  recording: Recording;
+  segment_count: number;
+  speaker_count: number;
+  summary_count: number;
+  latest_job: { kind: string; status: string; error: string | null } | null;
+}
+
+/** 一覧に出す録音の状態（#109）。処理中 > 失敗 > 未文字起こし > 要約済み > 文字起こし済み の順で 1 つ。 */
+export type RecordingState =
+  | "processing"
+  | "failed"
+  | "untranscribed"
+  | "noSpeech"
+  | "summarized"
+  | "transcribed";
+
+export function recordingState(row: RecordingRow): RecordingState {
+  const job = row.latest_job;
+  if (job && (job.status === "pending" || job.status === "running")) return "processing";
+  if (job && job.status === "failed") return "failed";
+  if (row.segment_count === 0) {
+    // 文字起こしは終わったが発話が無かった（VAD が無音と判定すると空の文字起こしを保存する・ADR-0031）。
+    return job && job.kind === "transcribe" && job.status === "done" ? "noSpeech" : "untranscribed";
+  }
+  return row.summary_count > 0 ? "summarized" : "transcribed";
 }
 
 /** 全文検索の 1 ヒット。Rust 側 store::SearchHit に対応。 */
@@ -239,23 +271,21 @@ export interface StartingMeeting {
   end: string | null;
 }
 
-// ── 話者の配色（ダーク） ───────────────────────────────────────────────
-// Design の話者色は「文字=濃色 / 地=その 14〜15% 透過 / ドット=中間色」。
-// speaker_id の採番 S1.. を順に割り当てる。田中=indigo, 佐藤=teal, 鈴木=amber, 山本=pink…
+// ── 話者の配色 ────────────────────────────────────────────────────────
+// 「文字=濃色 / 地=その 14〜15% 透過 / ドット=中間色」。実際の色は index.css の --spk-N-*
+// （ライト/ダークで切り替わる）。speaker_id の採番 S1.. を順に割り当てる。
 export interface SpeakerInk {
   text: string;
   bg: string;
   dot: string;
 }
 
-export const SPEAKER_PALETTE: SpeakerInk[] = [
-  { text: "#a5b4fc", bg: "rgba(99,102,241,0.15)", dot: "#818cf8" }, // indigo
-  { text: "#5eead4", bg: "rgba(34,211,238,0.14)", dot: "#22d3ee" }, // teal / cyan
-  { text: "#fcd34d", bg: "rgba(245,158,11,0.15)", dot: "#fbbf24" }, // amber
-  { text: "#f9a8d4", bg: "rgba(244,114,182,0.15)", dot: "#f472b6" }, // pink
-  { text: "#c4b5fd", bg: "rgba(167,139,250,0.15)", dot: "#a78bfa" }, // purple
-  { text: "#6ee7b7", bg: "rgba(52,211,153,0.14)", dot: "#34d399" }, // green
-];
+const SPEAKER_COLORS = 8;
+export const SPEAKER_PALETTE: SpeakerInk[] = Array.from({ length: SPEAKER_COLORS }, (_, i) => ({
+  text: `var(--spk-${i + 1}-text)`,
+  bg: `var(--spk-${i + 1}-bg)`,
+  dot: `var(--spk-${i + 1}-dot)`,
+}));
 
 /** speaker_id（"S1" 等）→ パレットの添字。解析できなければ id ハッシュで散らす。 */
 export function speakerIndex(id: string): number {
@@ -295,7 +325,7 @@ export function speakingSpeakerNames(detail: RecordingDetail): string[] {
 /** 話者チップの inline style（文字色 + 地色）。 */
 export function speakerChipStyle(id: string | null): { color: string; background: string } {
   // 話者不明は色を割り当てない（特定の人に見えてしまうため）。控えめな中間色。
-  if (id === null) return { color: "var(--mj-sub)", background: "rgba(148,163,184,0.14)" };
+  if (id === null) return { color: "var(--color-sub)", background: "var(--spk-none-bg)" };
   const ink = speakerInk(id);
   return { color: ink.text, background: ink.bg };
 }
@@ -320,6 +350,26 @@ export function speakerName(id: string, speakers: Speaker[] | undefined, lang: L
   const sp = speakers?.find((s) => s.id === id);
   if (sp) return sp.display_name ?? sp.label;
   return speakerLabelFromId(id, lang);
+}
+
+/**
+ * 再生位置 ms にあたる発言の idx（#110）。開始が ms 以下で最も遅い発言。最初の発言より前なら null。
+ * segments は start_ms 昇順（store が並べて返す）を前提に二分探索する。
+ */
+export function segmentAt(segments: Segment[], ms: number): number | null {
+  let lo = 0;
+  let hi = segments.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (segments[mid].start_ms <= ms) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found < 0 ? null : segments[found].idx;
 }
 
 // ── 時刻・日時フォーマット ─────────────────────────────────────────────
@@ -374,11 +424,37 @@ export function formatDurationHuman(ms: number, lang: Lang): string {
 /** Lang → toLocale* に渡す BCP 47 ロケール（OS 設定でなくアプリ言語に揃える）。 */
 const bcp47 = (lang: Lang) => (lang === "ja" ? "ja-JP" : "en-US");
 
-/** RFC3339(UTC) → アプリ言語のローカル日時表記。 */
+/** RFC3339(UTC) → アプリ言語のローカル日時表記（秒は出さない・#105）。 */
 export function formatDateTime(iso: string, lang: Lang): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(bcp47(lang));
+  return d.toLocaleString(bcp47(lang), {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * 録音の表示名。タイトルが無い（または既定名の「録音」「会議」）なら「マイク録音（9月21日 10:00）」の
+ * ように種類と日時で作る（#105）。
+ * 一覧・詳細・削除確認で同じ名前を出すため、表示はすべてここを通す。
+ */
+// バックエンドがタイトル未指定のマイク録音・会議に付ける既定名（commands/recording.rs）。
+// 名前として意味を持たないので、未設定と同じく種類と日時で表示する（#105 レビュー）。
+const DEFAULT_TITLES = new Set(["録音", "Recording", "会議", "Meeting"]);
+
+export function recordingTitle(rec: Recording, lang: Lang): string {
+  const title = rec.title?.trim();
+  if (title && !DEFAULT_TITLES.has(title)) return title;
+  const f = dicts[lang].format;
+  const d = new Date(rec.created_at);
+  const when = Number.isNaN(d.getTime())
+    ? rec.created_at
+    : d.toLocaleString(bcp47(lang), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return f.untitledTitle(f.sourceKind[rec.source_type] ?? f.sourceKind.file, when);
 }
 
 /** RFC3339(UTC) → 「6月27日」/ "June 27" のような短い日付。 */

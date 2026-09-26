@@ -21,6 +21,7 @@ mod speaker;
 mod search;
 mod recording;
 mod translation;
+pub use job::TITLE_JOB_KIND;
 pub use translation::{validate_live_translations, SavedLiveTranslation};
 use embedding::{blob_to_f32, dot, f32_to_blob, l2_mean};
 
@@ -89,7 +90,7 @@ pub struct JobParams {
 pub struct Job {
     pub id: String,
     pub recording_id: String,
-    /// "transcribe" | "diarize"。
+    /// "transcribe" | "diarize" | "title"（[`TITLE_JOB_KIND`]）。
     pub kind: String,
     /// "pending" | "running" | "done" | "failed" | "canceled"。
     pub status: String,
@@ -102,6 +103,30 @@ pub struct Job {
     pub error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// 履歴一覧の 1 行（Issue #109）。一覧で状態と種類を出すための集計を Recording に添える。
+///
+/// `Recording`（schemas）自体は広げない。MCP サーバーや保存処理も同じ型を使っているため。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecordingRow {
+    pub recording: Recording,
+    /// 文字起こしの発言数。0 なら未文字起こし。
+    pub segment_count: u32,
+    /// 話者の数（会議の「自分」を含む）。0 なら話者分離していない。
+    pub speaker_count: u32,
+    /// 保存済みの要約（議事録・要約・アクションアイテム）の数。
+    pub summary_count: u32,
+    /// 直近に投入したジョブ。一度も投入していなければ None。
+    pub latest_job: Option<JobBrief>,
+}
+
+/// 一覧に出す分だけのジョブ情報。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobBrief {
+    pub kind: String,
+    pub status: String,
+    pub error: Option<String>,
 }
 
 /// 全文検索の 1 ヒット。Recording 本体 + マッチ箇所スニペット。
@@ -1007,6 +1032,34 @@ mod tests {
         assert_eq!(embs, ["N1".to_string(), "N2".to_string()].into_iter().collect());
     }
 
+    /// Re-diarizing a meeting keeps the user's own library link; remote links are recomputed.
+    #[test]
+    fn replace_speaker_assignments_keeps_the_self_library_link() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        let me = Speaker { id: crate::merge::SELF_SPEAKER_ID.into(), label: "あなた".into(), display_name: None };
+        let guest = Speaker { id: "S1".into(), label: "相手1".into(), display_name: None };
+        let mut t = transcript_with_speakers();
+        t.segments[0].speaker_id = Some(me.id.clone());
+        s.save_recording(&rec("r1"), &t, &[me.clone(), guest.clone()]).unwrap();
+        s.add_library_speaker("p1", "本人").unwrap();
+        s.add_library_speaker("p2", "相手").unwrap();
+        s.link_speaker("r1", &me.id, "p1", 1.0).unwrap();
+        s.link_speaker("r1", "S1", "p2", 1.0).unwrap();
+
+        s.replace_speaker_assignments("r1", &t, &[me, guest], &[], "titanet", &[])
+            .unwrap();
+
+        let linked: Vec<String> = s
+            .conn()
+            .prepare("SELECT speaker_id FROM speaker_matches WHERE recording_id = 'r1'")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(linked, vec![crate::merge::SELF_SPEAKER_ID.to_string()]);
+    }
+
     #[test]
     fn migrate_v4_to_v5_adds_jobs_and_stale_idempotent() {
         // v4 スキーマの「旧 DB」を用意し user_version=4 に固定 → migrate で v5 化。
@@ -1354,4 +1407,48 @@ mod tests {
             .unwrap();
         assert_eq!(n, 1);
     }
+
+    #[test]
+    fn recording_rows_carry_state_for_the_history_list() {
+        let s = SqliteStore::open_in_memory().unwrap();
+        // 文字起こし済み + 要約 1 件
+        let mut done = rec("done");
+        done.created_at = "2026-06-24T12:00:00Z".into();
+        s.save_recording(&done, &transcript(), &[]).unwrap();
+        s.save_summary("done", &summary("minutes", vec![])).unwrap();
+        // 音声だけ保存（ジョブなし）
+        let mut bare = rec("bare");
+        bare.created_at = "2026-06-24T11:00:00Z".into();
+        s.insert_recording_only(&bare).unwrap();
+        // 失敗したジョブのあとに再投入して処理中
+        let mut retry = rec("retry");
+        retry.created_at = "2026-06-24T10:00:00Z".into();
+        s.insert_recording_only(&retry).unwrap();
+        let p = JobParams { diarize: false, stt_lang: None, transcription_model: String::new(), lang: "ja".into() };
+        s.enqueue_job("j1", "retry", "transcribe", &p).unwrap();
+        s.set_job_failed("j1", "error.job.no_audio").unwrap();
+        s.enqueue_job("j2", "retry", "transcribe", &p).unwrap();
+        // 失敗したまま
+        let mut failed = rec("failed");
+        failed.created_at = "2026-06-24T09:00:00Z".into();
+        s.insert_recording_only(&failed).unwrap();
+        s.enqueue_job("j3", "failed", "diarize", &p).unwrap();
+        s.set_job_failed("j3", "error.job.no_speakers_found").unwrap();
+        // タイトル生成（Issue #4）は録音の状態に数えない。
+        s.enqueue_job("j4", "done", TITLE_JOB_KIND, &p).unwrap();
+        s.enqueue_job("j5", "failed", TITLE_JOB_KIND, &p).unwrap();
+
+        let rows = s.list_recording_rows().unwrap();
+        let ids: Vec<_> = rows.iter().map(|r| r.recording.id.as_str()).collect();
+        assert_eq!(ids, ["done", "bare", "retry", "failed"], "newest first");
+        assert_eq!((rows[0].segment_count, rows[0].summary_count), (3, 1));
+        assert_eq!(rows[0].latest_job, None);
+        assert_eq!((rows[1].segment_count, rows[1].latest_job.clone()), (0, None));
+        let latest = rows[2].latest_job.as_ref().unwrap();
+        assert_eq!(latest.status, "pending", "the retry, not the earlier failure");
+        let failed = rows[3].latest_job.as_ref().unwrap();
+        assert_eq!((failed.kind.as_str(), failed.status.as_str()), ("diarize", "failed"));
+        assert_eq!(failed.error.as_deref(), Some("error.job.no_speakers_found"));
+    }
+
 }

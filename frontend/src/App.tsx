@@ -3,6 +3,7 @@ import { AppCtx, type MeetingState, type MeetingStartResult, type Route, type To
 import { I18nCtx, detectLocale, dicts, resolveLocale, translateError, useI18n, type Locale } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { clearJobStart, markJobStart, markStageStart } from "@/lib/jobClock";
+import { isJobShown } from "@/lib/jobFocus";
 import {
   cancelMeetingRecording,
   checkSystemAudioPermission,
@@ -10,7 +11,7 @@ import {
   getPendingMeeting,
   getSettings,
   listJobs,
-  listRecordings,
+  listRecordingRows,
   resolveMeetingTitle,
   setSettings,
   startMeetingRecording,
@@ -21,7 +22,13 @@ import {
   useMeetingLiveSnapshot,
   type LiveSnapshot,
 } from "@/lib/tauri";
-import { elapsedSeconds, formatTimestamp, type Recording, type StartingMeeting } from "@/lib/types";
+import {
+  elapsedSeconds,
+  formatTimestamp,
+  TITLE_JOB_KIND,
+  type RecordingRow,
+  type StartingMeeting,
+} from "@/lib/types";
 import { Sidebar } from "@/components/Sidebar";
 import { CheckIcon, StopIcon, VideoIcon, XIcon } from "@/components/icons";
 
@@ -46,7 +53,7 @@ interface ToastItem {
 
 function App() {
   const [route, setRoute] = useState<Route>({ view: "home" });
-  const [recents, setRecents] = useState<Recording[]>([]);
+  const [recents, setRecents] = useState<RecordingRow[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastSeq = useRef(0);
   // UI 言語。真実は settings.json（起動時に load）。未確定の間は OS 言語で描画し、
@@ -91,7 +98,7 @@ function App() {
   }, []);
 
   const refreshRecents = useCallback(() => {
-    listRecordings()
+    listRecordingRows()
       .then(setRecents)
       .catch(() => {
         /* 履歴未初期化などは無視（サイドバーは空のまま） */
@@ -170,6 +177,11 @@ function App() {
   // アプリ全体の job://update 購読（ADR-0024）。完了/失敗トースト＋最近更新＋処理中ドットの増減を
   // 一手に扱う。DetailView は自分のビュー更新に専念し、トーストはここへ集約（二重通知を避ける）。
   useJobUpdate((u) => {
+    // タイトル自動生成は裏方。付いたらサイドバーの名前だけ更新する。
+    if (u.kind === TITLE_JOB_KIND) {
+      if (u.status === "done") refreshRecents();
+      return;
+    }
     const active = u.status === "pending" || u.status === "running";
     setActiveJobIds((prev) => {
       const next = new Set(prev);
@@ -189,11 +201,17 @@ function App() {
     } else if (u.status === "done" || u.status === "failed" || u.status === "canceled") {
       clearJobStart(u.job_id);
     }
-    if (u.status === "done") {
-      refreshRecents();
+    // 状態（失敗など）をサイドバーに反映する。
+    if (u.status === "done" || u.status === "failed" || u.status === "canceled") refreshRecents();
+    if (u.status === "canceled") {
+      toast(t.job.canceledToast, "info");
+    } else if (u.status === "done") {
       toast(u.kind === "diarize" ? t.job.diarizeCompleted : t.job.transcribeCompleted, "success");
     } else if (u.status === "failed") {
-      toast(u.error ? translateError(u.error, t) : t.job.failedToast, "error");
+      // 詳細画面がこのジョブを表示しているなら、そちらの赤枠（再試行つき）だけにする（#107）。
+      if (!isJobShown(u.job_id)) {
+        toast(u.error ? translateError(u.error, t) : t.job.failedToast, "error");
+      }
     }
   });
 
@@ -374,7 +392,7 @@ function App() {
           <div
             key={t.id}
             className={cx(
-              "animate-mjfade flex items-center gap-2 rounded-[10px] border px-3.5 py-2 text-[12.5px] shadow-[0_20px_50px_rgba(0,0,0,0.5)]",
+              "animate-mjfade flex items-center gap-2 rounded-btn border px-3.5 py-2 text-[13px] shadow-pop",
               t.kind === "error"
                 ? "border-red/40 bg-surface text-red-light"
                 : t.kind === "success"
@@ -418,9 +436,9 @@ function MeetingBar({
 
   return (
     <div className="pointer-events-none fixed left-1/2 top-4 z-[55] flex -translate-x-1/2">
-      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border-3 bg-surface/95 py-2 pl-3.5 pr-2 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur">
-        <span className="flex items-center gap-2 text-[12.5px] text-body">
-          <span className="h-2 w-2 animate-mjpulse rounded-full bg-red shadow-[0_0_0_3px_rgba(239,68,68,0.18)]" />
+      <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-border-3 bg-surface/95 py-2 pl-3.5 pr-2 shadow-pop backdrop-blur">
+        <span className="flex items-center gap-2 text-[13px] text-body">
+          <span className="h-2 w-2 animate-mjpulse rounded-full bg-red ring-[3px] ring-red/20" />
           {t.app.meetingBar.recording}
           <span className="font-mono text-ink tnum">{formatTimestamp(elapsed * 1000)}</span>
         </span>
@@ -434,8 +452,7 @@ function MeetingBar({
         <button
           onClick={onStop}
           disabled={stopping}
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium text-white transition-[filter] hover:brightness-110 disabled:opacity-60"
-          style={{ background: "#EF4444" }}
+          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium bg-danger text-on-brand transition-[filter] hover:brightness-110 disabled:opacity-60"
         >
           <StopIcon size={13} />
           {stopping ? t.app.meetingBar.saving : t.app.meetingBar.stopAndSave}
@@ -471,14 +488,14 @@ function MeetingStartPrompt({
   const { t } = useI18n();
   return (
     <div className="fixed bottom-5 right-5 z-[58] w-[320px] max-w-[calc(100vw-2.5rem)]">
-      <div className="rounded-[14px] border border-border-3 bg-surface/95 p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur">
+      <div className="rounded-win border border-border-3 bg-surface/95 p-4 shadow-pop backdrop-blur">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand-light">
             <VideoIcon size={16} />
           </span>
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-ink">{t.app.meetingStartPrompt.heading}</p>
-            <p className="mt-0.5 truncate text-[12.5px] text-body">
+            <p className="mt-0.5 truncate text-[13px] text-body">
               {t.app.meetingStartPrompt.body(title)}
             </p>
           </div>
@@ -492,8 +509,7 @@ function MeetingStartPrompt({
           </button>
           <button
             onClick={onRecord}
-            className="inline-flex items-center gap-1.5 rounded-btn px-3 py-1.5 text-[12px] font-medium text-white transition-[filter] hover:brightness-110"
-            style={{ background: "#EF4444" }}
+            className="inline-flex items-center gap-1.5 rounded-btn px-3 py-1.5 text-[12px] font-medium bg-danger text-on-brand transition-[filter] hover:brightness-110"
           >
             <VideoIcon size={13} />
             {t.app.meetingStartPrompt.record}
@@ -519,7 +535,9 @@ function Router({ route }: { route: Route }) {
     case "history":
       return <HistoryView />;
     case "detail":
-      return route.id ? <DetailView id={route.id} /> : <HomeView />;
+      // key で録音ごとに作り直す。再生位置・追従・検索・中断中などの画面内の状態を、
+      // 別の録音へ持ち越さないため（#110 レビュー）。
+      return route.id ? <DetailView key={route.id} id={route.id} /> : <HomeView />;
     case "settings":
       return <SettingsView />;
     case "meeting":

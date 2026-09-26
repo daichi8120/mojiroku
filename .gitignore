@@ -40,8 +40,9 @@ ggml-*.bin
 .vscode/*
 !.vscode/extensions.json
 
-# --- Claude local overrides ---
+# --- エージェントのローカル指示（追跡しない） ---
 .claude/settings.local.json
+.claude/AGENTS.md
 CLAUDE.local.md
 # hub 再編（2026-08-22）: 個人の記録層。public repo なので常に追跡しない（グローバル ignore とも二重に）
 .journal/

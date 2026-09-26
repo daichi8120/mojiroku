@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   SPEAKER_PALETTE,
   elapsedSeconds,
+  formatDateTime,
   formatDuration,
+  recordingState,
+  recordingTitle,
+  segmentAt,
   formatDurationHuman,
   formatEventTime,
   formatTimestamp,
@@ -112,5 +116,64 @@ describe("speaker helpers", () => {
     expect(speakerName("S3", speakers, "ja")).toBe("話者3"); // 表に無い → 既定ラベル
     expect(speakerName("S1", undefined, "ja")).toBe("話者1"); // speakers 無し
     expect(speakerName("S3", speakers, "en")).toBe("Speaker 3"); // en の既定ラベル
+  });
+});
+
+describe("recordingTitle / formatDateTime (#105)", () => {
+  const base = { id: "r", sample_rate: 16000, duration_ms: 1000, created_at: "2026-09-21T01:00:00Z" };
+  it("keeps a real title", () => {
+    expect(recordingTitle({ ...base, source_type: "mic", title: " 定例 " }, "ja")).toBe("定例");
+  });
+  it("names untitled recordings by kind and time, the same way everywhere", () => {
+    const ja = recordingTitle({ ...base, source_type: "mic", title: null }, "ja");
+    expect(ja.startsWith("マイク録音（")).toBe(true);
+    expect(ja).not.toContain("無題");
+    const en = recordingTitle({ ...base, source_type: "live", title: "  " }, "en");
+    expect(en.startsWith("Meeting (")).toBe(true);
+  });
+  it("treats the backend's default titles as untitled", () => {
+    for (const title of ["録音", "Recording", "会議", "Meeting"]) {
+      expect(recordingTitle({ ...base, source_type: "mic", title }, "ja").startsWith("マイク録音（")).toBe(true);
+    }
+  });
+    it("shows dates without seconds", () => {
+    const s = formatDateTime("2026-09-23T02:03:45Z", "ja");
+    expect(s).not.toMatch(/:\d\d:\d\d/);
+  });
+});
+
+describe("segmentAt (#110)", () => {
+  const seg = (idx: number, start_ms: number) => ({ idx, start_ms, end_ms: start_ms + 900, text: "", speaker_id: null });
+  const segs = [seg(0, 0), seg(1, 1000), seg(2, 2500), seg(3, 4000)];
+  it("finds the segment under the playhead", () => {
+    expect(segmentAt(segs, 0)).toBe(0);
+    expect(segmentAt(segs, 999)).toBe(0);
+    expect(segmentAt(segs, 1000)).toBe(1);
+    expect(segmentAt(segs, 3000)).toBe(2);
+    expect(segmentAt(segs, 99999)).toBe(3);
+  });
+  it("is null before the first segment or with no segments", () => {
+    expect(segmentAt([seg(0, 500)], 100)).toBeNull();
+    expect(segmentAt([], 100)).toBeNull();
+  });
+});
+
+describe("recordingState (#109)", () => {
+  const recording = { id: "r", source_type: "mic" as const, title: null, duration_ms: 1, sample_rate: 16000, created_at: "" };
+  const row = (over: Partial<import("./types").RecordingRow>) => ({
+    recording, segment_count: 10, speaker_count: 0, summary_count: 0, latest_job: null, ...over,
+  });
+  const job = (status: string) => ({ kind: "transcribe", status, error: null });
+  it("puts processing and failure first", () => {
+    expect(recordingState(row({ latest_job: job("running") }))).toBe("processing");
+    expect(recordingState(row({ latest_job: job("pending"), segment_count: 0 }))).toBe("processing");
+    expect(recordingState(row({ latest_job: job("failed"), summary_count: 2 }))).toBe("failed");
+  });
+  it("then transcript and summary", () => {
+    expect(recordingState(row({ segment_count: 0 }))).toBe("untranscribed");
+    expect(recordingState(row({ segment_count: 0, latest_job: job("done") }))).toBe("noSpeech");
+    expect(recordingState(row({ segment_count: 0, latest_job: job("canceled") }))).toBe("untranscribed");
+    expect(recordingState(row({ latest_job: job("done"), summary_count: 1 }))).toBe("summarized");
+    expect(recordingState(row({ latest_job: job("canceled") }))).toBe("transcribed");
   });
 });

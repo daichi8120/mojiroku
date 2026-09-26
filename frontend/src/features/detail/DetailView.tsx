@@ -1,15 +1,18 @@
 // 録音の詳細（Studio 04 + 06 + 10 + 11）。最も大きいビュー。
 // 中央メイン（AI議事録 + 文字起こし/チャプター）+ 右ペイン 222px（話者 + MCP）。
 // 左サイドバーは App が描く。実機能: 取得 / 話者改名 / 話者訂正（発言単位）/ 要約生成 / 共有。
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { getJobStart, getStageStart, markJobStart } from "@/lib/jobClock";
+import { setShownJob } from "@/lib/jobFocus";
 import { useApp } from "@/lib/app";
 import { cx } from "@/lib/cx";
 import {
   cancelJob,
   deleteRecording,
   diarizeRecording,
+  generateTitle,
   getRecording,
+  getSettings,
   listJobs,
   recordingAudioSrc,
   renameRecording,
@@ -21,6 +24,8 @@ import { MOCK_PREVIEW } from "@/lib/mockData";
 import { translateError, useI18n } from "@/i18n";
 import {
   formatDateTime,
+  recordingTitle,
+  segmentAt,
   formatDuration,
   type Job,
   type RecordingDetail,
@@ -29,6 +34,7 @@ import {
   formatTimestamp,
   speakerChipStyle,
   speakerName,
+  TITLE_JOB_KIND,
 } from "@/lib/types";
 import { ConfirmDialog, MenuItem, Modal, ModalHeader, Spinner, Toggle } from "@/components/ui";
 import { EmptyState, PreviewTag, TranscriptList, Waveform } from "@/components/composite";
@@ -39,6 +45,7 @@ import {
   PencilIcon,
   PlayIcon,
   RefreshIcon,
+  SearchIcon,
   SparklesIcon,
   TrashIcon,
   XIcon,
@@ -48,14 +55,17 @@ import { SharePopover } from "./SharePopover";
 import { TemplateModal } from "./TemplateModal";
 import { AskDrawer } from "./AskDrawer";
 import { SavedTranslations } from "./SavedTranslations";
-import { AudioPlayer } from "./AudioPlayer";
+import { AudioPlayer, type AudioPlayerHandle } from "./AudioPlayer";
+import { Markdown } from "@/lib/markdown";
+import { getDiarizePref, setDiarizePref } from "@/lib/prefs";
+import { findSummary } from "@/lib/templates";
 
 // チャプターはモック（トピック自動分割は未実装・Studio 15）。
 const CHAPTERS = [
-  { time: "00:00", color: "#6366F1", grow: 2.1, title: "ベータ配布の状況", dur: "2分", body: "未署名ビルドの初回起動でつまずく人が多く、許可手順に画像を追加。" },
-  { time: "02:10", color: "#22D3EE", grow: 3.3, title: "オンボーディング刷新", dur: "3.5分", body: "「ローカル完結・基本無料」を初回画面の主役に据える方針で合意。" },
-  { time: "05:40", color: "#34D399", grow: 3.6, title: "モデルDLの統合", dur: "3.6分", body: "ダウンロードを初回フローへ統合。進捗は控えめに、状態は分かるように。" },
-  { time: "09:20", color: "#FCD34D", grow: 3.1, title: "ネクストと宿題の確認", dur: "3.1分", body: "佐藤=初回画面デザイン案、鈴木=DL進捗UI。次回までに共有。" },
+  { time: "00:00", color: "var(--spk-1-dot)", grow: 2.1, title: "ベータ配布の状況", dur: "2分", body: "未署名ビルドの初回起動でつまずく人が多く、許可手順に画像を追加。" },
+  { time: "02:10", color: "var(--spk-2-dot)", grow: 3.3, title: "オンボーディング刷新", dur: "3.5分", body: "「ローカル完結・基本無料」を初回画面の主役に据える方針で合意。" },
+  { time: "05:40", color: "var(--spk-6-dot)", grow: 3.6, title: "モデルDLの統合", dur: "3.6分", body: "ダウンロードを初回フローへ統合。進捗は控えめに、状態は分かるように。" },
+  { time: "09:20", color: "var(--spk-3-dot)", grow: 3.1, title: "ネクストと宿題の確認", dur: "3.1分", body: "佐藤=初回画面デザイン案、鈴木=DL進捗UI。次回までに共有。" },
 ];
 
 const MOCK_TRANSLATION = "（翻訳プレビュー）この発話の日本語訳がここに表示されます。";
@@ -91,6 +101,100 @@ export function DetailView({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  // 再生と文字起こしの連動（#110）。位置は AudioPlayer から受け取り、行の強調と自動追従に使う。
+  const playerRef = useRef<AudioPlayerHandle>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [playMs, setPlayMs] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  // 再生中は現在行を追いかけてスクロールする。利用者が自分でスクロールしたら追従をやめ、
+  // 「再生位置に戻る」で再開する。
+  const [following, setFollowing] = useState(true);
+  // 自動追従のスクロール中はこの時刻まで。それ以外のスクロール（ホイール・スクロールバー・キー）は
+  // 利用者の操作とみなして追従をやめる。
+  const autoScrollUntil = useRef(0);
+  // 文字起こし内検索（#111）。⌘F で開き、Enter / Shift+Enter で次 / 前へ。
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [matchPos, setMatchPos] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const q = query.trim().toLowerCase();
+  const matches =
+    searchOpen && q && detail
+      ? detail.transcript.segments.filter((s) => s.text.toLowerCase().includes(q)).map((s) => s.idx)
+      : [];
+  const currentMatchIdx = matches.length ? matches[Math.min(matchPos, matches.length - 1)] : null;
+  const moveMatch = (step: number) => {
+    if (!matches.length) return;
+    setFollowing(false);
+    setMatchPos((p) => (Math.min(p, matches.length - 1) + step + matches.length) % matches.length);
+  };
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setQuery("");
+    setMatchPos(0);
+  };
+  useEffect(() => {
+    if (currentMatchIdx == null) return;
+    scrollRef.current
+      ?.querySelector<HTMLElement>(`[data-seg-idx="${currentMatchIdx}"]`)
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [currentMatchIdx]);
+  const seekToSegment = useCallback((seg: Segment) => {
+    setFollowing(true);
+    playerRef.current?.seek(seg.start_ms, true);
+  }, []);
+
+  // 現在行が画面外に出たら中央へ寄せる（再生中かつ追従中だけ）。
+  const followIdx =
+    audioSrc && playing && following && detail
+      ? segmentAt(detail.transcript.segments, playMs)
+      : null;
+  useEffect(() => {
+    if (followIdx == null) return;
+    const box = scrollRef.current;
+    const row = box?.querySelector<HTMLElement>(`[data-seg-idx="${followIdx}"]`);
+    if (!box || !row) return;
+    const b = box.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    if (r.top < b.top + 40 || r.bottom > b.bottom - 40) {
+      autoScrollUntil.current = Date.now() + 800;
+      row.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [followIdx]);
+
+  // スペースキーで再生 / 一時停止。入力欄・ダイアログ・ふつうのボタンの中では奪わない
+  // （ボタンはスペースで押すのが標準の操作）。ただし時刻ボタン（data-seek）に選択が残っているときは
+  // 再生の切り替えにする。押したあと選択がそこに残るので、奪わないと同じ位置へ飛び直してしまう。
+  // ←/→ は 5 秒戻る / 15 秒進む（再生バーのボタンと同じ）。⌘F は文字起こし内検索。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (e.metaKey && !e.shiftKey && e.key.toLowerCase() === "f") {
+        if (el?.closest("[role=dialog]")) return;
+        e.preventDefault();
+        setSearchOpen(true);
+        setTab("transcript");
+        requestAnimationFrame(() => searchInputRef.current?.select());
+        return;
+      }
+      if (!audioSrc || e.metaKey || e.ctrlKey || e.altKey) return;
+      const onSeekButton = !!el?.closest("[data-seek]");
+      const typing = !!el?.closest("input, textarea, select, [contenteditable=true], [role=dialog]");
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        if (typing || el?.closest("[role=slider]")) return;
+        e.preventDefault();
+        playerRef.current?.skip(e.key === "ArrowLeft" ? -5000 : 15000);
+        return;
+      }
+      if (e.code !== "Space") return;
+      if (!onSeekButton && (typing || el?.closest("button, a"))) return;
+      e.preventDefault();
+      playerRef.current?.toggle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [audioSrc]);
+
 
   const [tab, setTab] = useState<"transcript" | "chapters" | "translations">("transcript");
   const [translateOn, setTranslateOn] = useState(false);
@@ -102,6 +206,8 @@ export function DetailView({ id }: { id: string }) {
   // タイトルのインライン編集。
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
+  const [generatingTitle, setGeneratingTitle] = useState(false);
+  const [confirmCloudTitle, setConfirmCloudTitle] = useState(false);
   const [savingTitle, setSavingTitle] = useState(false);
 
   // バックグラウンドジョブ（ADR-0024）。detail.active_job を起点に job://update で追う。
@@ -110,9 +216,21 @@ export function DetailView({ id }: { id: string }) {
     done: 0,
     total: null,
   });
-  const [transcribeDiarize, setTranscribeDiarize] = useState(false);
+  // 後から文字起こしするときの話者分離もホームと同じ設定を使う（既定 ON・#115）。
+  const [transcribeDiarize, setTranscribeDiarizeState] = useState(getDiarizePref);
+  const setTranscribeDiarize = (on: boolean) => {
+    setTranscribeDiarizeState(on);
+    setDiarizePref(on);
+  };
+  const [canceling, setCanceling] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [starting, setStarting] = useState(false);
   const processing = job?.status === "pending" || job?.status === "running";
+  // このジョブの失敗はこの画面で出す（App のトーストと二重にしない）。
+  useEffect(() => {
+    setShownJob(job?.id ?? null);
+    return () => setShownJob(null);
+  }, [job?.id]);
   const jobFailed = job?.status === "failed";
   // 実処理中（順番待ち=pending/queued を除く）だけ「ローディングが進んでいる」実感のため
   // 経過時間を刻む。core は多くの段で incremental % を出さない（stage,0,None のみ）ので、
@@ -125,6 +243,9 @@ export function DetailView({ id }: { id: string }) {
 
   // 指定テンプレへ preset してモーダルを開く（AIで作成グループ / 再生成 / 空状態 共通）。
   const openModal = (templateId: string) => {
+    // A summary sends the transcript and speakers the view holds now; while a job is
+    // rewriting them (Issue #102) the result would describe the old speakers.
+    if (processing) return;
     setPresetTemplate(templateId);
     setModalOpen(true);
   };
@@ -176,12 +297,26 @@ export function DetailView({ id }: { id: string }) {
   // 完了/失敗トースト・サイドバー更新は App が担うので、ここは自分のビュー更新だけに徹する。
   useJobUpdate((u) => {
     if (u.recording_id !== id) return;
+    // タイトル自動生成（Issue #4）は画面の処理中表示に関わらない。付いたら名前だけ取り直す。
+    if (u.kind === TITLE_JOB_KIND) {
+      if (u.status === "done") {
+        getRecording(id)
+          .then((d) =>
+            setDetail((cur) => (cur && d ? { ...cur, recording: { ...cur.recording, title: d.recording.title } } : cur)),
+          )
+          .catch(() => {});
+      }
+      return;
+    }
+    // 中断を頼んだ直後に処理が終わる・失敗することもある。どの終わり方でも「中断しています…」を外す。
+    if (u.status === "done" || u.status === "failed" || u.status === "canceled") setCanceling(false);
     if (u.status === "done") {
       setJob(null);
       setJobProgress({ done: 0, total: null });
       reloadDetail();
     } else if (u.status === "canceled") {
       setJob(null);
+      setCanceling(false);
       setJobProgress({ done: 0, total: null });
     } else if (u.status === "failed") {
       setJob((prev) => (prev ? { ...prev, status: "failed", error: u.error } : prev));
@@ -257,7 +392,7 @@ export function DetailView({ id }: { id: string }) {
     }
   };
 
-  // 後付け話者分離ジョブ投入（transcript 済み・話者未割当の File/Mic）。
+  // 後付け話者分離ジョブ投入（話者未割当の File/Mic、またはやり直し。Issue #102）。
   const startDiarize = async () => {
     if (starting || processing) return;
     setStarting(true);
@@ -285,11 +420,17 @@ export function DetailView({ id }: { id: string }) {
   };
 
   // 順番待ち（pending）のジョブをキャンセル（running は完走）。
+  // 実行中の中断（#114）。順番待ちはその場で消え、実行中は処理が止まった時点で
+  // job://update（canceled）が届く。それまでは「中断しています…」を出す。
   const onCancelJob = async () => {
+    setConfirmCancel(false);
     if (!job) return;
+    const running = job.status === "running";
     try {
       const ok = await cancelJob(job.id);
-      if (ok) {
+      if (ok && running) {
+        setCanceling(true);
+      } else if (ok) {
         setJob(null);
         setJobProgress({ done: 0, total: null });
         refreshRecents();
@@ -451,8 +592,36 @@ export function DetailView({ id }: { id: string }) {
 
   // タイトル編集開始（現在の生タイトルを初期値に）。
   const beginEditTitle = () => {
+    if (generatingTitle) return; // 生成結果と手入力がぶつからないように
     setTitleValue(detail?.recording.title ?? "");
     setEditingTitle(true);
+  };
+
+  // 文字起こしからタイトルを生成（Issue #4）。クラウド設定なら送信前に確認する。
+  const requestGenerateTitle = async () => {
+    if (generatingTitle) return;
+    let engine: string = "cloud";
+    try {
+      engine = (await getSettings()).engine;
+    } catch {
+      // 読めないときはクラウド扱い（確認を出す）。
+    }
+    if (engine === "cloud") setConfirmCloudTitle(true);
+    else void runGenerateTitle();
+  };
+  const runGenerateTitle = async () => {
+    setConfirmCloudTitle(false);
+    setGeneratingTitle(true);
+    try {
+      const next = await generateTitle(id);
+      setDetail((d) => (d ? { ...d, recording: { ...d.recording, title: next } } : d));
+      refreshRecents();
+      toast(t.history.titleGenerated, "success");
+    } catch (e) {
+      toast(translateError(e, t), "error");
+    } finally {
+      setGeneratingTitle(false);
+    }
   };
 
   // タイトル保存（null/空白で既定の「無題」へ）。成功したら表示とサイドバー最近を更新。
@@ -490,7 +659,7 @@ export function DetailView({ id }: { id: string }) {
         )}
         <button
           onClick={() => navigate({ view: "history" })}
-          className="mt-1 text-[12.5px] text-brand-light hover:text-brand-lighter"
+          className="mt-1 text-[13px] text-brand-light hover:text-brand-lighter"
         >
           {t.detail.backToHistory}
         </button>
@@ -499,14 +668,28 @@ export function DetailView({ id }: { id: string }) {
   }
 
   const rec = detail.recording;
-  const title = rec.title?.trim() || t.common.untitledRecording;
+  const title = recordingTitle(rec, lang);
   const meta = [formatDateTime(rec.created_at, lang), formatDuration(rec.duration_ms)];
   const speakers = detail.speakers ?? [];
   const hasTranscript = detail.transcript.segments.length > 0;
+  // 再生中の行（二分探索なので毎回求めてよい）。一度も再生していない間は強調しない。
+  const activeIdx =
+    audioSrc && (playing || playMs > 0) ? segmentAt(detail.transcript.segments, playMs) : null;
+  // 要約・議事録は文字起こしがあって処理中でないときだけ作れる（#107）。押せない理由は title で示す。
+  const canSummarize = hasTranscript && !processing;
+  const summarizeBlockedReason = canSummarize
+    ? undefined
+    : processing
+      ? t.detail.needsJobDone
+      : t.detail.needsTranscript;
   // 後付けアクションの可否（ADR-0024）。処理中は隠す。会議は録音時に話者付与済み＝diarize 不可。
   const canTranscribe = !processing && !hasTranscript;
   const canDiarize =
     !processing && hasTranscript && speakers.length === 0 && rec.source_type !== "live";
+  // Existing speakers can be re-analysed, including meetings (remote track only; Issue #102).
+  // A meeting with no speaker rows (its earlier run found no remote turns) can also retry.
+  const canRediarize =
+    !processing && hasTranscript && (speakers.length > 0 || rec.source_type === "live");
 
   return (
     <div className="flex h-full min-h-0">
@@ -530,15 +713,15 @@ export function DetailView({ id }: { id: string }) {
                         setEditingTitle(false);
                       }
                     }}
-                    placeholder={t.common.untitledRecording}
-                    className="min-w-0 flex-1 rounded-[7px] border border-border-3 bg-surface-2 px-2.5 py-1 text-[18px] font-bold text-ink outline-none focus:border-brand"
+                    placeholder={recordingTitle({ ...rec, title: null }, lang)}
+                    className="min-w-0 flex-1 rounded-tag border border-border-3 bg-surface-2 px-2.5 py-1 text-[18px] font-bold text-ink outline-none focus:border-brand"
                   />
                   <button
                     onClick={() => void saveTitle()}
                     disabled={savingTitle}
                     aria-label={t.common.save}
                     title={t.common.save}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-green transition-colors hover:bg-surface-2 disabled:opacity-50"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-green transition-colors hover:bg-surface-2 disabled:opacity-50"
                   >
                     {savingTitle ? <Spinner size={14} /> : <CheckIcon size={16} />}
                   </button>
@@ -547,22 +730,37 @@ export function DetailView({ id }: { id: string }) {
                     disabled={savingTitle}
                     aria-label={t.common.cancel}
                     title={t.common.cancel}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-dim transition-colors hover:bg-surface-2 hover:text-body disabled:opacity-50"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-dim transition-colors hover:bg-surface-2 hover:text-body disabled:opacity-50"
                   >
                     <XIcon size={15} />
                   </button>
                 </div>
               ) : (
                 <div className="group/title flex items-center gap-2">
-                  <h1 className="truncate text-[19px] font-bold text-ink">{title}</h1>
+                  <h1 className="truncate text-[18px] font-bold text-ink">{title}</h1>
                   <button
                     onClick={beginEditTitle}
+                    disabled={generatingTitle}
                     aria-label={t.history.renameTitle}
                     title={t.history.renameTitle}
-                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] text-dim opacity-0 transition-all hover:bg-surface-2 hover:text-body group-hover/title:opacity-100"
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-dim opacity-0 transition-all hover:bg-surface-2 hover:text-body group-hover/title:opacity-100"
                   >
                     <PencilIcon size={14} />
                   </button>
+                  {hasTranscript && !processing && (
+                    <button
+                      onClick={() => void requestGenerateTitle()}
+                      disabled={generatingTitle}
+                      aria-label={t.history.generateTitle}
+                      title={t.history.generateTitle}
+                      className={cx(
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-tag text-dim transition-all hover:bg-surface-2 hover:text-body",
+                        generatingTitle ? "opacity-100" : "opacity-0 group-hover/title:opacity-100",
+                      )}
+                    >
+                      {generatingTitle ? <Spinner size={14} /> : <SparklesIcon size={14} />}
+                    </button>
+                  )}
                 </div>
               )}
               <div className="mt-0.5 font-mono text-[12px] text-faint">{meta.join(" · ")}</div>
@@ -572,18 +770,18 @@ export function DetailView({ id }: { id: string }) {
               {MOCK_PREVIEW && (
                 <button
                   onClick={() => setAskOpen(true)}
-                  className="inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-border-3 bg-surface-2 px-2.5 text-[11.5px] text-body transition-colors hover:bg-hover"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-tag border border-border-3 bg-surface-2 px-2.5 text-[12px] text-body transition-colors hover:bg-hover"
                 >
                   <SparklesIcon size={13} className="text-brand-lighter" />
                   質問する
                 </button>
               )}
-              <SharePopover detail={detail} />
+              <SharePopover detail={detail} disabled={!hasTranscript && detail.summaries.length === 0} />
               <button
                 onClick={() => setConfirmDel(true)}
                 aria-label={t.common.delete}
                 title={t.common.delete}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-[7px] text-dim transition-colors hover:bg-[rgba(239,68,68,0.12)] hover:text-red-light"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-tag text-dim transition-colors hover:bg-red/12 hover:text-red-light"
               >
                 <TrashIcon size={15} />
               </button>
@@ -593,7 +791,13 @@ export function DetailView({ id }: { id: string }) {
           {/* 再生バー。原本があれば実再生（File/Mic/会議の結合 <id>.wav）、無ければ控えめな装飾。 */}
           <div className="mt-3.5">
             {audioSrc ? (
-              <AudioPlayer src={audioSrc} fallbackDurationMs={rec.duration_ms} />
+              <AudioPlayer
+                ref={playerRef}
+                src={audioSrc}
+                fallbackDurationMs={rec.duration_ms}
+                onTime={setPlayMs}
+                onPlayingChange={setPlaying}
+              />
             ) : (
               <>
                 <div className="flex cursor-default items-center gap-3">
@@ -601,11 +805,11 @@ export function DetailView({ id }: { id: string }) {
                     <PlayIcon size={15} />
                   </div>
                   <Waveform active={false} bars={30} height={42} className="flex-1" />
-                  <span className="shrink-0 font-mono text-[11.5px] text-muted tnum">
+                  <span className="shrink-0 font-mono text-[12px] text-muted tnum">
                     0:00 / {formatDuration(rec.duration_ms)}
                   </span>
                 </div>
-                <div className="mt-1 text-right text-[10.5px] text-dim">
+                <div className="mt-1 text-right text-[11px] text-dim">
                   {t.detail.noAudio}
                 </div>
               </>
@@ -613,7 +817,14 @@ export function DetailView({ id }: { id: string }) {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div
+          ref={scrollRef}
+          className="relative flex-1 overflow-y-auto px-6 py-4"
+          // 利用者が自分でスクロールしたら追従をやめる。自動追従のスクロールは autoScrollUntil で除く。
+          onScroll={() => {
+            if (playing && Date.now() > autoScrollUntil.current) setFollowing(false);
+          }}
+        >
           {/* 処理中（ADR-0024）: ステージ + 進捗。pending はキャンセル可（running は完走）。 */}
           {processing && job && (
             <div className="mb-4 rounded-card border border-border-2 bg-surface-2 px-4 py-3.5">
@@ -635,17 +846,16 @@ export function DetailView({ id }: { id: string }) {
                     {etaMin != null ? ` · ${t.job.remaining(etaMin)}` : ""}
                   </div>
                 </div>
-                {job.status === "pending" && (
-                  <button
-                    onClick={() => void onCancelJob()}
-                    className="shrink-0 rounded-[7px] border border-border-3 px-2.5 py-1 text-[11.5px] text-muted transition-colors hover:bg-hover hover:text-body"
-                  >
-                    {t.job.cancel}
-                  </button>
-                )}
+                <button
+                  onClick={() => (job.status === "pending" ? void onCancelJob() : setConfirmCancel(true))}
+                  disabled={canceling}
+                  className="shrink-0 rounded-tag border border-border-3 px-2.5 py-1 text-[12px] text-muted transition-colors hover:bg-hover hover:text-body disabled:opacity-60"
+                >
+                  {canceling ? t.job.canceling : t.job.cancel}
+                </button>
               </div>
               {jobProgress.total ? (
-                <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-[rgba(255,255,255,0.08)]">
+                <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-border-2">
                   <div
                     className="h-full rounded-full bg-brand transition-[width]"
                     style={{
@@ -658,16 +868,32 @@ export function DetailView({ id }: { id: string }) {
           )}
 
           {/* 失敗（ADR-0024）: キー化メッセージを翻訳表示。下の実行ボタンで再試行できる。 */}
+          {/* 失敗はここに 1 回だけ出す（この画面を開いている間は App のトーストを出さない・#107）。 */}
           {jobFailed && job && (
-            <div className="mb-4 rounded-card border border-red/40 bg-[rgba(239,68,68,0.08)] px-4 py-3 text-[12.5px] text-red-light">
-              {job.error ? translateError(job.error, t) : t.job.failedToast}
+            <div
+              role="alert"
+              className="mb-4 flex items-center justify-between gap-3 rounded-card border border-red/40 bg-red/8 px-4 py-3"
+            >
+              <span className="text-[13px] text-red-light">
+                {job.error ? translateError(job.error, t) : t.job.failedToast}
+              </span>
+              {/* 文字起こしの失敗は下の「文字起こしを実行」がそのまま再試行になるので、ここには出さない。 */}
+              {!canTranscribe && (
+                <button
+                  onClick={() => void (job.kind === "diarize" ? startDiarize() : startTranscribe())}
+                  disabled={starting}
+                  className="h-8 shrink-0 rounded-ctl border border-red/40 px-3 text-[12px] font-medium text-red-light transition-colors hover:bg-red/12 disabled:opacity-50"
+                >
+                  {t.common.retry}
+                </button>
+              )}
             </div>
           )}
 
           {/* 後付け文字起こし（空 transcript の録音）。 */}
           {canTranscribe && (
             <div className="mb-4 rounded-card border border-border-2 bg-surface-2 px-4 py-4">
-              <div className="text-[13.5px] font-semibold text-ink">{t.detail.runTranscribe}</div>
+              <div className="text-[14px] font-semibold text-ink">{t.detail.runTranscribe}</div>
               <div className="mt-0.5 text-[12px] text-muted">{t.detail.runTranscribeDesc}</div>
               <div className="mt-3 flex items-center gap-2 text-[12px] text-body">
                 <Toggle
@@ -680,7 +906,7 @@ export function DetailView({ id }: { id: string }) {
               <button
                 onClick={() => void startTranscribe()}
                 disabled={starting}
-                className="mt-3 h-9 rounded-[8px] bg-brand px-4 text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-110 disabled:opacity-50"
+                className="mt-3 h-9 rounded-ctl bg-brand px-4 text-[13px] font-semibold text-white transition-[filter] hover:brightness-110 disabled:opacity-50"
               >
                 {starting ? <Spinner size={14} /> : t.detail.runTranscribe}
               </button>
@@ -697,21 +923,20 @@ export function DetailView({ id }: { id: string }) {
               <button
                 onClick={() => void startDiarize()}
                 disabled={starting}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[8px] border border-border-2 px-3.5 text-[12.5px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-ctl border border-border-2 px-3.5 text-[13px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
               >
                 {starting ? <Spinner size={14} /> : t.detail.runDiarize}
               </button>
             </div>
           )}
 
-          {/* AI議事録 */}
+          {/* AI議事録。文字起こしが無い間は作れないので、作成の案内も出さない（#107）。 */}
           {detail.summaries.length > 0 ? (
             <div className="mb-4 flex flex-col gap-3">
               {detail.summaries.map((s, i) => (
                 <div
                   key={i}
-                  className="rounded-card border border-border-2 bg-surface-2 px-[17px] py-[15px]"
-                  style={{ borderLeft: "3px solid #6366F1" }}
+                  className="rounded-card border border-border-2 border-l-[3px] border-l-brand bg-surface-2 px-[17px] py-[15px]"
                 >
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-2">
@@ -722,7 +947,7 @@ export function DetailView({ id }: { id: string }) {
                       {s.stale && (
                         <span
                           title={t.detail.summaryStaleTitle}
-                          className="shrink-0 rounded-full bg-[rgba(245,158,11,0.15)] px-2 py-0.5 text-[10px] font-medium text-amber"
+                          className="shrink-0 rounded-full bg-amber/15 px-2 py-0.5 text-[11px] font-medium text-amber"
                         >
                           {t.detail.summaryStale}
                         </span>
@@ -730,20 +955,19 @@ export function DetailView({ id }: { id: string }) {
                     </span>
                     <button
                       onClick={() => openModal(s.template_id)}
-                      className="inline-flex shrink-0 items-center gap-1 text-[11px] text-dim transition-colors hover:text-sub"
+                      disabled={processing}
+                      className="inline-flex disabled:opacity-50 shrink-0 items-center gap-1 text-[11px] text-dim transition-colors hover:text-sub"
                       title={t.detail.regenerate}
                     >
                       <RefreshIcon size={13} />
                       {t.detail.regenerate}
                     </button>
                   </div>
-                  <div className="whitespace-pre-wrap text-[13px] leading-[1.85] text-body">
-                    {s.content}
-                  </div>
+                  <Markdown text={s.content} />
                   {s.action_items.length > 0 && (
                     <ul className="mt-3 flex flex-col gap-1.5">
                       {s.action_items.map((a, j) => (
-                        <li key={j} className="flex gap-2 text-[12.5px] text-body">
+                        <li key={j} className="flex gap-2 text-[13px] text-body">
                           <CheckIcon size={14} className="mt-0.5 shrink-0 text-green" />
                           <span>
                             {a.text}
@@ -757,16 +981,16 @@ export function DetailView({ id }: { id: string }) {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : hasTranscript && !processing ? (
             <button
               onClick={() => openModal("minutes")}
               className="mb-4 flex w-full items-center gap-3 rounded-card border border-dashed border-border-3 bg-surface-2 px-4 py-4 text-left transition-colors hover:bg-hover"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-[rgba(99,102,241,0.15)] text-brand-lighter">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-lighter">
                 <SparklesIcon size={17} />
               </span>
               <span className="min-w-0">
-                <span className="block text-[13.5px] font-semibold text-ink">
+                <span className="block text-[14px] font-semibold text-ink">
                   {t.detail.createMinutesCta}
                 </span>
                 <span className="mt-0.5 block text-[12px] text-muted">
@@ -774,7 +998,7 @@ export function DetailView({ id }: { id: string }) {
                 </span>
               </span>
             </button>
-          )}
+          ) : null}
 
           {/* シリーズ横断ダイジェスト（モック画面へ）。配布時は隠す。 */}
           {MOCK_PREVIEW && (
@@ -792,9 +1016,26 @@ export function DetailView({ id }: { id: string }) {
             <TabButton active={tab === "transcript"} onClick={() => setTab("transcript")}>
               {t.detail.tabs.transcript}
             </TabButton>
-            <TabButton active={tab === "translations"} onClick={() => setTab("translations")}>
-              {t.meeting.translation.savedTitle}
-            </TabButton>
+            {/* ライブ翻訳は会議モードにしか無い（#107）。他の録音では空のタブになるだけなので出さない。 */}
+            {rec.source_type === "live" && (
+              <TabButton active={tab === "translations"} onClick={() => setTab("translations")}>
+                {t.meeting.translation.savedTitle}
+              </TabButton>
+            )}
+            {hasTranscript && (
+              <button
+                onClick={() => {
+                  setSearchOpen(true);
+                  setTab("transcript");
+                  requestAnimationFrame(() => searchInputRef.current?.focus());
+                }}
+                aria-label={t.detail.find.open}
+                title={`${t.detail.find.open}（⌘F）`}
+                className="ml-auto mb-1 rounded-tag p-1.5 text-muted transition-colors hover:bg-hover hover:text-ink"
+              >
+                <SearchIcon size={14} />
+              </button>
+            )}
             {/* チャプター/翻訳はモック（未実装）。配布時(MOCK_PREVIEW=false)は丸ごと隠し、
                 実録音に固定ダミーが出ないようにする。 */}
             {MOCK_PREVIEW && (
@@ -805,7 +1046,7 @@ export function DetailView({ id }: { id: string }) {
             {tab === "transcript" && MOCK_PREVIEW && (
               <div className="ml-auto flex items-center gap-2 pb-1.5">
                 <PreviewTag />
-                <span className="text-[11.5px] text-muted">日本語に翻訳</span>
+                <span className="text-[12px] text-muted">日本語に翻訳</span>
                 <Toggle
                   checked={translateOn}
                   onChange={setTranslateOn}
@@ -815,6 +1056,60 @@ export function DetailView({ id }: { id: string }) {
             )}
           </div>
 
+          {searchOpen && tab === "transcript" && (
+            <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-center gap-2 rounded-ctl border border-border-2 bg-surface px-2.5 py-1.5 shadow-pop">
+              <SearchIcon size={14} className="shrink-0 text-muted" />
+              <input
+                ref={searchInputRef}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setMatchPos(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    moveMatch(e.shiftKey ? -1 : 1);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    closeSearch();
+                  }
+                }}
+                placeholder={t.detail.find.placeholder}
+                aria-label={t.detail.find.placeholder}
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-ink placeholder:text-dim"
+              />
+              <span className="shrink-0 font-mono text-[11px] text-muted tnum" aria-live="polite">
+                {q ? t.detail.find.count(matches.length ? Math.min(matchPos, matches.length - 1) + 1 : 0, matches.length) : ""}
+              </span>
+              <button
+                onClick={() => moveMatch(-1)}
+                disabled={!matches.length}
+                aria-label={t.detail.find.prev}
+                title={`${t.detail.find.prev}（Shift+Enter）`}
+                className="rounded-tag px-1.5 py-0.5 text-[12px] text-sub hover:bg-hover disabled:opacity-40"
+              >
+                ↑
+              </button>
+              <button
+                onClick={() => moveMatch(1)}
+                disabled={!matches.length}
+                aria-label={t.detail.find.next}
+                title={`${t.detail.find.next}（Enter）`}
+                className="rounded-tag px-1.5 py-0.5 text-[12px] text-sub hover:bg-hover disabled:opacity-40"
+              >
+                ↓
+              </button>
+              <button
+                onClick={closeSearch}
+                aria-label={t.common.close}
+                className="rounded-tag p-1 text-muted hover:bg-hover hover:text-ink"
+              >
+                <XIcon size={13} />
+              </button>
+            </div>
+          )}
+
           {tab === "translations" ? <SavedTranslations key={id} id={id} /> : tab === "chapters" && MOCK_PREVIEW ? (
             <div>
               <div className="mb-3 flex items-center justify-between">
@@ -822,22 +1117,22 @@ export function DetailView({ id }: { id: string }) {
                   <span className="text-[13px] text-sub">{CHAPTERS.length} チャプター</span>
                   <PreviewTag />
                 </div>
-                <span className="inline-flex items-center gap-1.5 rounded-[7px] bg-[rgba(99,102,241,0.14)] px-2.5 py-1 text-[11px] text-brand-lighter">
+                <span className="inline-flex items-center gap-1.5 rounded-tag bg-brand/14 px-2.5 py-1 text-[11px] text-brand-lighter">
                   <SparklesIcon size={12} />
                   AIが自動生成
                 </span>
               </div>
               {/* タイムラインバー */}
-              <div className="flex h-[9px] gap-[3px] overflow-hidden rounded-[5px]">
+              <div className="flex h-[9px] gap-[3px] overflow-hidden rounded-tag">
                 {CHAPTERS.map((c) => (
                   <div
                     key={c.time}
-                    className="rounded-[4px]"
+                    className="rounded-tag"
                     style={{ flexGrow: c.grow, background: c.color }}
                   />
                 ))}
               </div>
-              <div className="mb-5 mt-1.5 flex justify-between font-mono text-[10px] text-dim">
+              <div className="mb-5 mt-1.5 flex justify-between font-mono text-[11px] text-dim">
                 <span>00:00</span>
                 <span>{formatDuration(rec.duration_ms)}</span>
               </div>
@@ -858,8 +1153,8 @@ export function DetailView({ id }: { id: string }) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[13.5px] font-bold text-ink">{c.title}</span>
-                        <span className="shrink-0 text-[10.5px] text-dim">{c.dur}</span>
+                        <span className="text-[14px] font-bold text-ink">{c.title}</span>
+                        <span className="shrink-0 text-[11px] text-dim">{c.dur}</span>
                       </div>
                       <div className="mt-1.5 text-[12px] leading-relaxed text-muted">{c.body}</div>
                     </div>
@@ -875,51 +1170,97 @@ export function DetailView({ id }: { id: string }) {
                 translateOn && MOCK_PREVIEW ? () => MOCK_TRANSLATION : undefined
               }
               // 話者が 1 人も居ない録音（話者分離していない）では訂正の選択肢が無いので出さない。
+              // 処理中（話者の再検出など）は、ジョブ完了で上書きされる訂正を受け付けない（Issue #102）。
               onSpeakerClick={
-                speakers.length > 0 ? setFixingSeg : undefined
+                speakers.length > 0 && !processing ? setFixingSeg : undefined
               }
+              activeIdx={activeIdx}
+              onSeek={audioSrc ? seekToSegment : undefined}
+              query={searchOpen ? query : ""}
+              currentMatchIdx={currentMatchIdx}
             />
+          ) : processing ? (
+            <EmptyState title={t.detail.transcriptPendingTitle} hint={t.detail.transcriptPendingHint} />
           ) : (
-            <EmptyState
-              title={t.detail.noTranscriptTitle}
-              hint={t.detail.noTranscriptHint}
-            />
+            <EmptyState title={t.detail.noTranscriptTitle} hint={t.detail.noTranscriptHint} />
+          )}
+
+          {/* 追従をやめている間だけ、再生位置へ戻るボタンを下に浮かべる。 */}
+          {playing && !following && tab === "transcript" && (
+            <div className="pointer-events-none sticky bottom-2 flex justify-center">
+              <button
+                onClick={() => setFollowing(true)}
+                className="pointer-events-auto rounded-full border border-border-3 bg-popover px-3.5 py-1.5 text-[12px] font-medium text-body shadow-pop transition-colors hover:bg-hover"
+              >
+                {t.detail.audio.follow}
+              </button>
+            </div>
           )}
         </div>
       </div>
 
       {/* 右ペイン */}
       <aside className="flex w-[222px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-border bg-surface px-[15px] py-4">
-        {speakers.length > 0 && (
-          <SpeakerPanel speakers={speakers} recordingId={id} onRenamed={onRenamed} />
-        )}
-
-        {/* AIで作成（常設）。各アクションはそのテンプレへ preset してモーダルを開く。 */}
+        {/* AIで作成（常設）。話者が多くても押し出されないよう、話者一覧より上に置く（#115）。 */}
         <div>
           <div className="mb-2.5 text-[11px] font-bold tracking-[0.08em] text-dim">
             {t.detail.aiCreate}
           </div>
+          {summarizeBlockedReason && (
+            <p className="mb-2 text-[12px] text-muted">{summarizeBlockedReason}</p>
+          )}
           <div className="flex flex-col gap-1.5">
+            {/* 主ボタンは「まだ議事録が無い」ときだけ。作成済みなら他と同じ副ボタンに下げ、
+                画面の主役を本文に譲る（#106）。 */}
             <button
               onClick={() => openModal("minutes")}
-              className="h-9 w-full rounded-[8px] bg-brand text-[12.5px] font-semibold text-white transition-[filter] hover:brightness-110"
+              disabled={!canSummarize}
+              title={summarizeBlockedReason}
+              className={cx(
+                "h-9 w-full rounded-ctl text-[13px] transition-colors disabled:opacity-50",
+                findSummary(detail.summaries, "minutes")
+                  ? "border border-border-2 text-body hover:bg-hover"
+                  : "bg-brand-2 font-semibold text-white hover:brightness-110",
+              )}
             >
               {t.detail.createMinutes}
             </button>
             <button
               onClick={() => openModal("summary")}
-              className="h-[34px] w-full rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
+              disabled={!canSummarize}
+              title={summarizeBlockedReason}
+              className="h-9 w-full disabled:opacity-50 rounded-ctl border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createSummary}
             </button>
             <button
               onClick={() => openModal("action_items")}
-              className="h-[34px] w-full rounded-[8px] border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
+              disabled={!canSummarize}
+              title={summarizeBlockedReason}
+              className="h-9 w-full disabled:opacity-50 rounded-ctl border border-border-2 text-[12px] text-body transition-colors hover:bg-hover"
             >
               {t.detail.createActionItems}
             </button>
           </div>
         </div>
+
+        {speakers.length > 0 && (
+          // Renames and library links made during a re-detection would be replaced when it
+          // finishes, so the panel is inert while a job runs (Issue #102).
+          <div inert={processing} className={processing ? "opacity-60" : undefined}>
+            <SpeakerPanel speakers={speakers} recordingId={id} onRenamed={onRenamed} />
+          </div>
+        )}
+        {canRediarize && (
+          <button
+            onClick={() => void startDiarize()}
+            disabled={starting}
+            title={t.detail.rerunDiarizeDesc}
+            className="-mt-2 inline-flex h-8 items-center justify-center gap-1.5 rounded-ctl border border-border-2 px-3 text-[12px] font-medium text-body transition-colors hover:bg-hover disabled:opacity-50"
+          >
+            {starting ? <Spinner size={13} /> : t.detail.rerunDiarize}
+          </button>
+        )}
 
         <div className="mt-auto rounded-card border border-border bg-surface-2 px-3 py-2.5">
           <div className="flex items-start gap-2">
@@ -937,8 +1278,26 @@ export function DetailView({ id }: { id: string }) {
         transcript={detail.transcript}
         onCreated={onCreated}
         presetTemplate={presetTemplate}
+        replaces={!!findSummary(detail.summaries, presetTemplate)}
       />
       <AskDrawer key={`ask-${id}`} open={askOpen} onClose={() => setAskOpen(false)} title={title} />
+      <ConfirmDialog
+        open={confirmCancel}
+        title={t.job.cancelConfirmTitle}
+        body={t.job.cancelConfirmBody}
+        confirmLabel={t.job.cancelConfirm}
+        onConfirm={() => void onCancelJob()}
+        onCancel={() => setConfirmCancel(false)}
+      />
+      <ConfirmDialog
+        open={confirmCloudTitle}
+        title={t.history.generateTitleCloudTitle}
+        body={t.history.generateTitleCloudBody}
+        confirmLabel={t.history.generateTitleCloudConfirm}
+        tone="primary"
+        onConfirm={() => void runGenerateTitle()}
+        onCancel={() => setConfirmCloudTitle(false)}
+      />
       <ConfirmDialog
         open={confirmDel}
         title={t.history.deleteConfirmTitle}
@@ -958,7 +1317,7 @@ export function DetailView({ id }: { id: string }) {
             />
             <div className="px-5 py-4">
               {/* どの発言を直そうとしているかを示す（押し間違いに気づけるように）。 */}
-              <p className="mb-3 rounded-[10px] bg-surface-2 px-3 py-2 text-[12.5px] leading-6 text-sub">
+              <p className="mb-3 rounded-btn bg-surface-2 px-3 py-2 text-[13px] leading-6 text-sub">
                 <span className="mr-2 font-mono text-[11px] text-dim tnum">
                   {formatTimestamp(fixingSeg.start_ms)}
                 </span>

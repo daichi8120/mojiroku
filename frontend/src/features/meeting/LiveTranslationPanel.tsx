@@ -63,9 +63,9 @@ export function LiveTranslationPanel({ translation, target, setTarget, capturing
       </>}
           <div ref={scroll} className="min-h-0 flex-1 overflow-auto px-[18px] pb-4" aria-label={copy.results}>
             {translation.rows.map((row) => <div key={`${row.sourceId}:${row.target}`} className="border-b border-line py-2.5">
-              <span className="text-[10px] text-faint">{row.target === "en" ? copy.english : copy.japanese}</span>
-              <p className="mb-1 text-[10.5px] leading-relaxed text-faint">{row.sourceText}</p>
-              <p className={cx("text-[13.5px] leading-[1.7]", row.committed ? "text-speech" : "text-muted")}>
+              <span className="text-[11px] text-faint">{row.target === "en" ? copy.english : copy.japanese}</span>
+              <p className="mb-1 text-[11px] leading-relaxed text-faint">{row.sourceText}</p>
+              <p className={cx("text-[14px] leading-[1.7]", row.committed ? "text-speech" : "text-muted")}>
                 {row.translation ?? (row.status === "error" ? row.error === "input_too_long" ? copy.tooLong : copy.rowFailed
                   : row.status === "skipped" ? copy.rowSkipped
                   : row.status === "translating" ? copy.translating : copy.rowQueued)}

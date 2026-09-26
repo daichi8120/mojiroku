@@ -63,12 +63,17 @@ pub fn live_transcription_models_ready(models_dir: &Path) -> bool {
             .unwrap_or(false)
 }
 
-/// 既定の要約モデル。実会議での品質ゲートを PASS 済み（docs/roadmap.md）。
+/// 既定の要約モデル。
 ///
-/// **「既定」の意味は 2 つ。**小の段が配るモデルであり、かつどの段にも採用済みが
+/// **「既定」の意味は 2 つ。**小の段が配るモデルであり、かつどの段にも配るものが
 /// 無いときの落とし先（[`model_for_tier`]）。中・大の段は 2026-08-30 に
-/// Qwen3.5-9B へ移った（ADR-0030）ので、**これはもう全員に配られるものではない**。
-pub const DEFAULT_SUMMARY_MODEL: &str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
+/// Qwen3.5-9B へ移った（ADR-0030）。小の段は 2026-09-23 に Qwen2.5-7B から
+/// Qwen3.5-4B へ移った（ADR-0044）。
+pub const DEFAULT_SUMMARY_MODEL: &str = "Qwen3.5-4B-Q4_K_M.gguf";
+
+/// 2026-09-23 まで小の段の既定だったモデル。手元にある人はそのまま使い続け、
+/// 設定から明示的に選ぶこともできる（ADR-0044）。
+pub const QWEN25_7B_SUMMARY_MODEL: &str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
 
 /// VAD モデル（Silero, ggml）。whisper の無音ハルシネーション対策（spec の VAD 段）。
 pub const DEFAULT_VAD_MODEL: &str = "ggml-silero-v5.1.2.bin";
@@ -114,7 +119,7 @@ pub fn diar_emb_url() -> &'static str {
 )]
 #[serde(rename_all = "lowercase")]
 pub enum SummaryTier {
-    /// 目安 8GB。いまは現行の 7B がここを受け持つ（軽い候補が未採用のため）。
+    /// 目安 8GB。2026-09-23 から Qwen3.5-4B が受け持つ（ADR-0044）。
     Small,
     /// 目安 16GB。
     Medium,
@@ -155,8 +160,13 @@ pub struct SummaryModel {
     /// 実際に配るか。**`false` の間は決して選ばれない。**
     ///
     /// 実会議での品質ゲートを取り直すまで、候補は候補のまま置く。
-    /// 採用済みが無い段は [`DEFAULT_SUMMARY_MODEL`] へ落ちる（[`model_for_tier`]）。
+    /// 採用済みは設定から明示的に選べる。
     pub adopted: bool,
+    /// その段の自動選択で選ばれるか（段ごとに 1 件まで）。
+    ///
+    /// `adopted` と分けたのは、自動では選ばないが設定からは選べるモデルを持つため
+    /// （小の段の 7B。ADR-0044）。配るものが無い段は [`DEFAULT_SUMMARY_MODEL`] へ落ちる。
+    pub tier_default: bool,
 }
 
 /// 要約モデルのカタログ。
@@ -165,10 +175,11 @@ pub struct SummaryModel {
 /// **段の境界（何 GB で何を選ぶか）は未測定**で、下の定数は Issue #30 のたたき台のまま。
 /// 測るべきは「載るか」ではなく「whisper・話者分離と同居して快適か」。
 pub const SUMMARY_MODELS: &[SummaryModel] = &[
-    // 小の段の候補。**未採用。**ピーク RSS 3.75GB は 7B より 2.5GB 軽く、速度も約 2 倍で、
-    // 議事録の分量も 7B を上回る。それでも採らないのは、実会議のゲートで欠陥が 2 件残ったため
-    // ——議事録の見出しを 1 つ落とし、タイトルに簡体字（报汇）が出た。どちらも利用者に見える。
-    // 軽さは魅力だが、非力な端末に「軽くて雑」を配る理由にはならない。
+    // 既定であり、小の段の担当（2026-09-23 から。ADR-0044）。ピーク RSS 3.75GB は 7B より
+    // 2.5GB 軽く、実会議 28 生成で 7B の約 1.8 倍速い。議事録は会議の長さに追従する
+    // （28,000 字の会議で 7B 410 字に対し 1,100 字）。8/30 に見送った理由のうち簡体字は
+    // sidecar 側で出力を止めた（ADR-0043）。見出しの欠落は 7B でも同じ頻度で起きる。
+    // ⚠️ 思考モデルなので `--no-think` が要る（thinking: true）。
     SummaryModel {
         file: "Qwen3.5-4B-Q4_K_M.gguf",
         base_url: "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/e87f176479d0855a907a41277aca2f8ee7a09523/",
@@ -177,15 +188,14 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         tier: SummaryTier::Small,
         license: "apache-2.0",
         thinking: true,
-        adopted: false,
+        adopted: true,
+        tier_default: true,
     },
-    // 既定であり、いまは**小の段の担当**。実会議での品質ゲート PASS 済み。
-    // ⚠️ 小の段にふさわしく軽いからここに居るのではない。ピーク RSS は 6.26GB で、
-    //    中の段の 9B（6.53GB）とほとんど変わらない。**軽い候補（4B・3.75GB）が
-    //    まだ品質ゲートを通っていない**ので、非力な端末には従来どおりこれを配る
-    //    ——「良くはならないが、悪くもならない」状態を保つための配置。
+    // 2026-09-23 まで小の段の既定。**自動では選ばない**が、手元にある人はそのまま使い続け
+    // （キャッシュ優先）、設定から明示的に選ぶこともできる（ADR-0044）。
+    // ピーク RSS は 6.26GB で、中の段の 9B（6.53GB）とほとんど変わらない。
     SummaryModel {
-        file: DEFAULT_SUMMARY_MODEL,
+        file: QWEN25_7B_SUMMARY_MODEL,
         base_url: SUMMARY_BASE,
         sha256: "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423",
         size_bytes: 4_683_074_240,
@@ -193,6 +203,7 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         license: "apache-2.0",
         thinking: false,
         adopted: true,
+        tier_default: false,
     },
     // 中・大の段。**2026-08-30 に実会議で品質ゲートを取り直して採用した**（ADR-0030）。
     // 決め手は機械採点ではなく議事録の中身。現行は入力の長さに追従せず、27,947 字の会議でも
@@ -209,6 +220,7 @@ pub const SUMMARY_MODELS: &[SummaryModel] = &[
         license: "apache-2.0",
         thinking: true,
         adopted: true,
+        tier_default: true,
     },
     // 大の段（12B 以上）は候補が無い。横断評価で 0/14 だったのは gemma-3-12b だけで、
     // ライセンスに使用制限がつく。Apache-2.0 の 12B 級は 2026-08-25 時点で見つからなかった。
@@ -263,17 +275,17 @@ fn default_summary_model() -> &'static SummaryModel {
 
 /// 段に対して配るモデル。
 ///
-/// **その段以下で、採用済みのうち一番上のものを選ぶ。**「ちょうどその段」だけを探すと、
+/// **その段以下で、自動選択用（`tier_default`）のうち一番上のものを選ぶ。**「ちょうどその段」だけを探すと、
 /// 上の段に候補が無いときに既定へ落ちてしまい、**余裕のある端末ほど貧しいモデルを掴む**
 /// という逆転が起きる（32GB 機が 16GB 機より悪いものを引く）。段は「これ以上は載せない」
 /// という上限であって、ちょうど一致させる対象ではない。
 ///
-/// どの段にも採用済みが無ければ [`DEFAULT_SUMMARY_MODEL`] へ落ちる。品質ゲートを
+/// どの段にも配るものが無ければ [`DEFAULT_SUMMARY_MODEL`] へ落ちる。品質ゲートを
 /// 取り直していないモデルを、段が決まったというだけで配らないため。
 pub fn model_for_tier(tier: SummaryTier) -> &'static SummaryModel {
     SUMMARY_MODELS
         .iter()
-        .filter(|m| m.adopted && m.tier <= tier)
+        .filter(|m| m.adopted && m.tier_default && m.tier <= tier)
         .max_by_key(|m| m.tier)
         .unwrap_or_else(|| default_summary_model())
 }
@@ -320,6 +332,23 @@ pub fn select_summary_model_with(
         return m;
     }
     select_summary_model(total_memory_bytes, models_dir)
+}
+
+/// 手元にある要約モデルだけから選ぶ。**ダウンロードしない経路用**（Issue #4 のタイトル自動生成）。
+///
+/// 要約で選ばれるはずのモデル（[`select_summary_model_with`]）が手元にあればそれ。設定で別の
+/// モデルを選んだがまだ落としていない場合は、手元にある登録モデル。何も無ければ `None`。
+pub fn cached_summary_model(
+    requested: Option<&str>,
+    total_memory_bytes: Option<u64>,
+    models_dir: &Path,
+) -> Option<&'static SummaryModel> {
+    let chosen = select_summary_model_with(requested, total_memory_bytes, models_dir);
+    if cached(&models_dir.join(chosen.file)) {
+        return Some(chosen);
+    }
+    let fallback = select_summary_model(total_memory_bytes, models_dir);
+    cached(&models_dir.join(fallback.file)).then_some(fallback)
 }
 
 /// 文字起こしモデルの DL URL。
@@ -1126,13 +1155,23 @@ mod tests {
     #[test]
     fn summary_registry_preserves_the_current_download() {
         assert_eq!(
-            summary_model_url(DEFAULT_SUMMARY_MODEL),
+            summary_model_url(QWEN25_7B_SUMMARY_MODEL),
             "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/\
              8911e8a47f92bac19d6f5c64a2e2095bd2f7d031/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
         );
         assert_eq!(
-            expected_sha256(DEFAULT_SUMMARY_MODEL),
+            expected_sha256(QWEN25_7B_SUMMARY_MODEL),
             Some("65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423")
+        );
+        // The small-tier default since ADR-0044; same pinned revision as the 8/30 gate.
+        assert_eq!(
+            summary_model_url(DEFAULT_SUMMARY_MODEL),
+            "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/\
+             e87f176479d0855a907a41277aca2f8ee7a09523/Qwen3.5-4B-Q4_K_M.gguf"
+        );
+        assert_eq!(
+            expected_sha256(DEFAULT_SUMMARY_MODEL),
+            Some("00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4")
         );
         // カタログに無いファイルは従来どおり既定 repo を基準に組み立てる。
         assert_eq!(
@@ -1176,9 +1215,18 @@ mod tests {
                 m.license
             );
         }
-        // 既定モデルは必ずカタログに居て、採用済みであること（落とし先だから）。
+        // 既定モデルは必ずカタログに居て、自動選択に使われること（落とし先だから）。
         let d = default_summary_model();
         assert!(d.adopted, "既定モデルが adopted=false だと落とし先が消える");
+        assert!(d.tier_default, "既定モデルが自動選択に使われない");
+        // 自動選択に使うのは採用済みだけ。
+        for m in SUMMARY_MODELS {
+            assert!(
+                !m.tier_default || m.adopted,
+                "{}: 未採用なのに自動選択される",
+                m.file
+            );
+        }
     }
 
     /// 段の境界。値は**仮**だが、境界そのものの振る舞い（以上/未満）は固定する。
@@ -1211,8 +1259,8 @@ mod tests {
     fn each_tier_resolves_to_the_intended_model() {
         assert_eq!(
             model_for_tier(SummaryTier::Small).file,
-            DEFAULT_SUMMARY_MODEL,
-            "小の段に採用済みが無いので既定へ落ちるはず"
+            "Qwen3.5-4B-Q4_K_M.gguf",
+            "小の段は 4B を配る（ADR-0044）"
         );
         for tier in [SummaryTier::Medium, SummaryTier::Large] {
             assert_eq!(
@@ -1242,24 +1290,23 @@ mod tests {
         }
     }
 
-    /// 1 つの段に採用済みが 2 つあると `model_for_tier` の選択が曖昧になる。
+    /// 1 つの段に自動選択用が 2 つあると `model_for_tier` の選択が曖昧になる。
     #[test]
-    fn at_most_one_adopted_model_per_tier() {
+    fn at_most_one_tier_default_per_tier() {
         for tier in [SummaryTier::Small, SummaryTier::Medium, SummaryTier::Large] {
             let n = SUMMARY_MODELS
                 .iter()
-                .filter(|m| m.adopted && m.tier == tier)
+                .filter(|m| m.tier_default && m.tier == tier)
                 .count();
-            assert!(n <= 1, "{tier:?} の段に採用済みが {n} 件ある");
+            assert!(n <= 1, "{tier:?} の段に自動選択用が {n} 件ある");
         }
     }
 
-    /// **いまの既定に `--no-think` は渡さない。** 渡すとプロンプトが変わり、
-    /// 出荷中のモデルの出力が変わる（Qwen2.5 で実測: 文言が変化した）。
+    /// **Qwen2.5-7B に `--no-think` は渡さない。** 渡すとプロンプトが変わり、
+    /// 使い続けている人の出力が変わる（Qwen2.5 で実測: 文言が変化した）。
     #[test]
-    fn the_current_default_does_not_get_no_think() {
-        assert!(!needs_no_think(DEFAULT_SUMMARY_MODEL));
-        assert!(!default_summary_model().thinking);
+    fn qwen25_does_not_get_no_think() {
+        assert!(!needs_no_think(QWEN25_7B_SUMMARY_MODEL));
     }
 
     /// **Qwen3 系には必ず渡す。** 渡さないと英語の `<think>` ブロックが
@@ -1310,8 +1357,8 @@ mod tests {
     fn cached_model_wins_over_the_tier_choice() {
         let candidate = SUMMARY_MODELS
             .iter()
-            .find(|m| !m.adopted)
-            .expect("候補が 1 件も無い");
+            .find(|m| !m.tier_default)
+            .expect("自動選択されないモデルが 1 件も無い");
         let dir = models_dir_with(&[candidate.file]);
 
         // どの搭載メモリでも、手元の候補が選ばれる（数 GB の再 DL を起こさない）。
@@ -1320,6 +1367,30 @@ mod tests {
                 select_summary_model(mem, &dir).file,
                 candidate.file,
                 "メモリ {mem:?}: 手元のモデルを無視して別のものを選んだ"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// ダウンロードしない経路は手元のモデルだけを返す。設定の選択が未取得なら手元の別モデル。
+    #[test]
+    fn cached_summary_model_never_picks_a_missing_file() {
+        let empty = models_dir_with(&[]);
+        assert!(cached_summary_model(None, Some(16 * GIB), &empty).is_none());
+        let _ = fs::remove_dir_all(&empty);
+
+        let on_disk = SUMMARY_MODELS.iter().find(|m| m.adopted).expect("採用モデルが無い");
+        let other = SUMMARY_MODELS
+            .iter()
+            .find(|m| m.adopted && m.file != on_disk.file)
+            .expect("採用モデルが 2 件未満");
+        let dir = models_dir_with(&[on_disk.file]);
+        for mem in [None, Some(8 * GIB), Some(64 * GIB)] {
+            assert_eq!(cached_summary_model(None, mem, &dir).map(|m| m.file), Some(on_disk.file));
+            assert_eq!(
+                cached_summary_model(Some(other.file), mem, &dir).map(|m| m.file),
+                Some(on_disk.file),
+                "未取得の選択を返した"
             );
         }
         let _ = fs::remove_dir_all(&dir);
@@ -1344,15 +1415,22 @@ mod tests {
     }
 
     /// **既存利用者に数 GB の再ダウンロードを起こさない。**
-    /// 手元に 7B があるなら、段が 9B を指していてもそのまま使う（Issue #30 の終了条件）。
+    /// 手元に 7B があるなら、段が 4B や 9B を指していてもそのまま使う
+    /// （Issue #30 の終了条件。ADR-0044 で小の段が 4B に移っても同じ）。
     #[test]
     fn an_existing_install_is_not_upgraded_behind_the_users_back() {
-        let dir = models_dir_with(&[DEFAULT_SUMMARY_MODEL]);
-        for mem in [Some(16 * GIB), Some(64 * GIB), Some(128 * GIB)] {
+        let dir = models_dir_with(&[QWEN25_7B_SUMMARY_MODEL]);
+        for mem in [
+            None,
+            Some(8 * GIB),
+            Some(16 * GIB),
+            Some(64 * GIB),
+            Some(128 * GIB),
+        ] {
             assert_eq!(
                 select_summary_model(mem, &dir).file,
-                DEFAULT_SUMMARY_MODEL,
-                "メモリ {mem:?}: 手元の既定を無視して 9B を落としにいった"
+                QWEN25_7B_SUMMARY_MODEL,
+                "メモリ {mem:?}: 手元の 7B を無視して別のモデルを落としにいった"
             );
         }
         let _ = fs::remove_dir_all(&dir);
@@ -1377,7 +1455,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// An adopted model other than the default (currently 9B): the representative switch target.
+    /// An adopted model other than the default (currently 7B): the representative switch target.
     fn an_adopted_non_default() -> &'static SummaryModel {
         SUMMARY_MODELS
             .iter()
@@ -1409,18 +1487,21 @@ mod tests {
     #[test]
     fn unadopted_or_unknown_choice_falls_back_to_auto() {
         let dir = models_dir_with(&[]);
-        let candidate = SUMMARY_MODELS
+        // Every catalog model is adopted since ADR-0044; the unadopted case is checked
+        // whenever a candidate is added back.
+        let candidates: Vec<Option<&str>> = SUMMARY_MODELS
             .iter()
-            .find(|m| !m.adopted)
-            .expect("no unadopted candidate in the catalog");
+            .filter(|m| !m.adopted)
+            .map(|m| Some(m.file))
+            .collect();
         for mem in [None, Some(16 * GIB), Some(64 * GIB)] {
             let auto = select_summary_model(mem, &dir).file;
-            for requested in [
-                Some(candidate.file),
-                Some("no-such-model.gguf"),
-                Some(""),
-                None,
-            ] {
+            for requested in
+                candidates
+                    .iter()
+                    .copied()
+                    .chain([Some("no-such-model.gguf"), Some(""), None])
+            {
                 assert_eq!(
                     select_summary_model_with(requested, mem, &dir).file,
                     auto,

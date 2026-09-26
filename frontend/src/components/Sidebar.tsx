@@ -1,14 +1,16 @@
-// 左サイドバー（236px 固定）。ナビ + 最近リスト + ローカルステータス。
+// 左サイドバー。ナビ + 最近リスト + ローカルステータス。236px、畳むと 64px（アイコンだけ・#115）。
+import { useState } from "react";
 import { useApp, type ViewKind } from "@/lib/app";
+import { getSidebarCollapsed, setSidebarCollapsed } from "@/lib/prefs";
 import { useI18n } from "@/i18n";
 import { cx } from "@/lib/cx";
 import { openFeedbackForm } from "@/lib/feedback";
-import { formatDurationHuman, type Recording } from "@/lib/types";
+import { formatDurationHuman, recordingState, recordingTitle, type RecordingRow } from "@/lib/types";
 import { LocalStatus } from "./composite";
 import {
   BrandMark,
   CalendarIcon,
-  HomeIcon,
+  ChevronDownIcon,
   MessageIcon,
   PlugIcon,
   PlusIcon,
@@ -20,7 +22,7 @@ import {
 // ナビの view はモジュールスコープで持ち、表示ラベルは描画時に t.sidebar.nav[view] で引く。
 type NavView = Extract<
   ViewKind,
-  "meeting" | "home" | "history" | "speakers" | "integrations" | "settings"
+  "meeting" | "history" | "speakers" | "integrations" | "settings"
 >;
 
 interface NavItem {
@@ -30,8 +32,8 @@ interface NavItem {
 
 // 全項目が実機能（モック画面はナビ直下には無く、到達性は MOCK_PREVIEW が握る）。
 const NAV: NavItem[] = [
+  // 「ホーム」は上の「新しい録音」と同じ行き先なので置かない（#115）。
   { view: "meeting", icon: VideoIcon },
-  { view: "home", icon: HomeIcon },
   { view: "history", icon: CalendarIcon },
   { view: "speakers", icon: UsersIcon },
   { view: "integrations", icon: PlugIcon },
@@ -42,7 +44,7 @@ export function Sidebar({
   recents,
   activeJobIds,
 }: {
-  recents: Recording[];
+  recents: RecordingRow[];
   /** 進行中ジョブ（pending|running）を持つ録音 id。最近リストに処理中ドットを出す（ADR-0024）。 */
   activeJobIds?: Set<string>;
 }) {
@@ -54,13 +56,37 @@ export function Sidebar({
   // 録音中は唯一の停止導線（RecordingView の停止ボタン）に収束させる。
   // ここで離脱できると録音がバックエンドに残り停止/保存できなくなる。
   const locked = route.view === "recording";
+  // 最小幅（920px）でも詳細画面に幅を回せるよう畳める。選択は覚える。
+  const [collapsed, setCollapsedState] = useState(getSidebarCollapsed);
+  const toggleCollapsed = () => {
+    setCollapsedState((c) => {
+      setSidebarCollapsed(!c);
+      return !c;
+    });
+  };
 
   return (
-    <aside className="flex h-full w-[236px] shrink-0 flex-col border-r border-border bg-surface">
-      {/* ロゴ */}
-      <div className="flex items-center gap-2.5 px-4 pb-3 pt-4">
-        <BrandMark size={28} className="rounded-[8px]" />
-        <span className="text-[16px] font-bold tracking-tight text-ink">mojiroku</span>
+    <aside
+      className={cx(
+        "flex h-full shrink-0 flex-col border-r border-border bg-surface transition-[width]",
+        collapsed ? "w-16" : "w-[236px]",
+      )}
+    >
+      {/* ロゴ + 畳む */}
+      <div className={cx("flex items-center gap-2.5 pb-3 pt-4", collapsed ? "flex-col px-2" : "px-4")}>
+        <BrandMark size={28} className="rounded-ctl" />
+        {!collapsed && (
+          <span className="flex-1 text-[15px] font-bold tracking-tight text-ink">mojiroku</span>
+        )}
+        <button
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? t.sidebar.expand : t.sidebar.collapse}
+          title={collapsed ? t.sidebar.expand : t.sidebar.collapse}
+          aria-expanded={!collapsed}
+          className="rounded-tag p-1 text-muted transition-colors hover:bg-hover hover:text-ink"
+        >
+          <ChevronDownIcon size={15} className={collapsed ? "-rotate-90" : "rotate-90"} />
+        </button>
       </div>
 
       {/* 新しい録音 */}
@@ -68,11 +94,12 @@ export function Sidebar({
         <button
           onClick={() => navigate({ view: "home" })}
           disabled={locked}
-          className="flex w-full items-center justify-center gap-2 rounded-btn py-2.5 text-[13px] font-medium text-white transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
-          style={{ background: "linear-gradient(180deg,#6366F1,#4F46E5)" }}
+          aria-label={t.sidebar.newRecording}
+          title={collapsed ? t.sidebar.newRecording : undefined}
+          className="bg-brand-gradient flex w-full items-center justify-center gap-2 rounded-btn py-2.5 text-[13px] font-medium text-white transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
         >
           <PlusIcon size={16} />
-          {t.sidebar.newRecording}
+          {!collapsed && t.sidebar.newRecording}
         </button>
       </div>
 
@@ -86,8 +113,12 @@ export function Sidebar({
               key={item.view}
               onClick={() => navigate({ view: item.view })}
               disabled={locked}
+              aria-label={collapsed ? t.sidebar.nav[item.view] : undefined}
+              title={collapsed ? t.sidebar.nav[item.view] : undefined}
+              aria-current={isActive ? "page" : undefined}
               className={cx(
-                "flex items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[13px] transition-colors",
+                "relative flex items-center gap-2.5 rounded-ctl px-2.5 py-2 text-[13px] transition-colors",
+                collapsed && "justify-center",
                 isActive
                   ? "bg-hover text-ink"
                   : "text-sub hover:bg-hover/60 hover:text-body",
@@ -95,10 +126,13 @@ export function Sidebar({
               )}
             >
               <Icon size={17} className={isActive ? "text-brand-light" : undefined} />
-              <span className="flex-1 text-left">{t.sidebar.nav[item.view]}</span>
+              {!collapsed && <span className="flex-1 text-left">{t.sidebar.nav[item.view]}</span>}
               {item.view === "meeting" && meetingRecording && (
                 <span
-                  className="h-2 w-2 animate-mjpulse rounded-full bg-red shadow-[0_0_0_3px_rgba(239,68,68,0.18)]"
+                  className={cx(
+                    "h-2 w-2 animate-mjpulse rounded-full bg-red ring-[3px] ring-red/20",
+                    collapsed && "absolute right-1.5 top-1.5",
+                  )}
                   title={t.sidebar.recordingDot}
                 />
               )}
@@ -107,38 +141,47 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* 最近 */}
+      {/* 最近（畳んでいる間は出さない） */}
+      {collapsed ? <div className="flex-1" /> : (
       <div className="mt-1 flex min-h-0 flex-1 flex-col px-3">
-        <div className="px-2.5 pb-1.5 pt-2 text-[10.5px] font-medium uppercase tracking-[0.08em] text-dim">
+        <div className="px-2.5 pb-1.5 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
           {t.sidebar.recent}
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {recents.length === 0 ? (
             <div className="px-2.5 py-2 text-[12px] text-dim">{t.sidebar.recentEmpty}</div>
           ) : (
-            recents.slice(0, 12).map((r) => (
+            recents.slice(0, 12).map(({ recording: r, ...row }) => (
               <button
                 key={r.id}
                 onClick={() => navigate({ view: "detail", id: r.id })}
                 disabled={locked}
                 className={cx(
-                  "flex w-full flex-col rounded-[8px] px-2.5 py-1.5 text-left transition-colors hover:bg-hover/60",
+                  "flex w-full flex-col rounded-ctl px-2.5 py-1.5 text-left transition-colors hover:bg-hover/60",
                   route.view === "detail" && route.id === r.id && "bg-hover",
                   locked && "opacity-40 pointer-events-none",
                 )}
               >
                 <span className="flex items-center gap-1.5">
-                  <span className="truncate text-[12.5px] text-body">
-                    {r.title || t.common.untitled}
+                  <span className="truncate text-[13px] text-body">
+                    {recordingTitle(r, lang)}
                   </span>
-                  {activeJobIds?.has(r.id) && (
+                  {activeJobIds?.has(r.id) ? (
                     <span
                       className="h-1.5 w-1.5 shrink-0 animate-mjpulse rounded-full bg-brand-light"
                       title={t.job.processing}
                     />
-                  )}
+                  ) : recordingState({ recording: r, ...row }) === "failed" ? (
+                    // 失敗は再起動後も残す（#109）。以前は完了時のトーストだけだった。
+                    <span
+                      role="img"
+                      aria-label={t.history.state.failed}
+                      title={t.history.state.failed}
+                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-light"
+                    />
+                  ) : null}
                 </span>
-                <span className="font-mono text-[10.5px] text-dim tnum">
+                <span className="font-mono text-[11px] text-dim tnum">
                   {formatDurationHuman(r.duration_ms, lang)}
                 </span>
               </button>
@@ -147,21 +190,30 @@ export function Sidebar({
         </div>
       </div>
 
+      )}
+
       {/* フィードバック（ベータの収集導線。外部ブラウザで開くだけなので録音中も無効化しない） */}
       <div className="px-3 pt-2">
         <button
           onClick={() => void openFeedbackForm().catch(() => {})}
-          className="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2 text-[12.5px] text-sub transition-colors hover:bg-hover/60 hover:text-body"
+          aria-label={collapsed ? t.sidebar.sendFeedback : undefined}
+          title={collapsed ? t.sidebar.sendFeedback : undefined}
+          className={cx(
+            "flex w-full items-center gap-2.5 rounded-ctl px-2.5 py-2 text-[13px] text-sub transition-colors hover:bg-hover/60 hover:text-body",
+            collapsed && "justify-center",
+          )}
         >
           <MessageIcon size={16} />
-          <span className="flex-1 text-left">{t.sidebar.sendFeedback}</span>
+          {!collapsed && <span className="flex-1 text-left">{t.sidebar.sendFeedback}</span>}
         </button>
       </div>
 
       {/* ステータス */}
-      <div className="p-3">
-        <LocalStatus />
-      </div>
+      {!collapsed && (
+        <div className="p-3">
+          <LocalStatus />
+        </div>
+      )}
     </aside>
   );
 }

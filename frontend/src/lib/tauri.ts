@@ -11,6 +11,7 @@ import type {
   Progress,
   Recording,
   RecordingDetail,
+  RecordingRow,
   SearchHit,
   Settings,
   StartJobResult,
@@ -64,6 +65,8 @@ export const transcribeFile = (path: string, diarize: boolean, recordOnly = fals
 
 /** マイク録音開始（cpal, default device）。 */
 export const startMicRecording = () => invoke<void>("start_mic_recording");
+/** マイク録音を保存せずに止める（#113）。 */
+export const cancelMicRecording = () => invoke<void>("cancel_mic_recording");
 
 /**
  * マイク録音停止 → WAV 保存確定 → 文字起こしジョブを投入して即返す（ADR-0024）。diarize で話者分離。
@@ -90,6 +93,9 @@ export const summarize = (
 
 /** 履歴一覧（created_at 降順）。 */
 export const listRecordings = () => invoke<Recording[]>("list_recordings");
+
+/** 履歴一覧（状態つき・#109）。Rust 側 store::RecordingRow に対応。 */
+export const listRecordingRows = () => invoke<RecordingRow[]>("list_recording_rows");
 
 /** FTS5 全文検索（title + 本文）。 */
 export const searchRecordings = (query: string) =>
@@ -125,6 +131,10 @@ export const listJobs = () => invoke<Job[]>("list_jobs");
 export const cancelJob = (jobId: string) => invoke<boolean>("cancel_job", { jobId });
 
 /** 録音タイトル変更（null/空白で既定の「無題」へ戻す）。全文検索も同期される。 */
+/** 文字起こしからタイトルを生成して保存する（Issue #4）。要約と同じエンジン設定に従う。 */
+export const generateTitle = (recordingId: string) =>
+  invoke<string>("generate_title", { recordingId });
+
 export const renameRecording = (id: string, title: string | null) =>
   invoke<void>("rename_recording", { id, title: title?.trim() || null });
 

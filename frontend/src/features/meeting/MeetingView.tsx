@@ -11,13 +11,18 @@ import { cx } from "@/lib/cx";
 import { useI18n } from "@/i18n";
 import { elapsedSeconds, formatTimestamp } from "@/lib/types";
 import { Button, ConfirmDialog } from "@/components/ui";
-import { PrivacyBar } from "@/components/composite";
+import { LevelMeter, PrivacyBar } from "@/components/composite";
+import { useRecordingLevels } from "@/lib/levels";
 import { ShieldIcon, StopIcon, VideoIcon } from "@/components/icons";
 
 import { LiveTranslationPanel } from "./LiveTranslationPanel";
+import { ModelSetupCard, useLiveModels } from "@/features/setup/ModelSetup";
 
-// システム音声 + マイクのレベルメータ（小さな縦バー）。
-const METER_BARS = [6, 11, 8, 13, 5];
+// 両方のトラックがこの秒数以上無音なら「音を拾えていない」と知らせる。会議は沈黙もあるので長め。
+const MEETING_SILENCE_WARN_SEC = 20;
+
+// 開始時にライブ文字起こしのモデルが無かった会議（開始時刻）。
+const unavailableMeetings = new Set<number>();
 
 export function MeetingView() {
   const { meeting, startMeeting, stopMeeting, discardMeeting, liveSnapshot, translation, translationTarget, setTranslationTarget } = useApp();
@@ -33,6 +38,18 @@ export function MeetingView() {
   // 画面に戻った直後は空だが、次の tick で現在ビュー一式が再配信されるので自然に復元する。
   // App now retains this snapshot across navigation; no next-tick wait is needed.
   const liveLines = liveSnapshot?.lines ?? [];
+  const liveModels = useLiveModels();
+  // この会議が始まった時点でモデルが無かったか。live_stt は開始時にモデルが無いと終わり、
+  // 途中で取得しても始まらないので、取得後も「この会議では出ない」と言い続ける（#112 レビュー）。
+  // 画面を離れて戻っても保つため、会議の開始時刻をキーにモジュールで覚える。
+  const startedAt = meeting.startedAt;
+  if (capturing && startedAt !== null && liveModels.ready === false) unavailableMeetings.add(startedAt);
+  const liveUnavailable = capturing && startedAt !== null && unavailableMeetings.has(startedAt);
+  const levels = useRecordingLevels(capturing);
+  const meetingSilent =
+    capturing &&
+    (levels.mic?.silentSec ?? 0) >= MEETING_SILENCE_WARN_SEC &&
+    (levels.system?.silentSec ?? 0) >= MEETING_SILENCE_WARN_SEC;
   const liveScrollRef = useRef<HTMLDivElement | null>(null);
 
   // idle のときだけ許可状態を確認して開始ボタン/誘導の出し分けに使う。
@@ -77,7 +94,7 @@ export function MeetingView() {
     return (
       <div className="flex min-h-full flex-col items-center justify-center px-8 py-12">
         <div className="w-full max-w-[460px] rounded-win border border-border bg-surface p-8 text-center">
-          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-[14px] bg-brand/15 text-brand-light">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-win bg-brand/15 text-brand-light">
             <VideoIcon size={26} />
           </span>
           <h1 className="mt-4 text-[18px] font-bold text-ink">{t.meeting.idle.title}</h1>
@@ -85,16 +102,16 @@ export function MeetingView() {
 
           {denied ? (
             <div className="mt-6 rounded-card border border-amber/30 bg-amber/10 px-4 py-3.5 text-left">
-              <div className="flex items-center gap-2 text-[12.5px] font-medium text-amber">
+              <div className="flex items-center gap-2 text-[13px] font-medium text-amber">
                 <ShieldIcon size={15} />
                 {t.meeting.idle.permTitle}
               </div>
-              <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+              <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
                 {t.meeting.idle.permBody}
               </p>
               <button
                 onClick={begin}
-                className="mt-3 inline-flex h-9 items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-4 text-[12.5px] font-medium text-ink transition-colors hover:bg-hover"
+                className="mt-3 inline-flex h-9 items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-4 text-[13px] font-medium text-ink transition-colors hover:bg-hover"
               >
                 {t.meeting.idle.permStart}
               </button>
@@ -102,14 +119,14 @@ export function MeetingView() {
           ) : (
             <button
               onClick={begin}
-              className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-btn text-[14px] font-medium text-white transition-[filter] hover:brightness-110"
-              style={{ background: "linear-gradient(180deg,#6366F1,#4F46E5)" }}
+              className="bg-brand-gradient mt-6 inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-btn text-[14px] font-medium text-white transition-[filter] hover:brightness-110"
             >
               <span className="h-2.5 w-2.5 rounded-full bg-white/90" />
               {t.meeting.idle.start}
             </button>
           )}
 
+          <ModelSetupCard variant="meeting" className="mt-5 text-left" />
           <div className="mt-5">
             <PrivacyBar>{t.meeting.idle.privacy}</PrivacyBar>
           </div>
@@ -127,7 +144,7 @@ export function MeetingView() {
       {/* ヘッダ */}
       <header className="flex items-center justify-between gap-4 border-b border-line px-6 py-3.5">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-brand/15 text-brand-light">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-ctl bg-brand/15 text-brand-light">
             <VideoIcon size={18} />
           </span>
           <div className="min-w-0">
@@ -141,29 +158,19 @@ export function MeetingView() {
         <div className="flex shrink-0 items-center gap-3.5">
           {/* システム音声 + マイク レベルメータ */}
           <div className="flex items-center gap-2 rounded-btn border border-border-2 bg-surface-2 px-3 py-1.5">
-            <span className="text-[11.5px] text-body">
+            <span className="text-[12px] text-body">
               {capturing ? t.meeting.live.meterCapturing : t.app.meetingBar.saving}
             </span>
-            <span className="flex h-3.5 items-end gap-0.5">
-              {METER_BARS.map((h, i) => {
-                const inactive = i === METER_BARS.length - 1;
-                return (
-                  <i
-                    key={i}
-                    className={cx(
-                      "w-[2.5px] rounded-full",
-                      inactive ? "bg-border-3" : "animate-mjpulse bg-green",
-                    )}
-                    style={{ height: h, animationDelay: `${i * 140}ms` }}
-                  />
-                );
-              })}
+            {/* 実際の入力音量（#113）。上=マイク（自分）、下=システム音声（相手）。 */}
+            <span className="flex w-16 flex-col gap-[3px]">
+              <LevelMeter value={levels.mic?.meter ?? 0} segments={12} height={4} label={t.meeting.live.micLevel} />
+              <LevelMeter value={levels.system?.meter ?? 0} segments={12} height={4} label={t.meeting.live.systemLevel} />
             </span>
           </div>
 
           {/* 録音タイマー */}
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-mjpulse rounded-full bg-red shadow-[0_0_0_3px_rgba(239,68,68,0.18)]" />
+            <span className="h-2 w-2 animate-mjpulse rounded-full bg-red ring-[3px] ring-red/20" />
             <span className="font-mono text-[13px] text-ink tnum">
               {formatTimestamp(elapsed * 1000)}
             </span>
@@ -180,11 +187,9 @@ export function MeetingView() {
           </Button>
 
           <Button
-            variant="primary"
+            variant="destructive"
             size="sm"
             icon={<StopIcon size={14} />}
-            className="shadow-[0_10px_26px_rgba(239,68,68,0.35)]"
-            style={{ background: "#EF4444" }}
             onClick={() => void stopMeeting()}
             disabled={stopping}
           >
@@ -196,6 +201,11 @@ export function MeetingView() {
       {/* プライバシーバー */}
       <div className="px-6 py-2">
         <PrivacyBar>{t.meeting.live.privacy}</PrivacyBar>
+        {meetingSilent && (
+          <p role="alert" className="mt-2 rounded-ctl border border-amber/30 bg-amber/10 px-3 py-2 text-[12px] text-amber">
+            {t.meeting.live.silentWarning}
+          </p>
+        )}
       </div>
 
       {/* 2 カラム */}
@@ -218,7 +228,7 @@ export function MeetingView() {
                     <div key={l.id} className="py-1">
                       <span
                         className={cx(
-                          "text-[13.5px] leading-[1.7]",
+                          "text-[14px] leading-[1.7]",
                           l.committed ? "text-speech" : "text-muted",
                         )}
                       >
@@ -235,12 +245,25 @@ export function MeetingView() {
                 </div>
               </div>
             ) : (
+              // モデルが無いとライブ文字起こしは出ない（#112）。待たせずにそう言う。
+              liveUnavailable ? (
+                <div className="flex min-h-0 flex-1 items-center justify-center px-2">
+                  {liveModels.ready === false ? (
+                    <ModelSetupCard variant="live" className="w-full max-w-[460px]" />
+                  ) : (
+                    <p className="max-w-[420px] text-center text-[13px] leading-relaxed text-muted">
+                      {t.setup.readyNextMeeting}
+                    </p>
+                  )}
+                </div>
+              ) : (
               // ウォームアップ（モデルロード中 / まだ発話なし）。
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6 text-center">
                 <span className="h-2 w-2 animate-mjpulse rounded-full bg-red" />
                 <span className="text-[13px] text-body">{t.meeting.live.warmupTitle}</span>
-                <span className="text-[11.5px] text-muted">{t.meeting.live.warmupHint}</span>
+                <span className="text-[12px] text-muted">{t.meeting.live.warmupHint}</span>
               </div>
+              )
             )}
           </div>
         </section>

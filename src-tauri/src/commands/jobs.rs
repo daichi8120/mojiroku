@@ -94,10 +94,9 @@ pub(crate) fn transcribe_recording(
 }
 
 /// 既存録音に**後から話者分離**を掛けるジョブを投入する（ベスト努力で表示名を引き継ぐ・ADR-0024）。
-/// 文字起こし済みが前提（本文が無ければワーカーがエラーにする）。File/Mic の単一トラック録音のみ対象。
-///
-/// **会議（Live）は拒否する**: 取得時に相手＝話者分離・自分＝ソース帰属で確定済みで、後から system 音声を
-/// 再分離して全 transcript に merge すると自分セグメントが相手話者へ化けて壊れる（無意味かつ破壊的）。
+/// 文字起こし済みが前提（本文が無ければワーカーがエラーにする）。話者が既に付いていても
+/// やり直せる（Issue #102）。会議（Live）は system（相手）トラックだけを分離し直し、自分（`self`）の
+/// セグメントには触れない。
 #[tauri::command]
 pub(crate) fn diarize_recording(
     app: AppHandle,
@@ -105,14 +104,6 @@ pub(crate) fn diarize_recording(
     queue: State<'_, JobQueue>,
     recording_id: String,
 ) -> Result<StartJobResult, String> {
-    // 会議は enqueue 前に弾く（doomed なジョブ行を作らず即フィードバック）。
-    let detail = resolve_recording_detail(&store, &recording_id)?;
-    if matches!(
-        detail.recording.source_type,
-        mojiroku_core::SourceType::Live
-    ) {
-        return Err("error.job.already_diarized".to_string());
-    }
     // diarize ジョブに話者分離フラグは不要だが、params の形は共通なので false を入れる。
     let params = snapshot_params(&app, false)?;
     let job_id = uuid::Uuid::new_v4().to_string();
@@ -128,18 +119,30 @@ pub(crate) fn diarize_recording(
 
 /// 進行中・要注意なジョブ一覧（pending/running/failed、更新の新しい順）。
 /// UI のキュー表示・履歴行の処理中/失敗バッジ用。完了（done/canceled）は含めない。
+/// タイトル生成（Issue #4）は裏方なので出さない。
 #[tauri::command]
 pub(crate) fn list_jobs(
     store: State<'_, SqliteStore>,
 ) -> Result<Vec<mojiroku_core::store::Job>, String> {
-    store
+    let jobs = store
         .list_jobs(&["pending", "running", "failed"])
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(jobs
+        .into_iter()
+        .filter(|j| j.kind != mojiroku_core::store::TITLE_JOB_KIND)
+        .collect())
 }
 
-/// pending ジョブをキャンセルする。running は中断不可（`spawn_blocking` 内）なので完走する
-/// （キャンセルできたら true、できなかった=既に running/終端なら false）。
+/// ジョブをキャンセルする。pending はその場で canceled、running は中断を求め、ワーカーが
+/// 止まった時点で canceled として `job://update` を出す（Issue #114）。受け付けたら true。
 #[tauri::command]
-pub(crate) fn cancel_job(store: State<'_, SqliteStore>, job_id: String) -> Result<bool, String> {
-    store.cancel_job(&job_id).map_err(|e| e.to_string())
+pub(crate) fn cancel_job(
+    store: State<'_, SqliteStore>,
+    queue: State<'_, crate::jobs::JobQueue>,
+    job_id: String,
+) -> Result<bool, String> {
+    if store.cancel_job(&job_id).map_err(|e| e.to_string())? {
+        return Ok(true);
+    }
+    Ok(queue.request_cancel(&job_id))
 }

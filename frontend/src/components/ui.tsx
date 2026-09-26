@@ -12,19 +12,20 @@ import { cx } from "@/lib/cx";
 import { ChevronDownIcon, XIcon } from "./icons";
 
 // ── Button ──────────────────────────────────────────────────────────────
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "destructive";
 type ButtonSize = "sm" | "md";
 
 const BTN_SIZE: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-[12.5px] gap-1.5",
+  sm: "h-8 px-3 text-[13px] gap-1.5",
   md: "h-10 px-4 text-[13px] gap-2",
 };
 
 const BTN_VARIANT: Record<ButtonVariant, string> = {
-  primary: "text-white shadow-[0_10px_26px_rgba(79,70,229,0.35)] hover:brightness-110",
+  primary: "bg-brand-gradient text-white shadow-cta hover:brightness-110",
   secondary: "bg-surface-2 border border-border-2 text-ink hover:bg-hover",
   ghost: "text-sub hover:bg-hover hover:text-ink",
-  danger: "text-red-light hover:bg-[rgba(239,68,68,0.12)]",
+  danger: "text-red-light hover:bg-red/12",
+  destructive: "bg-danger text-white shadow-[0_10px_26px] shadow-danger/30 hover:brightness-110",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -45,7 +46,7 @@ export function Button({
   return (
     <button
       {...rest}
-      style={variant === "primary" ? { background: "linear-gradient(180deg,#6366F1,#4F46E5)", ...style } : style}
+      style={style}
       className={cx(
         "inline-flex items-center justify-center rounded-btn font-medium transition-colors",
         "disabled:cursor-not-allowed disabled:opacity-45",
@@ -85,12 +86,12 @@ export function IconButton({ label, className, children, ...rest }: IconButtonPr
 type Tone = "indigo" | "green" | "cyan" | "amber" | "red" | "neutral" | "purple";
 
 const BADGE_TONE: Record<Tone, string> = {
-  indigo: "text-brand-lighter bg-[rgba(99,102,241,0.14)]",
-  green: "text-green bg-[rgba(52,211,153,0.13)]",
-  cyan: "text-cyan bg-[rgba(34,211,238,0.13)]",
-  amber: "text-amber bg-[rgba(245,158,11,0.14)]",
-  red: "text-red-light bg-[rgba(239,68,68,0.13)]",
-  purple: "text-purple bg-[rgba(167,139,250,0.14)]",
+  indigo: "text-brand-lighter bg-brand/14",
+  green: "text-green bg-green/13",
+  cyan: "text-cyan bg-cyan/13",
+  amber: "text-amber bg-amber/14",
+  red: "text-red-light bg-red/13",
+  purple: "text-purple bg-purple/14",
   neutral: "text-sub bg-hover",
 };
 
@@ -135,7 +136,7 @@ export function StatusBadge({
   return (
     <span
       className={cx(
-        "rounded-md border px-1.5 py-0.5 text-[10px]",
+        "rounded-md border px-1.5 py-0.5 text-[11px]",
         STATUS_BADGE_TONE[tone],
       )}
     >
@@ -160,9 +161,9 @@ export function Chip({
     <button
       onClick={onClick}
       className={cx(
-        "rounded-full border px-3 py-1 text-[12.5px] transition-colors",
+        "rounded-full border px-3 py-1 text-[13px] transition-colors",
         active
-          ? "border-brand/60 bg-[rgba(99,102,241,0.16)] text-brand-lighter"
+          ? "border-brand/60 bg-brand/16 text-brand-lighter"
           : "border-border-2 text-sub hover:bg-hover hover:text-body",
         className,
       )}
@@ -294,8 +295,8 @@ export function Spinner({ size = 18, className }: { size?: number; className?: s
       style={{
         width: size,
         height: size,
-        border: "2px solid rgba(255,255,255,0.18)",
-        borderTopColor: "#818cf8",
+        border: "2px solid var(--color-border-3)",
+        borderTopColor: "var(--color-brand-light)",
       }}
     />
   );
@@ -313,7 +314,7 @@ export function Kbd({ children }: { children: ReactNode }) {
 // ── SectionLabel ─────────────────────────────────────────────────────────
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-dim">
+    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-dim">
       {children}
     </div>
   );
@@ -347,7 +348,7 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        className="animate-mjfade w-full rounded-win border border-border-3 bg-surface shadow-[0_28px_80px_rgba(0,0,0,0.6)]"
+        className="animate-mjfade w-full rounded-win border border-border-3 bg-surface shadow-modal"
         style={{ maxWidth: width }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -385,6 +386,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   busy = false,
+  tone = "danger",
   onConfirm,
   onCancel,
 }: {
@@ -394,6 +396,8 @@ export function ConfirmDialog({
   confirmLabel?: string;
   cancelLabel?: string;
   busy?: boolean;
+  /** 確定ボタンの色。取り消せない操作は danger（既定）、それ以外は primary。 */
+  tone?: "danger" | "primary";
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -405,7 +409,7 @@ export function ConfirmDialog({
     <Modal open={open} onClose={busy ? () => {} : onCancel} width={400}>
       <div className="px-5 py-5">
         <h3 className="text-[15px] font-bold text-ink">{title}</h3>
-        {body && <p className="mt-2 text-[12.5px] leading-relaxed text-muted">{body}</p>}
+        {body && <p className="mt-2 text-[13px] leading-relaxed text-muted">{body}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={onCancel} disabled={busy}>
             {cancelText}
@@ -414,7 +418,8 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={busy}
             className={cx(
-              "inline-flex h-8 items-center justify-center gap-1.5 rounded-btn bg-red px-3.5 text-[12.5px] font-semibold text-white",
+              "inline-flex h-8 items-center justify-center gap-1.5 rounded-btn px-3.5 text-[13px] font-semibold text-white",
+              tone === "danger" ? "bg-danger" : "bg-brand",
               "transition-[filter] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60",
             )}
           >
@@ -452,7 +457,7 @@ export function Drawer({
       <div
         role="dialog"
         aria-modal="true"
-        className="animate-mjdrawer flex h-full flex-col border-l border-border-3 bg-surface shadow-[0_0_80px_rgba(0,0,0,0.5)]"
+        className="animate-mjdrawer flex h-full flex-col border-l border-border-3 bg-surface shadow-modal"
         style={{ width }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -500,7 +505,7 @@ export function Popover({
       {open && (
         <div
           className={cx(
-            "animate-mjfade absolute top-full z-40 mt-2 rounded-card border border-border-3 bg-popover p-1.5 shadow-[0_24px_70px_rgba(0,0,0,0.6)]",
+            "animate-mjfade absolute top-full z-40 mt-2 rounded-card border border-border-3 bg-popover p-1.5 shadow-pop",
             align === "right" ? "right-0" : "left-0",
           )}
           style={{ width }}
@@ -527,7 +532,7 @@ export function MenuItem({
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-left text-[13px] text-body transition-colors hover:bg-popover-2"
+      className="flex w-full items-center gap-2.5 rounded-ctl px-2.5 py-2 text-left text-[13px] text-body transition-colors hover:bg-popover-2"
     >
       {icon && <span className="text-sub">{icon}</span>}
       <span className="min-w-0 flex-1 truncate">{children}</span>
