@@ -155,7 +155,13 @@ pub fn fetch_calendar_api(
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| start.clone());
-        out.push(CalendarEvent { id, title, start, end, location });
+        out.push(CalendarEvent {
+            id,
+            title,
+            start,
+            end,
+            location,
+        });
         if out.len() >= max {
             break;
         }
@@ -211,7 +217,9 @@ fn cal_err(e: ureq::Error) -> CoreError {
     match e {
         ureq::Error::Status(code, _resp) => {
             let hint = match code {
-                401 | 403 => "（URL が無効か限定公開設定が変更された可能性。URL を再取得してください）",
+                401 | 403 => {
+                    "（URL が無効か限定公開設定が変更された可能性。URL を再取得してください）"
+                }
                 404 => "（カレンダーが見つかりません。URL を再取得してください）",
                 _ => "",
             };

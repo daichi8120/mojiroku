@@ -17,13 +17,13 @@ use crate::schemas::{ActionItem, Recording, Segment, SourceType, Speaker, Summar
 
 mod embedding;
 mod job;
-mod speaker;
-mod search;
 mod recording;
+mod search;
+mod speaker;
 mod translation;
+use embedding::{blob_to_f32, dot, f32_to_blob, l2_mean};
 pub use job::TITLE_JOB_KIND;
 pub use translation::{validate_live_translations, SavedLiveTranslation};
-use embedding::{blob_to_f32, dot, f32_to_blob, l2_mean};
 
 /// 履歴詳細。`Transcript`/`Summary` に `recording_id` を足さず集約だけ持つ DTO。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -481,9 +481,27 @@ mod tests {
         Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "あ".into(), speaker_id: None },
-                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "い".into(), speaker_id: None },
-                Segment { idx: 0, start_ms: 2000, end_ms: 3000, text: "う".into(), speaker_id: None },
+                Segment {
+                    idx: 0,
+                    start_ms: 0,
+                    end_ms: 1000,
+                    text: "あ".into(),
+                    speaker_id: None,
+                },
+                Segment {
+                    idx: 0,
+                    start_ms: 1000,
+                    end_ms: 2000,
+                    text: "い".into(),
+                    speaker_id: None,
+                },
+                Segment {
+                    idx: 0,
+                    start_ms: 2000,
+                    end_ms: 3000,
+                    text: "う".into(),
+                    speaker_id: None,
+                },
             ],
         }
     }
@@ -513,13 +531,19 @@ mod tests {
         // A: S1=[1,0] 60s, S2=[0,1] 60s。B: S1=[1,0] 60s（A/S1 と同一人物想定）, S2=[0,1] 10s（尺不足）。
         s.save_speaker_embeddings(
             "A",
-            &[emb("S1", vec![1.0, 0.0], 60_000), emb("S2", vec![0.0, 1.0], 60_000)],
+            &[
+                emb("S1", vec![1.0, 0.0], 60_000),
+                emb("S2", vec![0.0, 1.0], 60_000),
+            ],
             "titanet",
         )
         .unwrap();
         s.save_speaker_embeddings(
             "B",
-            &[emb("S1", vec![1.0, 0.0], 60_000), emb("S2", vec![0.0, 1.0], 10_000)],
+            &[
+                emb("S1", vec![1.0, 0.0], 60_000),
+                emb("S2", vec![0.0, 1.0], 10_000),
+            ],
             "titanet",
         )
         .unwrap();
@@ -549,7 +573,11 @@ mod tests {
         let sa = s.identify_speakers("A").unwrap();
         assert!(sa.iter().all(|x| x.top_library_id.is_none()));
         assert_eq!(
-            sa.iter().find(|x| x.speaker_id == "S1").unwrap().linked_library_id.as_deref(),
+            sa.iter()
+                .find(|x| x.speaker_id == "S1")
+                .unwrap()
+                .linked_library_id
+                .as_deref(),
             Some("P1")
         );
     }
@@ -558,7 +586,8 @@ mod tests {
     fn speaker_library_cascade_on_recording_delete() {
         let s = SqliteStore::open_in_memory().unwrap();
         s.save_recording(&rec("A"), &transcript(), &[]).unwrap();
-        s.save_speaker_embeddings("A", &[emb("S1", vec![0.6, 0.8], 30_000)], "titanet").unwrap();
+        s.save_speaker_embeddings("A", &[emb("S1", vec![0.6, 0.8], 30_000)], "titanet")
+            .unwrap();
         s.add_library_speaker("P1", "X").unwrap();
         s.link_speaker("A", "S1", "P1", 0.9).unwrap();
         // 録音削除 → speaker_embeddings / speaker_matches も FK CASCADE で消える。
@@ -586,7 +615,12 @@ mod tests {
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         assert_eq!(d.recording.id, "r1");
         assert_eq!(d.transcript.language.as_deref(), Some("ja"));
-        let texts: Vec<&str> = d.transcript.segments.iter().map(|x| x.text.as_str()).collect();
+        let texts: Vec<&str> = d
+            .transcript
+            .segments
+            .iter()
+            .map(|x| x.text.as_str())
+            .collect();
         assert_eq!(texts, vec!["あ", "い", "う"]); // idx 昇順
     }
 
@@ -598,7 +632,11 @@ mod tests {
             "r1",
             &summary(
                 "minutes",
-                vec![ActionItem { text: "Xをやる".into(), assignee: Some("alice".into()), due: None }],
+                vec![ActionItem {
+                    text: "Xをやる".into(),
+                    assignee: Some("alice".into()),
+                    due: None,
+                }],
             ),
         )
         .unwrap();
@@ -608,7 +646,10 @@ mod tests {
         assert_eq!(d.summaries[0].template_id, "minutes");
         assert_eq!(d.summaries[0].action_items.len(), 1);
         assert_eq!(d.summaries[0].action_items[0].text, "Xをやる");
-        assert_eq!(d.summaries[0].action_items[0].assignee.as_deref(), Some("alice"));
+        assert_eq!(
+            d.summaries[0].action_items[0].assignee.as_deref(),
+            Some("alice")
+        );
         assert_eq!(d.summaries[1].template_id, "summary");
     }
 
@@ -644,7 +685,14 @@ mod tests {
         s.save_recording(&rec("r1"), &transcript(), &[]).unwrap();
         s.save_summary(
             "r1",
-            &summary("minutes", vec![ActionItem { text: "x".into(), assignee: None, due: None }]),
+            &summary(
+                "minutes",
+                vec![ActionItem {
+                    text: "x".into(),
+                    assignee: None,
+                    due: None,
+                }],
+            ),
         )
         .unwrap();
         s.delete_recording("r1").unwrap();
@@ -653,9 +701,13 @@ mod tests {
         // CASCADE で子テーブルも 0 件（FK pragma が効いている証明）
         let conn = s.conn.lock().unwrap();
         let count = |t: &str| -> i64 {
-            conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0)).unwrap()
+            conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+                .unwrap()
         };
-        assert_eq!((count("segments"), count("summaries"), count("action_items")), (0, 0, 0));
+        assert_eq!(
+            (count("segments"), count("summaries"), count("action_items")),
+            (0, 0, 0)
+        );
     }
 
     #[test]
@@ -670,17 +722,43 @@ mod tests {
         Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "おはよう".into(), speaker_id: Some("S1".into()) },
-                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "はい".into(), speaker_id: Some("S2".into()) },
-                Segment { idx: 0, start_ms: 2000, end_ms: 3000, text: "了解".into(), speaker_id: Some("S1".into()) },
+                Segment {
+                    idx: 0,
+                    start_ms: 0,
+                    end_ms: 1000,
+                    text: "おはよう".into(),
+                    speaker_id: Some("S1".into()),
+                },
+                Segment {
+                    idx: 0,
+                    start_ms: 1000,
+                    end_ms: 2000,
+                    text: "はい".into(),
+                    speaker_id: Some("S2".into()),
+                },
+                Segment {
+                    idx: 0,
+                    start_ms: 2000,
+                    end_ms: 3000,
+                    text: "了解".into(),
+                    speaker_id: Some("S1".into()),
+                },
             ],
         }
     }
 
     fn speakers() -> Vec<Speaker> {
         vec![
-            Speaker { id: "S1".into(), label: "話者1".into(), display_name: None },
-            Speaker { id: "S2".into(), label: "話者2".into(), display_name: None },
+            Speaker {
+                id: "S1".into(),
+                label: "話者1".into(),
+                display_name: None,
+            },
+            Speaker {
+                id: "S2".into(),
+                label: "話者2".into(),
+                display_name: None,
+            },
         ]
     }
 
@@ -688,7 +766,8 @@ mod tests {
     fn speakers_roundtrip_ids_match_segments() {
         use std::collections::BTreeSet;
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         assert_eq!(d.speakers.len(), 2);
         assert_eq!(d.speakers[0].id, "S1");
@@ -704,8 +783,12 @@ mod tests {
         // （行を消すと声紋とライブラリ紐づけまで失われ、訂正を戻せなくなる）。
         // ここは全話者に発言があるフィクスチャを save_recording した直後なので、
         // このテストに限り両向きの一致を確かめてよい。
-        let seg_ids: BTreeSet<_> =
-            d.transcript.segments.iter().filter_map(|x| x.speaker_id.clone()).collect();
+        let seg_ids: BTreeSet<_> = d
+            .transcript
+            .segments
+            .iter()
+            .filter_map(|x| x.speaker_id.clone())
+            .collect();
         let spk_ids: BTreeSet<_> = d.speakers.iter().map(|x| x.id.clone()).collect();
         assert_eq!(seg_ids, spk_ids);
     }
@@ -713,13 +796,22 @@ mod tests {
     #[test]
     fn set_segment_speaker_moves_one_utterance_only() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
 
         // 2 番目（idx=1）を S2 → S1 へ訂正する。
-        assert!(s.set_segment_speaker("r1", 1, Some("S1")).unwrap(), "変更したので true");
+        assert!(
+            s.set_segment_speaker("r1", 1, Some("S1")).unwrap(),
+            "変更したので true"
+        );
 
         let d = s.get_recording_detail("r1").unwrap().unwrap();
-        let got: Vec<_> = d.transcript.segments.iter().map(|x| x.speaker_id.clone()).collect();
+        let got: Vec<_> = d
+            .transcript
+            .segments
+            .iter()
+            .map(|x| x.speaker_id.clone())
+            .collect();
         assert_eq!(
             got,
             vec![Some("S1".into()), Some("S1".into()), Some("S1".into())],
@@ -731,7 +823,10 @@ mod tests {
         assert_eq!(idxs, vec![0, 1, 2]);
 
         // 移動元（S2）の話者行は消さない。発言ゼロでも残す（訂正を戻せるように）。
-        assert!(d.speakers.iter().any(|x| x.id == "S2"), "S2 の行が残っている");
+        assert!(
+            d.speakers.iter().any(|x| x.id == "S2"),
+            "S2 の行が残っている"
+        );
 
         // 本文は変わらないので検索は壊れない。
         assert!(!s.search_recordings("はい").unwrap().is_empty());
@@ -740,7 +835,8 @@ mod tests {
     #[test]
     fn set_segment_speaker_marks_summaries_stale() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
         s.save_summary("r1", &summary("minutes", vec![])).unwrap();
         assert!(!s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
 
@@ -757,14 +853,20 @@ mod tests {
         // UPDATE ... WHERE recording_id = ?1 のスコープだけ。ここを固定する。
         let s = SqliteStore::open_in_memory().unwrap();
         for id in ["r1", "r2"] {
-            s.save_recording(&rec(id), &transcript_with_speakers(), &speakers()).unwrap();
+            s.save_recording(&rec(id), &transcript_with_speakers(), &speakers())
+                .unwrap();
             s.save_summary(id, &summary("minutes", vec![])).unwrap();
         }
 
         s.set_segment_speaker("r1", 1, Some("S1")).unwrap();
 
         let d2 = s.get_recording_detail("r2").unwrap().unwrap();
-        let got: Vec<_> = d2.transcript.segments.iter().map(|x| x.speaker_id.clone()).collect();
+        let got: Vec<_> = d2
+            .transcript
+            .segments
+            .iter()
+            .map(|x| x.speaker_id.clone())
+            .collect();
         assert_eq!(
             got,
             vec![Some("S1".into()), Some("S2".into()), Some("S1".into())],
@@ -783,19 +885,26 @@ mod tests {
         // 候補が居ないので、どの話者 id も拒否される。
         assert!(s.set_segment_speaker("r1", 0, Some("S1")).is_err());
         // 元から NULL なので「話者不明へ」は no-op。要約も stale にしない。
-        assert!(!s.set_segment_speaker("r1", 0, None).unwrap(), "None → None は no-op");
+        assert!(
+            !s.set_segment_speaker("r1", 0, None).unwrap(),
+            "None → None は no-op"
+        );
         assert!(!s.get_recording_detail("r1").unwrap().unwrap().summaries[0].stale);
     }
 
     #[test]
     fn set_segment_speaker_same_value_is_noop() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
         s.save_summary("r1", &summary("minutes", vec![])).unwrap();
 
         // idx=0 は元から S1。同じ話者を選び直しても要約を stale にしない
         // （7B モデルでの作り直しが分単位で走るため、内容が変わっていないのに促すのは害）。
-        assert!(!s.set_segment_speaker("r1", 0, Some("S1")).unwrap(), "同値なので false");
+        assert!(
+            !s.set_segment_speaker("r1", 0, Some("S1")).unwrap(),
+            "同値なので false"
+        );
 
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         assert!(!d.summaries[0].stale, "同値なら stale を立てない");
@@ -805,7 +914,8 @@ mod tests {
     #[test]
     fn set_segment_speaker_rejects_unknown_speaker_and_missing_segment() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
 
         // 当該録音の speakers に無い id は拒否する。許すと speakers の id 集合と
         // segments.speaker_id の集合がズレ、改名 UI に出ない話者が生まれる。
@@ -816,7 +926,9 @@ mod tests {
         // メッセージは `error.` 始まりの i18n キー。コマンド層の core_err が Display 接頭辞を
         // 外してフロントへ渡すので、キーが文字列の先頭に来ることが条件になる。
         let e1 = s.set_segment_speaker("r1", 0, Some("S99")).unwrap_err();
-        assert!(matches!(&e1, crate::error::CoreError::Db(m) if m == "error.speaker.unknown_for_recording"));
+        assert!(
+            matches!(&e1, crate::error::CoreError::Db(m) if m == "error.speaker.unknown_for_recording")
+        );
         let e2 = s.set_segment_speaker("r1", 999, Some("S1")).unwrap_err();
         assert!(matches!(&e2, crate::error::CoreError::Db(m) if m == "error.segment.not_found"));
 
@@ -828,16 +940,21 @@ mod tests {
     #[test]
     fn set_segment_speaker_can_clear_to_unknown() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
         assert!(s.set_segment_speaker("r1", 0, None).unwrap());
         let d = s.get_recording_detail("r1").unwrap().unwrap();
-        assert!(d.transcript.segments[0].speaker_id.is_none(), "話者不明へ戻せる");
+        assert!(
+            d.transcript.segments[0].speaker_id.is_none(),
+            "話者不明へ戻せる"
+        );
     }
 
     #[test]
     fn rename_speaker_persists_and_resets() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
         s.rename_speaker("r1", "S1", Some("田中")).unwrap();
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         let s1 = d.speakers.iter().find(|x| x.id == "S1").unwrap();
@@ -845,7 +962,13 @@ mod tests {
         // None で既定ラベルへ戻す
         s.rename_speaker("r1", "S1", None).unwrap();
         let d2 = s.get_recording_detail("r1").unwrap().unwrap();
-        assert!(d2.speakers.iter().find(|x| x.id == "S1").unwrap().display_name.is_none());
+        assert!(d2
+            .speakers
+            .iter()
+            .find(|x| x.id == "S1")
+            .unwrap()
+            .display_name
+            .is_none());
         // 存在しない話者は 0 行更新で no-op（エラーにしない）
         s.rename_speaker("r1", "S9", Some("x")).unwrap();
     }
@@ -855,9 +978,15 @@ mod tests {
         let s = SqliteStore::open_in_memory().unwrap();
         s.save_recording(&rec("r1"), &transcript(), &[]).unwrap();
         // 改名 → 一覧/詳細に反映
-        s.rename_recording("r1", Some("週次定例ミーティング")).unwrap();
+        s.rename_recording("r1", Some("週次定例ミーティング"))
+            .unwrap();
         assert_eq!(
-            s.get_recording_detail("r1").unwrap().unwrap().recording.title.as_deref(),
+            s.get_recording_detail("r1")
+                .unwrap()
+                .unwrap()
+                .recording
+                .title
+                .as_deref(),
             Some("週次定例ミーティング"),
         );
         // FTS も同期（新タイトルでヒットし、旧タイトルでは出ない）
@@ -865,7 +994,13 @@ mod tests {
         assert_eq!(s.search_recordings("テスト録音").unwrap().len(), 0);
         // 空白は NULL（既定の無題へ）。本文では引き続きヒットする
         s.rename_recording("r1", Some("   ")).unwrap();
-        assert!(s.get_recording_detail("r1").unwrap().unwrap().recording.title.is_none());
+        assert!(s
+            .get_recording_detail("r1")
+            .unwrap()
+            .unwrap()
+            .recording
+            .title
+            .is_none());
         assert_eq!(s.search_recordings("週次定例").unwrap().len(), 0);
         // 存在しない録音は no-op（エラーにしない）
         s.rename_recording("nope", Some("x")).unwrap();
@@ -874,10 +1009,13 @@ mod tests {
     #[test]
     fn delete_cascades_speakers() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
         s.delete_recording("r1").unwrap();
         let conn = s.conn.lock().unwrap();
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM speakers", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM speakers", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 0); // CASCADE で speakers も消える
     }
 
@@ -905,7 +1043,10 @@ mod tests {
 
         let s = SqliteStore::init(conn).unwrap();
         let d = s.get_recording_detail("old").unwrap().unwrap();
-        assert!(d.speakers.is_empty(), "v2 録音は話者行ゼロ → 空 Vec（フロントは既定ラベルへ）");
+        assert!(
+            d.speakers.is_empty(),
+            "v2 録音は話者行ゼロ → 空 Vec（フロントは既定ラベルへ）"
+        );
         assert_eq!(d.transcript.segments.len(), 1);
         assert_eq!(d.transcript.segments[0].speaker_id, None);
         // v6 adds recordings.mic_offset_ms; old rows read back as None.
@@ -944,7 +1085,7 @@ mod tests {
         // タイトルは insert 時点で FTS に載る（本文はまだ空）。
         assert_eq!(s.search_recordings("テスト録音").unwrap().len(), 1);
         assert_eq!(s.search_recordings("会議の").unwrap().len(), 0); // 本文はまだ無い
-        // 文字起こしジョブ完了 → 差し替え。
+                                                                     // 文字起こしジョブ完了 → 差し替え。
         s.replace_transcript("r1", &transcript_jp(), &[]).unwrap();
         let d = s.get_recording_detail("r1").unwrap().unwrap();
         assert_eq!(d.transcript.segments.len(), 2);
@@ -963,17 +1104,28 @@ mod tests {
         r.duration_ms = 999_999;
         s.insert_recording_only(&r).unwrap();
         s.replace_transcript("r1", &transcript(), &[]).unwrap();
-        assert_eq!(s.get_recording_detail("r1").unwrap().unwrap().recording.duration_ms, 999_999);
+        assert_eq!(
+            s.get_recording_detail("r1")
+                .unwrap()
+                .unwrap()
+                .recording
+                .duration_ms,
+            999_999
+        );
     }
 
     #[test]
     fn replace_speaker_assignments_carries_names_and_marks_stale() {
         let s = SqliteStore::open_in_memory().unwrap();
         // 初回: 話者 S1/S2 付きで保存 + 声紋 + 要約 + S1 を改名。
-        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers()).unwrap();
+        s.save_recording(&rec("r1"), &transcript_with_speakers(), &speakers())
+            .unwrap();
         s.save_speaker_embeddings(
             "r1",
-            &[emb("S1", vec![1.0, 0.0], 60_000), emb("S2", vec![0.0, 1.0], 60_000)],
+            &[
+                emb("S1", vec![1.0, 0.0], 60_000),
+                emb("S2", vec![0.0, 1.0], 60_000),
+            ],
             "titanet",
         )
         .unwrap();
@@ -984,11 +1136,21 @@ mod tests {
         let old = s.get_speaker_embeddings("r1").unwrap();
         assert_eq!(old.len(), 2);
         let new_speakers = vec![
-            Speaker { id: "N1".into(), label: "話者1".into(), display_name: None },
-            Speaker { id: "N2".into(), label: "話者2".into(), display_name: None },
+            Speaker {
+                id: "N1".into(),
+                label: "話者1".into(),
+                display_name: None,
+            },
+            Speaker {
+                id: "N2".into(),
+                label: "話者2".into(),
+                display_name: None,
+            },
         ];
-        let new_emb =
-            [emb("N1", vec![0.0, 1.0], 50_000), emb("N2", vec![1.0, 0.0], 50_000)];
+        let new_emb = [
+            emb("N1", vec![0.0, 1.0], 50_000),
+            emb("N2", vec![1.0, 0.0], 50_000),
+        ];
         // N2 の声紋は旧 S1（田中）と一致 → carry。
         let old_pairs: Vec<_> = old
             .iter()
@@ -997,20 +1159,39 @@ mod tests {
                     Speaker {
                         id: id.clone(),
                         label: String::new(),
-                        display_name: if id == "S1" { Some("田中".into()) } else { None },
+                        display_name: if id == "S1" {
+                            Some("田中".into())
+                        } else {
+                            None
+                        },
                     },
                     v.clone(),
                 )
             })
             .collect();
-        let new_pairs: Vec<_> =
-            new_emb.iter().map(|e| (Speaker { id: e.speaker_id.clone(), label: String::new(), display_name: None }, e.vector.clone())).collect();
+        let new_pairs: Vec<_> = new_emb
+            .iter()
+            .map(|e| {
+                (
+                    Speaker {
+                        id: e.speaker_id.clone(),
+                        label: String::new(),
+                        display_name: None,
+                    },
+                    e.vector.clone(),
+                )
+            })
+            .collect();
         let remap = crate::diarization::carry_display_names(&old_pairs, &new_pairs, 0.7);
 
         // segments に N1/N2 を割り当てた transcript（text 不変）。
         let mut t = transcript_with_speakers();
         for seg in t.segments.iter_mut() {
-            seg.speaker_id = Some(if seg.speaker_id.as_deref() == Some("S1") { "N2".into() } else { "N1".into() });
+            seg.speaker_id = Some(if seg.speaker_id.as_deref() == Some("S1") {
+                "N2".into()
+            } else {
+                "N1".into()
+            });
         }
         s.replace_speaker_assignments("r1", &t, &new_speakers, &new_emb, "titanet", &remap)
             .unwrap();
@@ -1019,28 +1200,57 @@ mod tests {
         // 話者は N1/N2、N2 が田中を引き継ぐ。
         let n2 = d.speakers.iter().find(|x| x.id == "N2").unwrap();
         assert_eq!(n2.display_name.as_deref(), Some("田中"));
-        assert!(d.speakers.iter().find(|x| x.id == "N1").unwrap().display_name.is_none());
+        assert!(d
+            .speakers
+            .iter()
+            .find(|x| x.id == "N1")
+            .unwrap()
+            .display_name
+            .is_none());
         // segment の speaker_id が更新されている。
-        let ids: std::collections::BTreeSet<_> =
-            d.transcript.segments.iter().filter_map(|x| x.speaker_id.clone()).collect();
-        assert_eq!(ids, ["N1".to_string(), "N2".to_string()].into_iter().collect());
+        let ids: std::collections::BTreeSet<_> = d
+            .transcript
+            .segments
+            .iter()
+            .filter_map(|x| x.speaker_id.clone())
+            .collect();
+        assert_eq!(
+            ids,
+            ["N1".to_string(), "N2".to_string()].into_iter().collect()
+        );
         // 既存要約は stale。
         assert!(d.summaries[0].stale);
         // 声紋も差し替わっている（旧 S1/S2 は消え N1/N2 に）。
-        let embs: std::collections::BTreeSet<_> =
-            s.get_speaker_embeddings("r1").unwrap().into_iter().map(|(id, _)| id).collect();
-        assert_eq!(embs, ["N1".to_string(), "N2".to_string()].into_iter().collect());
+        let embs: std::collections::BTreeSet<_> = s
+            .get_speaker_embeddings("r1")
+            .unwrap()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        assert_eq!(
+            embs,
+            ["N1".to_string(), "N2".to_string()].into_iter().collect()
+        );
     }
 
     /// Re-diarizing a meeting keeps the user's own library link; remote links are recomputed.
     #[test]
     fn replace_speaker_assignments_keeps_the_self_library_link() {
         let s = SqliteStore::open_in_memory().unwrap();
-        let me = Speaker { id: crate::merge::SELF_SPEAKER_ID.into(), label: "あなた".into(), display_name: None };
-        let guest = Speaker { id: "S1".into(), label: "相手1".into(), display_name: None };
+        let me = Speaker {
+            id: crate::merge::SELF_SPEAKER_ID.into(),
+            label: "あなた".into(),
+            display_name: None,
+        };
+        let guest = Speaker {
+            id: "S1".into(),
+            label: "相手1".into(),
+            display_name: None,
+        };
         let mut t = transcript_with_speakers();
         t.segments[0].speaker_id = Some(me.id.clone());
-        s.save_recording(&rec("r1"), &t, &[me.clone(), guest.clone()]).unwrap();
+        s.save_recording(&rec("r1"), &t, &[me.clone(), guest.clone()])
+            .unwrap();
         s.add_library_speaker("p1", "本人").unwrap();
         s.add_library_speaker("p2", "相手").unwrap();
         s.link_speaker("r1", &me.id, "p1", 1.0).unwrap();
@@ -1083,14 +1293,20 @@ mod tests {
         conn.pragma_update(None, "user_version", 4i64).unwrap();
 
         migrate(&conn).unwrap();
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
         // jobs テーブルが存在。
         assert!(column_exists(&conn, "jobs", "status").unwrap());
         // summaries.stale が追加され、既存要約は既定 0。
         assert!(column_exists(&conn, "summaries", "stale").unwrap());
         let stale: i64 = conn
-            .query_row("SELECT stale FROM summaries WHERE recording_id='r1'", [], |r| r.get(0))
+            .query_row(
+                "SELECT stale FROM summaries WHERE recording_id='r1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(stale, 0);
         // 非再入ガードの検証: user_version を 4 に戻して v5 ブロックを再走させても、
@@ -1213,8 +1429,20 @@ mod tests {
         Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "今日の会議の議題".into(), speaker_id: None },
-                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "来期の予算について話す".into(), speaker_id: None },
+                Segment {
+                    idx: 0,
+                    start_ms: 0,
+                    end_ms: 1000,
+                    text: "今日の会議の議題".into(),
+                    speaker_id: None,
+                },
+                Segment {
+                    idx: 0,
+                    start_ms: 1000,
+                    end_ms: 2000,
+                    text: "来期の予算について話す".into(),
+                    speaker_id: None,
+                },
             ],
         }
     }
@@ -1241,13 +1469,18 @@ mod tests {
     #[test]
     fn search_japanese_substring_fts_and_like() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec_titled("r1", Some("定例会")), &transcript_jp(), &[]).unwrap();
+        s.save_recording(&rec_titled("r1", Some("定例会")), &transcript_jp(), &[])
+            .unwrap();
         // 3 文字（FTS 経路）
         let hits = s.search_recordings("会議の").unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].recording.id, "r1");
         // snippet にマッチ語がハイライト区切り [..] 付きで含まれる。
-        assert!(hits[0].snippet.contains("[会議の]"), "snippet = {:?}", hits[0].snippet);
+        assert!(
+            hits[0].snippet.contains("[会議の]"),
+            "snippet = {:?}",
+            hits[0].snippet
+        );
         // 2 文字（LIKE フォールバック）
         let hits = s.search_recordings("会議").unwrap();
         assert_eq!(hits.len(), 1);
@@ -1261,8 +1494,20 @@ mod tests {
         let t = Transcript {
             language: Some("ja".into()),
             segments: vec![
-                Segment { idx: 0, start_ms: 0, end_ms: 1000, text: "予算の確認".into(), speaker_id: None },
-                Segment { idx: 0, start_ms: 1000, end_ms: 2000, text: "予算の承認".into(), speaker_id: None },
+                Segment {
+                    idx: 0,
+                    start_ms: 0,
+                    end_ms: 1000,
+                    text: "予算の確認".into(),
+                    speaker_id: None,
+                },
+                Segment {
+                    idx: 0,
+                    start_ms: 1000,
+                    end_ms: 2000,
+                    text: "予算の承認".into(),
+                    speaker_id: None,
+                },
             ],
         };
         s.save_recording(&rec_titled("r1", None), &t, &[]).unwrap();
@@ -1284,7 +1529,8 @@ mod tests {
                 speaker_id: None,
             }],
         };
-        s.save_recording(&rec_titled("r1", Some("営業ミーティング")), &t, &[]).unwrap();
+        s.save_recording(&rec_titled("r1", Some("営業ミーティング")), &t, &[])
+            .unwrap();
         let hits = s.search_recordings("営業ミ").unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].recording.id, "r1");
@@ -1293,7 +1539,8 @@ mod tests {
     #[test]
     fn search_filters_across_recordings() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[]).unwrap();
+        s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[])
+            .unwrap();
         let other = Transcript {
             language: Some("ja".into()),
             segments: vec![Segment {
@@ -1304,7 +1551,8 @@ mod tests {
                 speaker_id: None,
             }],
         };
-        s.save_recording(&rec_titled("r2", None), &other, &[]).unwrap();
+        s.save_recording(&rec_titled("r2", None), &other, &[])
+            .unwrap();
         let hits = s.search_recordings("会議の").unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].recording.id, "r1");
@@ -1313,20 +1561,24 @@ mod tests {
     #[test]
     fn search_gone_after_delete() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[]).unwrap();
+        s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[])
+            .unwrap();
         assert_eq!(s.search_recordings("会議の").unwrap().len(), 1);
         s.delete_recording("r1").unwrap();
         assert_eq!(s.search_recordings("会議の").unwrap().len(), 0);
         // rec_fts も 0 件（同期が効いている証明）。
         let conn = s.conn.lock().unwrap();
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM rec_fts", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM rec_fts", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 0);
     }
 
     #[test]
     fn search_empty_query_is_empty() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[]).unwrap();
+        s.save_recording(&rec_titled("r1", None), &transcript_jp(), &[])
+            .unwrap();
         assert!(s.search_recordings("").unwrap().is_empty());
         assert!(s.search_recordings("   ").unwrap().is_empty());
     }
@@ -1376,7 +1628,9 @@ mod tests {
         migrate(&conn).unwrap(); // 実アップグレード分岐
 
         // migrate は最終バージョンまで一気に上げる（v1→…→現行）。backfill が走ったかは下の MATCH で見る。
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
         let n: i64 = conn
             .query_row(
@@ -1391,11 +1645,14 @@ mod tests {
     #[test]
     fn backfill_reconstructs_fts() {
         let s = SqliteStore::open_in_memory().unwrap();
-        s.save_recording(&rec_titled("r1", Some("会議メモ")), &transcript_jp(), &[]).unwrap();
+        s.save_recording(&rec_titled("r1", Some("会議メモ")), &transcript_jp(), &[])
+            .unwrap();
         let conn = s.conn.lock().unwrap();
         // rec_fts を一旦空にしてから backfill で再構築 → 検索ヒット。
         conn.execute("DELETE FROM rec_fts", []).unwrap();
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM rec_fts", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM rec_fts", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(n, 0);
         backfill_fts(&conn).unwrap();
         let n: i64 = conn
@@ -1424,7 +1681,12 @@ mod tests {
         let mut retry = rec("retry");
         retry.created_at = "2026-06-24T10:00:00Z".into();
         s.insert_recording_only(&retry).unwrap();
-        let p = JobParams { diarize: false, stt_lang: None, transcription_model: String::new(), lang: "ja".into() };
+        let p = JobParams {
+            diarize: false,
+            stt_lang: None,
+            transcription_model: String::new(),
+            lang: "ja".into(),
+        };
         s.enqueue_job("j1", "retry", "transcribe", &p).unwrap();
         s.set_job_failed("j1", "error.job.no_audio").unwrap();
         s.enqueue_job("j2", "retry", "transcribe", &p).unwrap();
@@ -1433,7 +1695,8 @@ mod tests {
         failed.created_at = "2026-06-24T09:00:00Z".into();
         s.insert_recording_only(&failed).unwrap();
         s.enqueue_job("j3", "failed", "diarize", &p).unwrap();
-        s.set_job_failed("j3", "error.job.no_speakers_found").unwrap();
+        s.set_job_failed("j3", "error.job.no_speakers_found")
+            .unwrap();
         // タイトル生成（Issue #4）は録音の状態に数えない。
         s.enqueue_job("j4", "done", TITLE_JOB_KIND, &p).unwrap();
         s.enqueue_job("j5", "failed", TITLE_JOB_KIND, &p).unwrap();
@@ -1443,12 +1706,20 @@ mod tests {
         assert_eq!(ids, ["done", "bare", "retry", "failed"], "newest first");
         assert_eq!((rows[0].segment_count, rows[0].summary_count), (3, 1));
         assert_eq!(rows[0].latest_job, None);
-        assert_eq!((rows[1].segment_count, rows[1].latest_job.clone()), (0, None));
+        assert_eq!(
+            (rows[1].segment_count, rows[1].latest_job.clone()),
+            (0, None)
+        );
         let latest = rows[2].latest_job.as_ref().unwrap();
-        assert_eq!(latest.status, "pending", "the retry, not the earlier failure");
+        assert_eq!(
+            latest.status, "pending",
+            "the retry, not the earlier failure"
+        );
         let failed = rows[3].latest_job.as_ref().unwrap();
-        assert_eq!((failed.kind.as_str(), failed.status.as_str()), ("diarize", "failed"));
+        assert_eq!(
+            (failed.kind.as_str(), failed.status.as_str()),
+            ("diarize", "failed")
+        );
         assert_eq!(failed.error.as_deref(), Some("error.job.no_speakers_found"));
     }
-
 }

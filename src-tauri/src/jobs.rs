@@ -10,9 +10,9 @@
 //! どちらも `set_job_failed` に落としてループは次のジョブへ進む。ここで JoinError を握り潰さずに
 //! 伝播させると、ワーカータスクごと死んで以後の全ジョブが pending のまま永久に止まる。
 
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::path::{Path, PathBuf};
 
 use mojiroku_core::store::{Job, SqliteStore, TITLE_JOB_KIND};
 use tauri::{AppHandle, Manager};

@@ -72,7 +72,7 @@ mod tests {
     #[test]
     fn dot_computes_inner_product() {
         assert_eq!(dot(&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]), 32.0); // 4 + 10 + 18
-        // 単位ベクトル同士の cosine。
+                                                                   // 単位ベクトル同士の cosine。
         assert_eq!(dot(&[1.0, 0.0], &[1.0, 0.0]), 1.0);
         assert_eq!(dot(&[1.0, 0.0], &[0.0, 1.0]), 0.0);
     }

@@ -60,7 +60,10 @@ mod tests {
     fn template_label_maps_known_and_falls_back() {
         assert_eq!(template_label("minutes", Lang::Ja), "議事録");
         assert_eq!(template_label("summary", Lang::Ja), "要約");
-        assert_eq!(template_label("action_items", Lang::Ja), "アクションアイテム");
+        assert_eq!(
+            template_label("action_items", Lang::Ja),
+            "アクションアイテム"
+        );
         assert_eq!(template_label("unknown", Lang::Ja), "メモ");
         assert_eq!(template_label("", Lang::Ja), "メモ");
         assert_eq!(template_label("minutes", Lang::En), "Minutes");

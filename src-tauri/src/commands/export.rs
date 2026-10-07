@@ -1,8 +1,8 @@
 //! 外部サービス連携コマンド（Notion / Slack エクスポート、カレンダー取込、OAuth 連携）。
 
 use super::*;
-use crate::secrets::{CALENDAR_ICAL_KEY, NOTION_TOKEN_KEY, SLACK_WEBHOOK_KEY};
 use crate::oauth;
+use crate::secrets::{CALENDAR_ICAL_KEY, NOTION_TOKEN_KEY, SLACK_WEBHOOK_KEY};
 use tauri::State;
 
 /// Notion へ議事録ページを送信する（内部インテグレーション トークン = BYOK, $0）。
@@ -29,9 +29,13 @@ pub(crate) async fn export_to_notion(
     // キーチェーン取得（許可ダイアログでブロックし得る）と ureq はどちらも blocking → spawn_blocking。
     tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
         let token = get_secret_or_error(NOTION_TOKEN_KEY, "error.export.notion_not_connected")?;
-        mojiroku_core::export::NotionExporter { token, parent_id, lang }
-            .export(&detail)
-            .map_err(core_err)
+        mojiroku_core::export::NotionExporter {
+            token,
+            parent_id,
+            lang,
+        }
+        .export(&detail)
+        .map_err(core_err)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -56,9 +60,12 @@ pub(crate) async fn export_to_slack(
     // キーチェーン取得と ureq はどちらも blocking → spawn_blocking。
     tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         let webhook = get_secret_or_error(SLACK_WEBHOOK_KEY, "error.export.slack_not_connected")?;
-        mojiroku_core::export::SlackExporter { webhook_url: webhook, lang }
-            .export(&detail)
-            .map_err(core_err)
+        mojiroku_core::export::SlackExporter {
+            webhook_url: webhook,
+            lang,
+        }
+        .export(&detail)
+        .map_err(core_err)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -68,7 +75,8 @@ pub(crate) async fn export_to_slack(
 /// URL はキーチェーン（[`CALENDAR_ICAL_KEY`]）。⚠️ こちらへ送信するものは無く、この画面の表示時に
 /// 我々から basic.ics を GET して解析するだけ。`now` はここで採取し core へ注入する（core はテスト決定的）。
 #[tauri::command]
-pub(crate) async fn list_calendar_events() -> Result<Vec<mojiroku_core::calendar::CalendarEvent>, String> {
+pub(crate) async fn list_calendar_events(
+) -> Result<Vec<mojiroku_core::calendar::CalendarEvent>, String> {
     let now = chrono::Local::now().fixed_offset();
     // キーチェーン取得と ureq はどちらも blocking → spawn_blocking。
     tauri::async_runtime::spawn_blocking(move || fetch_calendar_events(now))

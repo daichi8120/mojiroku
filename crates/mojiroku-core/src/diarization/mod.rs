@@ -241,7 +241,10 @@ impl SherpaDiarizer {
                 .collect();
             let mut raw_path = std::path::PathBuf::from(path);
             raw_path.set_extension("raw.json");
-            let _ = std::fs::write(raw_path, serde_json::to_vec_pretty(&rows).unwrap_or_default());
+            let _ = std::fs::write(
+                raw_path,
+                serde_json::to_vec_pretty(&rows).unwrap_or_default(),
+            );
         }
 
         let t_cons = std::time::Instant::now();
@@ -913,7 +916,10 @@ mod tests {
         let anchors = select_supported_anchors(&voices, &durations, &ShortTurnEvidence::default());
         assert_eq!(anchors, vec![0]);
         // The cluster has a supported identity even when this short turn does not.
-        assert_eq!(supported_assignment(&[0.1, 0.9949874], 1, &anchors, &voices), 0);
+        assert_eq!(
+            supported_assignment(&[0.1, 0.9949874], 1, &anchors, &voices),
+            0
+        );
     }
 
     #[test]

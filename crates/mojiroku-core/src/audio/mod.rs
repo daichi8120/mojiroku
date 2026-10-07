@@ -66,9 +66,7 @@ fn decode_to_mono_f32<P: AsRef<Path>>(path: P) -> Result<(Vec<f32>, u32)> {
         let packet = match format.next_packet() {
             Ok(p) => p,
             // ストリーム終端
-            Err(SymphoniaError::IoError(e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
+            Err(SymphoniaError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                 break
             }
             Err(SymphoniaError::ResetRequired) => break,
@@ -123,7 +121,8 @@ fn resample_to_16k(input: &[f32], src_rate: u32) -> Vec<f32> {
         Err(_) => return input.to_vec(),
     };
 
-    let mut out: Vec<f32> = Vec::with_capacity(input.len() * WHISPER_SAMPLE_RATE as usize / src_rate as usize + chunk);
+    let mut out: Vec<f32> =
+        Vec::with_capacity(input.len() * WHISPER_SAMPLE_RATE as usize / src_rate as usize + chunk);
     let mut pos = 0;
     while pos + chunk <= input.len() {
         let wave_in = [input[pos..pos + chunk].to_vec()];

@@ -72,6 +72,8 @@ mod tests {
         let flag = Arc::new(AtomicBool::new(true));
         let _g = scope(flag);
         assert!(check().is_err());
-        std::thread::spawn(|| assert!(check().is_ok())).join().unwrap();
+        std::thread::spawn(|| assert!(check().is_ok()))
+            .join()
+            .unwrap();
     }
 }

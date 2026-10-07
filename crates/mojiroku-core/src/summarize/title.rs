@@ -68,7 +68,11 @@ pub fn should_auto_title(rec: &Recording, transcript: &Transcript) -> bool {
     if rec.source_type == SourceType::File || !is_default_title(rec.title.as_deref()) {
         return false;
     }
-    let chars: usize = transcript.segments.iter().map(|s| s.text.trim().chars().count()).sum();
+    let chars: usize = transcript
+        .segments
+        .iter()
+        .map(|s| s.text.trim().chars().count())
+        .sum();
     transcript.segments.len() >= AUTO_TITLE_MIN_SEGMENTS && chars >= AUTO_TITLE_MIN_CHARS
 }
 
@@ -173,10 +177,22 @@ mod tests {
 
     #[test]
     fn strips_markdown_from_cloud_outputs() {
-        assert_eq!(ja("# 週次定例の進捗確認").as_deref(), Some("週次定例の進捗確認"));
-        assert_eq!(ja("**Weekly sync on release plan**").as_deref(), Some("Weekly sync on release plan"));
-        assert_eq!(ja("## **タイトル: 「採用面談」**").as_deref(), Some("採用面談"));
-        assert_eq!(sanitize_title("Title: **Weekly sync**", Lang::En).as_deref(), Some("Weekly sync"));
+        assert_eq!(
+            ja("# 週次定例の進捗確認").as_deref(),
+            Some("週次定例の進捗確認")
+        );
+        assert_eq!(
+            ja("**Weekly sync on release plan**").as_deref(),
+            Some("Weekly sync on release plan")
+        );
+        assert_eq!(
+            ja("## **タイトル: 「採用面談」**").as_deref(),
+            Some("採用面談")
+        );
+        assert_eq!(
+            sanitize_title("Title: **Weekly sync**", Lang::En).as_deref(),
+            Some("Weekly sync")
+        );
     }
 
     // ── 実測の出力をそのまま固定する（Issue #4・2026-08-24 の 10 本から） ──
@@ -199,14 +215,8 @@ mod tests {
         // 中国語・英語の混入は**検出しない**。語として自然に見えるので機械的に弾けない。
         // モデル選択の問題として扱う（Issue #4）。ここで落とすと「会議」に戻るだけで、
         // 利用者にとって改善にならない。
-        assert_eq!(
-            ja("LLM評価軸探讨"),
-            Some("LLM評価軸探讨".to_string())
-        );
-        assert_eq!(
-            ja("論文進捗 discuss"),
-            Some("論文進捗 discuss".to_string())
-        );
+        assert_eq!(ja("LLM評価軸探讨"), Some("LLM評価軸探讨".to_string()));
+        assert_eq!(ja("論文進捗 discuss"), Some("論文進捗 discuss".to_string()));
     }
 
     #[test]
@@ -240,14 +250,8 @@ mod tests {
     fn strips_wrappers_and_labels() {
         assert_eq!(ja("「開発定例」"), Some("開発定例".to_string()));
         assert_eq!(ja("\"開発定例\""), Some("開発定例".to_string()));
-        assert_eq!(
-            ja("タイトル: 開発定例"),
-            Some("開発定例".to_string())
-        );
-        assert_eq!(
-            ja("タイトル：「開発定例」"),
-            Some("開発定例".to_string())
-        );
+        assert_eq!(ja("タイトル: 開発定例"), Some("開発定例".to_string()));
+        assert_eq!(ja("タイトル：「開発定例」"), Some("開発定例".to_string()));
         // 句点は落とす（タイトルに文末記号は要らない）。
         assert_eq!(ja("開発定例。"), Some("開発定例".to_string()));
     }
@@ -317,21 +321,35 @@ mod tests {
     #[test]
     fn auto_title_only_replaces_default_names_of_mic_and_meeting_recordings() {
         let long = transcript(6, "今週のリリース範囲を確認しました");
-        assert!(should_auto_title(&rec(SourceType::Mic, Some("録音")), &long));
-        assert!(should_auto_title(&rec(SourceType::Live, Some("Meeting")), &long));
+        assert!(should_auto_title(
+            &rec(SourceType::Mic, Some("録音")),
+            &long
+        ));
+        assert!(should_auto_title(
+            &rec(SourceType::Live, Some("Meeting")),
+            &long
+        ));
         // a title the user cleared is a choice, not a default
         assert!(!should_auto_title(&rec(SourceType::Mic, None), &long));
         // calendar or hand-written titles and file names stay
-        assert!(!should_auto_title(&rec(SourceType::Live, Some("週次定例")), &long));
-        assert!(!should_auto_title(&rec(SourceType::File, Some("interview_0918")), &long));
+        assert!(!should_auto_title(
+            &rec(SourceType::Live, Some("週次定例")),
+            &long
+        ));
+        assert!(!should_auto_title(
+            &rec(SourceType::File, Some("interview_0918")),
+            &long
+        ));
         assert!(!should_auto_title(&rec(SourceType::File, None), &long));
     }
 
     #[test]
     fn auto_title_needs_enough_content() {
         let r = rec(SourceType::Mic, Some("録音"));
-        assert!(!should_auto_title(&r, &transcript(4, "今週のリリース範囲を確認しました")));
+        assert!(!should_auto_title(
+            &r,
+            &transcript(4, "今週のリリース範囲を確認しました")
+        ));
         assert!(!should_auto_title(&r, &transcript(6, "はい")));
     }
-
 }
