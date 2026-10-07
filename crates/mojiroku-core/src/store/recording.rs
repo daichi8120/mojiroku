@@ -142,6 +142,7 @@ impl SqliteStore {
             params![recording_id],
         )?;
         insert_segments(&tx, recording_id, transcript)?;
+        correction::clear(&tx, recording_id)?;
         replace_speakers_rows(&tx, recording_id, speakers)?;
         let duration_ms = transcript.segments.last().map(|s| s.end_ms).unwrap_or(0) as i64;
         tx.execute(
@@ -230,6 +231,8 @@ impl SqliteStore {
             "UPDATE segments SET speaker_id = ?3 WHERE recording_id = ?1 AND idx = ?2",
             params![recording_id, idx, speaker_id],
         )?;
+        // 話者分離をやり直しても引き継げるよう、直したことを残す（ADR-0048）。
+        correction::record(&tx, recording_id, idx, current.as_deref(), speaker_id)?;
 
         tx.execute(
             "UPDATE summaries SET stale = 1 WHERE recording_id = ?1",
@@ -243,6 +246,8 @@ impl SqliteStore {
     /// `transcript` は既存本文に新 diarization を `merge::assign_speakers` した後のもの（text 不変・
     /// speaker_id のみ変化）。`remap` は新 speaker_id → 引き継ぐ display_name（声紋 cosine で新旧一致した改名）。
     /// speaker_matches（ライブラリ照合）は再計算対象なので消し、既存要約は stale マークする。
+    /// `corrections` は `correction::carry_corrections` で新しい id に書き直した手動訂正
+    /// （`transcript` には反映済み）。引き継げなかった訂正の行は消える。
     #[allow(clippy::too_many_arguments)]
     pub fn replace_speaker_assignments(
         &self,
@@ -252,6 +257,7 @@ impl SqliteStore {
         embeddings: &[crate::diarization::SpeakerEmbedding],
         model: &str,
         remap: &[(String, Option<String>)],
+        corrections: &[crate::correction::SpeakerCorrection],
     ) -> Result<()> {
         let mut conn = self.conn();
         let tx = conn.transaction()?;
@@ -261,6 +267,8 @@ impl SqliteStore {
             params![recording_id],
         )?;
         insert_segments(&tx, recording_id, transcript)?;
+        // 手で直した発言は `transcript` に反映済み。記録を新しい話者 id に揃える（ADR-0048）。
+        correction::replace_after_rediarize(&tx, recording_id, corrections)?;
         // 2) speakers を差し替え、remap の display_name を反映（引き継ぎ）。
         let remap_name = |id: &str| -> Option<String> {
             remap
