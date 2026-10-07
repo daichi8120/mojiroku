@@ -37,8 +37,9 @@ pub struct CarriedCorrections {
 /// - `voice_matches`: 声紋で対応づけた（旧 id, 新 id）。多数決で決まらないときに使う。
 ///
 /// 選んだ話者 X の新しい id は、X の**直していない**発言がやり直しで付いた話者の多数決で決める。
-/// 会議の自分（`self`）は再分離されないのでそのまま。どちらでも決まらない発言は未割当に戻し、
-/// 件数を返す（黙って別の話者に付けたままにしない）。
+/// 会議の自分（`self`）は再分離されないのでそのまま。どちらでも決まらない発言と、選んだ話者が
+/// 元の予測（利用者が否定した話者）と同じ新しい話者にまとまった発言は未割当に戻し、件数を返す
+/// （黙って別の話者に付けたままにしない）。
 pub fn carry_corrections(
     corrections: &[SpeakerCorrection],
     previous: &[Option<String>],
@@ -75,12 +76,14 @@ pub fn carry_corrections(
                 .map(|(_, n)| n.clone())
         })
     };
-    // 本文を書き換える前に、選ばれた話者ごとの行き先を決めておく。
+    // 本文を書き換える前に、選ばれた話者と元の予測の行き先を決めておく。
     let new_ids: HashMap<String, Option<String>> = corrections
         .iter()
-        .filter_map(|c| c.corrected.as_deref())
+        .flat_map(|c| [c.corrected.as_deref(), c.predicted.as_deref()])
+        .flatten()
         .map(|old| (old.to_string(), new_id_for(old)))
         .collect();
+    let new_id = |old: Option<&str>| old.and_then(|o| new_ids.get(o).cloned().flatten());
 
     let position: HashMap<u32, usize> = transcript
         .segments
@@ -95,7 +98,15 @@ pub fn carry_corrections(
         };
         let target = match c.corrected.as_deref() {
             None => Some(None),
-            Some(old) => new_ids.get(old).cloned().flatten().map(Some),
+            // やり直しで、選んだ話者と利用者が否定した話者が同じ人にまとまったら、
+            // 訂正の意味が失われる。引き継げないものとして扱う。
+            Some(_)
+                if new_id(c.predicted.as_deref()).is_some()
+                    && new_id(c.predicted.as_deref()) == new_id(c.corrected.as_deref()) =>
+            {
+                None
+            }
+            Some(old) => new_id(Some(old)).map(Some),
         };
         let seg = &mut transcript.segments[i];
         match target {
@@ -192,6 +203,18 @@ mod tests {
         let out = carry_corrections(&[fix(1, Some("S1"), Some("S3"))], &previous, &mut t, &[]);
 
         assert_eq!(ids(&t), vec![Some("S1"), None]);
+        assert!(out.corrections.is_empty());
+        assert_eq!(out.unmapped, 1);
+    }
+
+    #[test]
+    fn correction_merged_back_into_the_rejected_speaker_is_unmapped() {
+        // 発言 2 を S1 → S3 に直した。やり直しで旧 S1 と旧 S3 が新 S1 にまとまった。
+        let previous = prev(&[Some("S1"), Some("S3"), Some("S3"), Some("S1")]);
+        let mut t = transcript(&[Some("S1"), Some("S1"), Some("S1"), Some("S2")]);
+        let out = carry_corrections(&[fix(2, Some("S1"), Some("S3"))], &previous, &mut t, &[]);
+
+        assert_eq!(t.segments[2].speaker_id, None);
         assert!(out.corrections.is_empty());
         assert_eq!(out.unmapped, 1);
     }

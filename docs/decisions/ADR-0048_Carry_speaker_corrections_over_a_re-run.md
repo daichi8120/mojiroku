@@ -34,12 +34,33 @@ that line. Dropping it silently is not acceptable (§9.1).
    3. the meeting's own speaker (`self`) maps to itself, as the mic track is never
       re-separated.
 3. **A correction that cannot be mapped becomes unassigned ("?")**, and the job reports the
-   count. The UI shows it as a notice after the re-run. The line is not left on the new
+   count. This includes a correction whose chosen speaker and originally predicted speaker
+   map to the same new speaker: the re-run merged the two people the user told apart, so
+   keeping the line on that speaker would silently undo the correction. The UI shows it as a notice after the re-run. The line is not left on the new
    prediction, which the user had already rejected once.
 4. The stored rows are rewritten in the new ids. `predicted` becomes the re-run's
    assignment, so the table always compares the current separation with the user's choice.
    A row whose new prediction matches the user's choice is kept as a line confirmed by hand.
    Only the user choosing the predicted speaker again deletes a row.
+
+## Evidence
+
+The development build was run on a copy of a real database (a separate `HOME`, so the
+installed app and its MCP servers were untouched). Five corrections were written to two
+recordings, then speaker separation was re-run through the job queue:
+
+| Correction | After the re-run |
+|---|---|
+| File: a line moved to the main speaker | Kept, on that speaker's new id |
+| File: a line cleared to unknown | Still unknown |
+| File: a line moved to a short speaker that the re-run merged into the original one | Unassigned, counted (rule 3) |
+| Meeting: a guest line moved to `self` | Still `self` |
+| Meeting: the `self` line moved to a guest | Kept, on that guest's new id |
+
+The first run, before the merge rule in 3 existed, put the third line back on the speaker
+the user had rejected. The bundled MCP server built from the same commit returned the
+corrected speakers in `get_meeting`. Meeting content stays private; only these outcomes
+are recorded here.
 
 ## Consequences
 
