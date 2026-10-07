@@ -184,7 +184,8 @@ unsafe extern "C" fn whisper_abort_trampoline(user_data: *mut std::os::raw::c_vo
     if user_data.is_null() {
         return false;
     }
-    (*(user_data as *const std::sync::atomic::AtomicBool)).load(std::sync::atomic::Ordering::Relaxed)
+    (*(user_data as *const std::sync::atomic::AtomicBool))
+        .load(std::sync::atomic::Ordering::Relaxed)
 }
 
 impl WhisperStt {
@@ -392,7 +393,7 @@ impl WhisperStt {
             unsafe {
                 params.set_abort_callback(Some(whisper_abort_trampoline));
                 params.set_abort_callback_user_data(
-                    std::sync::Arc::as_ptr(flag) as *mut std::os::raw::c_void,
+                    std::sync::Arc::as_ptr(flag) as *mut std::os::raw::c_void
                 );
             }
         }

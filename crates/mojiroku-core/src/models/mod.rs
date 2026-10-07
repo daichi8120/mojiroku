@@ -1379,14 +1379,20 @@ mod tests {
         assert!(cached_summary_model(None, Some(16 * GIB), &empty).is_none());
         let _ = fs::remove_dir_all(&empty);
 
-        let on_disk = SUMMARY_MODELS.iter().find(|m| m.adopted).expect("採用モデルが無い");
+        let on_disk = SUMMARY_MODELS
+            .iter()
+            .find(|m| m.adopted)
+            .expect("採用モデルが無い");
         let other = SUMMARY_MODELS
             .iter()
             .find(|m| m.adopted && m.file != on_disk.file)
             .expect("採用モデルが 2 件未満");
         let dir = models_dir_with(&[on_disk.file]);
         for mem in [None, Some(8 * GIB), Some(64 * GIB)] {
-            assert_eq!(cached_summary_model(None, mem, &dir).map(|m| m.file), Some(on_disk.file));
+            assert_eq!(
+                cached_summary_model(None, mem, &dir).map(|m| m.file),
+                Some(on_disk.file)
+            );
             assert_eq!(
                 cached_summary_model(Some(other.file), mem, &dir).map(|m| m.file),
                 Some(on_disk.file),

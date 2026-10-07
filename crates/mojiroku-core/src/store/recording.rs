@@ -429,7 +429,11 @@ impl SqliteStore {
                 speaker_count: r.get::<_, i64>(7)? as u32,
                 summary_count: r.get::<_, i64>(8)? as u32,
                 latest_job: match kind {
-                    Some(kind) => Some(JobBrief { kind, status: r.get(10)?, error: r.get(11)? }),
+                    Some(kind) => Some(JobBrief {
+                        kind,
+                        status: r.get(10)?,
+                        error: r.get(11)?,
+                    }),
                     None => None,
                 },
             })

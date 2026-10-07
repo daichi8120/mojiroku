@@ -56,7 +56,10 @@ extern "C-unwind" fn trampoline<F: FnOnce() -> T, T>(ctx: *mut c_void) {
 /// 必ずこれを経由すること。
 pub fn guard<T, F: FnOnce() -> T>(label: &str, f: F) -> Result<T, CoreError> {
     let mut err = [0u8; 512];
-    let mut ctx = CallCtx::<F, T> { f: Some(f), out: None };
+    let mut ctx = CallCtx::<F, T> {
+        f: Some(f),
+        out: None,
+    };
     let rc = unsafe {
         mojiroku_cpp_guard(
             trampoline::<F, T>,
@@ -72,7 +75,10 @@ pub fn guard<T, F: FnOnce() -> T>(label: &str, f: F) -> Result<T, CoreError> {
         _ => {
             let end = err.iter().position(|&b| b == 0).unwrap_or(err.len());
             let what = String::from_utf8_lossy(&err[..end]).into_owned();
-            Err(CoreError::Native { label: label.to_string(), what })
+            Err(CoreError::Native {
+                label: label.to_string(),
+                what,
+            })
         }
     }
 }

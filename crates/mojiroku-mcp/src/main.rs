@@ -24,8 +24,7 @@ use rmcp::{
     transport::{
         stdio,
         streamable_http_server::{
-            session::local::LocalSessionManager, StreamableHttpServerConfig,
-            StreamableHttpService,
+            session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
         },
     },
     ErrorData, ServerHandler, ServiceExt,
@@ -211,7 +210,10 @@ impl MojirokuMcp {
         Parameters(ListRecentArgs { limit }): Parameters<ListRecentArgs>,
     ) -> Result<String, ErrorData> {
         let limit = limit.unwrap_or(20);
-        let recs = self.store.list_recordings().map_err(|e| db_err("list", e))?;
+        let recs = self
+            .store
+            .list_recordings()
+            .map_err(|e| db_err("list", e))?;
         let out: Vec<MeetingRef> = recs
             .into_iter()
             .take(limit)
@@ -372,7 +374,9 @@ fn parse_cli() -> Result<Cli, String> {
 
 /// macOS の既定: `~/Library/Application Support/com.daichi0812.mojiroku/mojiroku.db`。
 fn default_db_path() -> PathBuf {
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default();
     home.join("Library/Application Support/com.daichi0812.mojiroku/mojiroku.db")
 }
 
@@ -422,26 +426,27 @@ async fn run_http(
         config,
     );
 
-    let app = axum::Router::new()
-        .nest_service("/mcp", mcp_service)
-        .layer(axum::middleware::from_fn({
-            let token = token.clone();
-            move |req: axum::extract::Request, next: axum::middleware::Next| {
+    let app =
+        axum::Router::new()
+            .nest_service("/mcp", mcp_service)
+            .layer(axum::middleware::from_fn({
                 let token = token.clone();
-                async move {
-                    if bearer_token_matches(req.headers(), &token) {
-                        next.run(req).await
-                    } else {
-                        // 失敗理由（ヘッダ欠落/形式不正/不一致）は区別せず一律 401。
-                        (
-                            axum::http::StatusCode::UNAUTHORIZED,
-                            [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
-                        )
-                            .into_response()
+                move |req: axum::extract::Request, next: axum::middleware::Next| {
+                    let token = token.clone();
+                    async move {
+                        if bearer_token_matches(req.headers(), &token) {
+                            next.run(req).await
+                        } else {
+                            // 失敗理由（ヘッダ欠落/形式不正/不一致）は区別せず一律 401。
+                            (
+                                axum::http::StatusCode::UNAUTHORIZED,
+                                [(axum::http::header::WWW_AUTHENTICATE, "Bearer")],
+                            )
+                                .into_response()
+                        }
                     }
                 }
-            }
-        }));
+            }));
 
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], http.port));
     let listener = tokio::net::TcpListener::bind(addr).await?;

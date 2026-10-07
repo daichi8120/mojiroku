@@ -37,7 +37,10 @@ pub(crate) fn set_segment_speaker(
     segment_idx: u32,
     speaker_id: Option<String>,
 ) -> Result<bool, String> {
-    let sid = speaker_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let sid = speaker_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
     store
         .set_segment_speaker(&recording_id, segment_idx, sid)
         .map_err(core_err)
@@ -88,7 +91,10 @@ pub(crate) fn rename_speaker_library(
 
 /// 登録話者の削除（対応づけも CASCADE で消える）。
 #[tauri::command]
-pub(crate) fn delete_speaker_library(store: State<'_, SqliteStore>, id: String) -> Result<(), String> {
+pub(crate) fn delete_speaker_library(
+    store: State<'_, SqliteStore>,
+    id: String,
+) -> Result<(), String> {
     store.delete_library_speaker(&id).map_err(|e| e.to_string())
 }
 

@@ -81,7 +81,10 @@ fn debug_dump_turns(turns: &[diarization::SpeakerTurn]) {
         .map(|t| serde_json::json!({"start_ms": t.start_ms, "end_ms": t.end_ms, "speaker_id": t.speaker_id}))
         .collect();
     if let Err(e) = std::fs::write(&path, serde_json::to_vec_pretty(&rows).unwrap_or_default()) {
-        eprintln!("MOJIROKU_DEBUG_TURNS: could not write {}: {e}", std::path::Path::new(&path).display());
+        eprintln!(
+            "MOJIROKU_DEBUG_TURNS: could not write {}: {e}",
+            std::path::Path::new(&path).display()
+        );
     }
 }
 

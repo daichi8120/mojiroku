@@ -312,7 +312,9 @@ pub(crate) async fn generate_title(
 
     let raw = if cfg.engine == "cloud" {
         let template = mojiroku_core::summarize::title_template(lang);
-        summarize_cloud(&app, transcript, template, &cfg).await?.content
+        summarize_cloud(&app, transcript, template, &cfg)
+            .await?
+            .content
     } else {
         let models_dir = resolve_models_dir(&app)?;
         let model_path = cached_summary_model_path(&app, &models_dir)?
@@ -321,7 +323,13 @@ pub(crate) async fn generate_title(
         let prompt = mojiroku_core::summarize::build_title_prompt(&transcript, lang);
         run_local_llm(&app, &model_path, &prompt, lang, Some(TITLE_MAX_TOKENS))
             .await
-            .map_err(|e| e.replacen("error.summarize.sidecar_failed", "error.title.sidecar_failed", 1))?
+            .map_err(|e| {
+                e.replacen(
+                    "error.summarize.sidecar_failed",
+                    "error.title.sidecar_failed",
+                    1,
+                )
+            })?
     };
 
     let title = mojiroku_core::summarize::sanitize_title(&raw, lang)
@@ -352,7 +360,8 @@ pub(crate) async fn run_local_llm(
     use tauri_plugin_shell::ShellExt;
 
     // プロンプトは temp ファイルで渡す（巨大な文字起こしを引数で渡さない）。呼び出しごとに別名。
-    let prompt_file = std::env::temp_dir().join(format!("mojiroku-prompt-{}.txt", uuid::Uuid::new_v4()));
+    let prompt_file =
+        std::env::temp_dir().join(format!("mojiroku-prompt-{}.txt", uuid::Uuid::new_v4()));
     std::fs::write(&prompt_file, prompt).map_err(|e| e.to_string())?;
 
     let mut args = vec![
@@ -371,7 +380,9 @@ pub(crate) async fn run_local_llm(
     // 無条件に渡してはいけない。このフラグはプロンプトに `<think></think>` を
     // 足すので、思考しないモデルでは出力が変わる（Qwen2.5 で文言が変化した）。
     // 渡すかどうかはモデルの属性（`SummaryModel::thinking`）が決める。
-    if mojiroku_core::models::needs_no_think(&model_path.file_name().unwrap_or_default().to_string_lossy()) {
+    if mojiroku_core::models::needs_no_think(
+        &model_path.file_name().unwrap_or_default().to_string_lossy(),
+    ) {
         args.push("--no-think".to_string());
     }
 

@@ -10,9 +10,16 @@ fn main() {
     let audio = args
         .get(1)
         .expect("usage: transcribe_diarize_cli <audio> [models_dir] [lang] [out.json]");
-    let models_dir = args.get(2).cloned().unwrap_or_else(|| "/tmp/mojiroku-models".to_string());
+    let models_dir = args
+        .get(2)
+        .cloned()
+        .unwrap_or_else(|| "/tmp/mojiroku-models".to_string());
     let lang_arg = args.get(3).map(String::as_str).unwrap_or("ja");
-    let stt_lang = if lang_arg == "auto" { None } else { Some(lang_arg) };
+    let stt_lang = if lang_arg == "auto" {
+        None
+    } else {
+        Some(lang_arg)
+    };
     let lang = mojiroku_core::lang::Lang::from_code(if lang_arg == "en" { "en" } else { "ja" });
     let on_progress = |stage: &str, done: u64, total: Option<u64>| {
         eprintln!("[{stage}] done={done} total={total:?}");
@@ -48,7 +55,10 @@ fn main() {
         );
     }
     if let Some(out) = args.get(4) {
-        std::fs::write(out, serde_json::to_vec_pretty(&transcript.segments).expect("json"))
-            .expect("write out.json");
+        std::fs::write(
+            out,
+            serde_json::to_vec_pretty(&transcript.segments).expect("json"),
+        )
+        .expect("write out.json");
     }
 }
